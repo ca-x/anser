@@ -36,6 +36,7 @@ export function WorkspacePage(props: {
   back?: () => void;
   children?: JSX.Element;
   footer?: JSX.Element;
+  headerAction?: JSX.Element;
 }) {
   return (
     <NavPage
@@ -57,6 +58,7 @@ export function WorkspacePage(props: {
             >
               {props.title}
             </Text>
+            {props.headerAction}
           </View>
         </View>
       }
@@ -77,6 +79,14 @@ export function WorkspacePage(props: {
   );
 }
 
+export function messagePreview(message?: { title: string; body: string }) {
+  return (
+    message?.title?.trim() ||
+    message?.body?.trim().split(/\r?\n/, 1)[0] ||
+    undefined
+  );
+}
+
 export function RecordRow(props: {
   title: string;
   subtitle?: string;
@@ -90,7 +100,9 @@ export function RecordRow(props: {
       class={`min-h-16 flex-row flex-wrap items-center gap-x-3 gap-y-1 border-b border-border px-3 py-2.5 ${props.class ?? ""}`}
     >
       <View class="min-w-24 flex-1 gap-1">
-        <Text class="text-base font-medium text-foreground">{props.title}</Text>
+        <Text class="line-clamp-2 text-base font-medium text-foreground">
+          {props.title}
+        </Text>
         <If when={props.subtitle}>
           <Text class="text-[13px] text-muted-foreground">
             {props.subtitle}

@@ -265,11 +265,17 @@ export class AnserApi {
   readInbox(id: number) {
     return this.request<void>(`/inbox/${id}/read`, "POST");
   }
-  sendInbox(recipient: string, message: Message) {
-    return this.request<unknown>("/inbox/send", "POST", {
-      ...message,
-      recipient,
-    });
+  sendInbox(recipient: string, message: Message, idempotencyKey: string) {
+    return this.request<{ id: number; message_id?: string }>(
+      "/inbox/send",
+      "POST",
+      {
+        ...message,
+        recipient,
+      },
+      undefined,
+      idempotencyKey,
+    );
   }
 
   async channels(signal?: AbortSignal): Promise<Channel[]> {

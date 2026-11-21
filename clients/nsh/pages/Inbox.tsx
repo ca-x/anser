@@ -1,6 +1,6 @@
 import { t } from "nsh/i18n";
-import { signal, Text, View } from "nsh";
-import type { AnserApi } from "../api";
+import { announce, cleanup, signal, Text, View } from "nsh";
+import { messageFor, type AnserApi } from "../api";
 import type { Format, InboxItem } from "../contracts";
 import type { InboxState } from "../inbox";
 import {
@@ -14,7 +14,11 @@ import {
   Toggle,
 } from "../components/Controls";
 import { localTime } from "../components/DeliveryStatus";
-import { RecordRow, WorkspacePage } from "../components/Workspace";
+import {
+  messagePreview,
+  RecordRow,
+  WorkspacePage,
+} from "../components/Workspace";
 import { operation } from "../state";
 
 function sender(item: InboxItem) {
@@ -64,7 +68,7 @@ export function Inbox(props: {
       <Each of={state.items()} key={(item) => item.id}>
         {(item) => (
           <RecordRow
-            title={item().title}
+            title={messagePreview(item()) ?? t("history.notification")}
             subtitle={`${sender(item())} / ${localTime(item().created_at)}`}
             status={
               <If when={item().read_at == null}>
@@ -85,6 +89,7 @@ export function InboxDetail(props: {
   state: InboxState;
   id: number;
   onBack: () => void;
+  onReply: (recipient: string) => void;
 }) {
   const item = () => props.state.items().find((entry) => entry.id === props.id);
   const action = operation();
@@ -104,16 +109,29 @@ export function InboxDetail(props: {
               role="header"
               class="text-[19px] font-semibold text-foreground"
             >
-              {message().title}
+              {message().title.trim() || t("history.notification")}
             </Text>
             <Hint>
               {sender(message())} / {localTime(message().created_at)}
             </Hint>
-            <View selectable>
-              <Text class="text-base leading-6 text-foreground">
-                {message().body}
-              </Text>
-            </View>
+            <If when={message().body}>
+              {(body) => (
+                <View selectable>
+                  <Text class="text-base leading-6 text-foreground">
+                    {body()}
+                  </Text>
+                </View>
+              )}
+            </If>
+            <If when={message().from_username}>
+              {(username) => (
+                <Action
+                  label={t("inbox.reply_to", { username: username() })}
+                  onPress={() => props.onReply(username())}
+                  class="self-start"
+                />
+              )}
+            </If>
             <If when={message().read_at == null && action.problem()}>
               <Action
                 label={t("inbox.mark_as_read")}
@@ -129,28 +147,84 @@ export function InboxDetail(props: {
   );
 }
 
-export function InboxSend(props: { api: AnserApi; onBack: () => void }) {
-  const recipient = signal("");
+export function inboxDraft(fixedRecipient = "") {
+  const recipient = signal(fixedRecipient);
   const title = signal("");
   const body = signal("");
   const format = signal<Format>("text");
-  const action = operation();
-  const sent = signal("");
+  const busy = signal(false);
+  const problem = signal("");
+  const sent = signal<{ recipient: string; messageId?: string } | undefined>(
+    undefined,
+  );
+  let pending: { content: string; key: string } | undefined;
 
-  function send() {
-    void action.run(async () => {
-      sent.set("");
-      const target = recipient().trim();
-      await props.api.sendInbox(target, {
-        title: title().trim(),
-        body: body(),
-        format: format(),
-      });
-      if (!action.live()) return;
+  const canSubmit = () =>
+    !busy() &&
+    Boolean(recipient().trim()) &&
+    Boolean(title().trim() || body().trim());
+
+  async function submit(api: AnserApi) {
+    const target = fixedRecipient || recipient().trim();
+    if (!canSubmit()) return;
+    busy.set(true);
+    problem.set("");
+    sent.set(undefined);
+    try {
+      const message = { title: title().trim(), body: body(), format: format() };
+      const content = JSON.stringify([target, message]);
+      if (!pending || pending.content !== content)
+        pending = { content, key: crypto.randomUUID() };
+      const receipt = await api.sendInbox(target, message, pending.key);
+      pending = undefined;
       title.set("");
       body.set("");
-      sent.set(t("inbox.sent_to", { recipient: target }));
-    });
+      sent.set({ recipient: target, messageId: receipt.message_id });
+    } catch (error) {
+      problem.set(messageFor(error));
+    } finally {
+      busy.set(false);
+    }
+  }
+  return {
+    recipient,
+    fixedRecipient,
+    title,
+    body,
+    format,
+    busy,
+    problem,
+    sent,
+    canSubmit,
+    submit,
+  };
+}
+
+export function InboxSend(props: {
+  api: AnserApi;
+  draft: ReturnType<typeof inboxDraft>;
+  onBack: () => void;
+  onDelivery: (id: string) => void;
+}) {
+  const {
+    recipient,
+    fixedRecipient,
+    title,
+    body,
+    format,
+    busy,
+    problem,
+    sent,
+    canSubmit,
+    submit,
+  } = props.draft;
+  let mounted = true;
+  cleanup(() => {
+    mounted = false;
+  });
+  async function send() {
+    await submit(props.api);
+    if (mounted && problem()) announce(problem());
   }
 
   return (
@@ -158,47 +232,70 @@ export function InboxSend(props: { api: AnserApi; onBack: () => void }) {
       title={t("inbox.message_a_user")}
       back={props.onBack}
       footer={
-        <Action
-          label={action.busy() ? t("inbox.sending") : t("inbox.send_message")}
-          onPress={send}
-          kind="primary"
-          disabled={
-            action.busy() ||
-            !recipient().trim() ||
-            !title().trim() ||
-            !body().trim()
-          }
-        />
+        <View class="gap-2">
+          <Problem message={problem()} />
+          <If when={title() || body() ? undefined : sent()}>
+            {(result) => (
+              <View class="flex-row flex-wrap items-center justify-between gap-2">
+                <Text class="text-sm text-success">
+                  {t("inbox.sent_to", { recipient: result().recipient })}
+                </Text>
+                <If when={result().messageId}>
+                  {(id) => (
+                    <Action
+                      label={t("history.delivery_details")}
+                      kind="quiet"
+                      onPress={() => props.onDelivery(id())}
+                    />
+                  )}
+                </If>
+              </View>
+            )}
+          </If>
+          <Action
+            label={busy() ? t("inbox.sending") : t("inbox.send_message")}
+            onPress={() => void send()}
+            kind="primary"
+            disabled={!canSubmit()}
+          />
+        </View>
       }
     >
-      <Problem message={action.problem()} />
-      <If when={sent()}>
-        <Text class="text-sm text-success">{sent()}</Text>
-      </If>
       <Panel>
-        <Field
-          label={t("inbox.recipient_username")}
-          value={recipient()}
-          onChange={recipient.set}
-          disabled={action.busy()}
-        />
+        <If
+          when={fixedRecipient}
+          else={
+            <Field
+              label={t("inbox.recipient_username")}
+              value={recipient()}
+              onChange={recipient.set}
+              disabled={busy()}
+            />
+          }
+        >
+          {(username) => (
+            <Text class="text-base font-medium text-foreground">
+              {t("history.to_user", { username: username() })}
+            </Text>
+          )}
+        </If>
         <Field
           label={t("common.title")}
           value={title()}
           onChange={title.set}
-          disabled={action.busy()}
+          disabled={busy()}
         />
         <Field
           label={t("common.body")}
           value={body()}
           onChange={body.set}
           multiline
-          disabled={action.busy()}
+          disabled={busy()}
         />
         <Choice
           label={t("common.body_format")}
           value={format()}
-          disabled={action.busy()}
+          disabled={busy()}
           items={[
             { value: "text", title: t("common.plain_text") },
             { value: "markdown", title: "Markdown" },

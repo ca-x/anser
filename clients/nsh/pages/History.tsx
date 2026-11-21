@@ -2,7 +2,7 @@ import { t } from "nsh/i18n";
 import { cleanup, effect, resource, signal, Text, View } from "nsh";
 import { channelName } from "../channelNames";
 import { messageFor, type AnserApi } from "../api";
-import type { Channel, Delivery } from "../contracts";
+import type { Channel, Delivery, HistoryEntry } from "../contracts";
 import {
   Action,
   confirm,
@@ -18,8 +18,30 @@ import {
   DeliveryStatus,
   localTime,
 } from "../components/DeliveryStatus";
-import { RecordRow, WorkspacePage } from "../components/Workspace";
+import {
+  messagePreview,
+  RecordRow,
+  WorkspacePage,
+} from "../components/Workspace";
 import { operation, paged } from "../state";
+
+function destination(message: HistoryEntry) {
+  if (message.inbox_recipient)
+    return t("history.to_user", { username: message.inbox_recipient });
+  return message.topic ?? t("common.direct_delivery");
+}
+
+function inboxReceipt(message: HistoryEntry) {
+  const count = message.inbox_deliveries ?? 0;
+  if (count < 1) return;
+  if (message.inbox_recipient)
+    return t("history.delivered_to_user", {
+      username: message.inbox_recipient,
+    });
+  return count === 1
+    ? t("history.one_inbox_delivery")
+    : t("history.inbox_delivery_count", { count });
+}
 
 export function History(props: {
   api: AnserApi;
@@ -44,8 +66,8 @@ export function History(props: {
       <Each of={list.items()} key={(message) => message.id}>
         {(message) => (
           <RecordRow
-            title={message().message?.title || message().id}
-            subtitle={`${message().topic ?? t("common.direct_delivery")} / ${localTime(message().created_at)}`}
+            title={messagePreview(message().message) ?? message().id}
+            subtitle={`${destination(message())} / ${localTime(message().created_at)}`}
             onPress={() => props.onOpen(message().id)}
             status={<DeliveryStatus value={message().status} />}
           />
@@ -74,7 +96,13 @@ function DeliveryRecord(props: { delivery: Delivery; channels: Channel[] }) {
     <Panel>
       <View class="flex-row flex-wrap items-center justify-between gap-2">
         <Text class="text-base font-medium text-foreground">{channel()}</Text>
-        <DeliveryStatus value={data().status} />
+        <DeliveryStatus
+          value={
+            data().next_retry_at != null && data().status === "pending"
+              ? "waiting"
+              : data().status
+          }
+        />
       </View>
       <Hint>{t("history.account_value", { account: data().account_id })}</Hint>
       <If when={data().next_retry_at != null}>
@@ -183,8 +211,10 @@ export function MessageDetail(props: {
     });
   }
   return (
-    <WorkspacePage title={t("history.delivery_details")} back={props.onBack}>
-      <View class="flex-row flex-wrap items-center justify-between gap-2">
+    <WorkspacePage
+      title={t("history.delivery_details")}
+      back={props.onBack}
+      headerAction={
         <Action
           label={t("common.refresh")}
           kind="quiet"
@@ -193,19 +223,11 @@ export function MessageDetail(props: {
             current.state() === "pending" || current.state() === "refreshing"
           }
         />
-        <If when={active()}>
-          <Toggle
-            label={t("history.auto_refresh")}
-            checked={auto()}
-            onChange={auto.set}
-          />
-        </If>
-      </View>
+      }
+    >
       <Problem message={replay.problem()} />
       <ReadState
-        loading={
-          current.state() === "pending" || current.state() === "refreshing"
-        }
+        loading={!current() && current.state() === "pending"}
         problem={current.error() ? messageFor(current.error()) : ""}
         empty={!current()}
         emptyLabel={t("history.this_message_could_not_be_found")}
@@ -217,48 +239,73 @@ export function MessageDetail(props: {
               <View class="flex-row flex-wrap items-center justify-between gap-2">
                 <Text
                   role="header"
-                  class="text-[19px] font-semibold text-foreground"
+                  class="min-w-0 flex-1 text-[19px] font-semibold text-foreground"
                 >
                   {message().message?.title || t("history.notification")}
                 </Text>
                 <DeliveryStatus value={message().status} />
               </View>
               <Hint>
-                {message().topic ?? t("common.direct_delivery")} /{" "}
+                {message().inbox_recipient
+                  ? ""
+                  : `${destination(message())} / `}
                 {localTime(message().created_at)}
               </Hint>
-              <View selectable>
-                <Text class="text-sm text-foreground">{message().id}</Text>
-              </View>
-              <View selectable>
-                <Text class="text-sm leading-5 text-foreground">
-                  {message().message?.body}
-                </Text>
+              <If when={message().message?.body}>
+                {(body) => (
+                  <View selectable>
+                    <Text class="text-base leading-6 text-foreground">
+                      {body()}
+                    </Text>
+                  </View>
+                )}
+              </If>
+              <View class="gap-1.5 border-t border-border pt-3">
+                <If when={inboxReceipt(message())}>
+                  {(receipt) => (
+                    <Text class="text-sm font-medium text-success">
+                      {receipt()}
+                    </Text>
+                  )}
+                </If>
+                <View selectable>
+                  <Hint>{t("history.message_id", { id: message().id })}</Hint>
+                </View>
               </View>
             </Panel>
-            <Section title={t("history.channel_deliveries")}>
-              <If when={!message().deliveries?.length}>
-                <Hint>{t("history.no_channel_deliveries_yet")}</Hint>
-              </If>
-              <Each
-                of={message().deliveries ?? []}
-                key={(delivery) => delivery.id}
-              >
-                {(delivery) => (
-                  <DeliveryRecord
-                    delivery={delivery()}
-                    channels={props.channels}
-                  />
-                )}
-              </Each>
-            </Section>
             <If
               when={
-                props.onReplay &&
-                (["failed", "dead"].includes(message().status) ||
-                  message().deliveries?.some((delivery) =>
-                    ["failed", "dead"].includes(delivery.status),
-                  ))
+                Boolean(message().deliveries?.length) ||
+                !message().inbox_deliveries
+              }
+            >
+              <Section title={t("history.channel_deliveries")}>
+                <If when={!message().deliveries?.length}>
+                  <Hint>{t("history.no_channel_deliveries_yet")}</Hint>
+                </If>
+                <Each
+                  of={message().deliveries ?? []}
+                  key={(delivery) => delivery.id}
+                >
+                  {(delivery) => (
+                    <DeliveryRecord
+                      delivery={delivery()}
+                      channels={props.channels}
+                    />
+                  )}
+                </Each>
+              </Section>
+            </If>
+            <If when={active()}>
+              <Toggle
+                label={t("history.auto_refresh")}
+                checked={auto()}
+                onChange={auto.set}
+              />
+            </If>
+            <If
+              when={
+                props.onReplay && ["failed", "dead"].includes(message().status)
               }
             >
               <Action

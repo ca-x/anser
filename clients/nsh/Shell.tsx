@@ -30,11 +30,11 @@ import { inboxState } from "./inbox";
 import type { Pairing } from "./pairing";
 import { parsePairing } from "./pairing";
 import { AccountEditor, Accounts } from "./pages/Accounts";
-import { Compose } from "./pages/Compose";
+import { Compose, composeDraft } from "./pages/Compose";
 import { Connection } from "./pages/Connection";
 import { DefaultRoute } from "./pages/DefaultRoute";
 import { History, MessageDetail } from "./pages/History";
-import { Inbox, InboxDetail, InboxSend } from "./pages/Inbox";
+import { Inbox, inboxDraft, InboxDetail, InboxSend } from "./pages/Inbox";
 import { PluginSettings, Plugins } from "./pages/Plugins";
 import { ProxyEditor, ProxyProfiles } from "./pages/Proxies";
 import { Security } from "./pages/Security";
@@ -45,7 +45,7 @@ type Session = { api: AnserApi; channels: Channel[]; user?: User };
 type Section = "compose" | "topics" | "accounts" | "history" | "inbox";
 
 type Route =
-  | { name: "compose"; topic?: string }
+  | { name: "compose"; topic?: Topic }
   | { name: "topics" }
   | { name: "topic"; topic: Topic }
   | { name: "topic-editor"; topic?: Topic }
@@ -62,7 +62,7 @@ type Route =
   | { name: "message"; id: string }
   | { name: "inbox" }
   | { name: "inbox-detail"; id: number }
-  | { name: "inbox-send" };
+  | { name: "inbox-send"; recipient?: string };
 
 const sections: {
   id: Section;
@@ -182,6 +182,18 @@ export function AnserApp() {
   );
 }
 
+// Scope unsent work and pending request keys to the current server session.
+function sessionDrafts<T>(create: (destination: string) => T) {
+  const drafts = new Map<string, T>();
+  return (destination = "") => {
+    const existing = drafts.get(destination);
+    if (existing !== undefined) return existing;
+    const draft = create(destination);
+    drafts.set(destination, draft);
+    return draft;
+  };
+}
+
 function Workspace(props: {
   session: Session;
   preferences: Preferences;
@@ -190,10 +202,13 @@ function Workspace(props: {
   onDismissPairing: () => void;
 }) {
   const { api, user } = props.session;
+  const serverName = api.origin.replace(/^https:\/\//, "");
   const channels = signal(props.session.channels);
   const accountsRevision = signal(0);
   const proxyRevision = signal(0);
   const nav = createNavStack<Route>([{ name: "compose" }]);
+  const draftFor = sessionDrafts(composeDraft);
+  const inboxDraftFor = sessionDrafts(inboxDraft);
   const selection = signal<Section>("compose");
   const systemTabs = platform.os === "ios" || platform.os === "android";
   const wide = () => !systemTabs && windowSize().width >= 780;
@@ -311,8 +326,11 @@ function Workspace(props: {
             <View class="gap-1 border-t border-border pt-3">
               <View class="gap-1 px-3 pb-2">
                 <Hint>{user?.username ?? t("shell.api_key_session")}</Hint>
-                <Text class="line-clamp-2 text-sm text-muted-foreground">
-                  {api.origin}
+                <Text
+                  accessibilityLabel={api.origin}
+                  class="line-clamp-2 text-sm text-muted-foreground"
+                >
+                  {serverName}
                 </Text>
               </View>
               <Action
@@ -339,8 +357,17 @@ function Workspace(props: {
                   <Compose
                     api={api}
                     channels={channels()}
-                    initialTopic={route.topic}
-                    onAccepted={(id) => open({ name: "message", id })}
+                    draft={draftFor(route.topic?.name)}
+                    fixedTopic={route.topic}
+                    onBack={route.topic ? back : undefined}
+                    onAccepted={(id) => {
+                      const top = nav.routes().at(-1);
+                      if (
+                        top?.name === "compose" &&
+                        top.topic?.name === route.topic?.name
+                      )
+                        open({ name: "message", id });
+                    }}
                   />
                 );
               case "accounts":
@@ -468,7 +495,7 @@ function Workspace(props: {
                       open({ name: "topic-editor", topic: route.topic })
                     }
                     onPublish={() =>
-                      open({ name: "compose", topic: route.topic.name })
+                      open({ name: "compose", topic: route.topic })
                     }
                   />
                 );
@@ -546,11 +573,25 @@ function Workspace(props: {
               case "inbox-detail":
                 return (
                   inbox && (
-                    <InboxDetail state={inbox} id={route.id} onBack={back} />
+                    <InboxDetail
+                      state={inbox}
+                      id={route.id}
+                      onBack={back}
+                      onReply={(recipient) =>
+                        open({ name: "inbox-send", recipient })
+                      }
+                    />
                   )
                 );
               case "inbox-send":
-                return <InboxSend api={api} onBack={back} />;
+                return (
+                  <InboxSend
+                    api={api}
+                    draft={inboxDraftFor(route.recipient)}
+                    onBack={back}
+                    onDelivery={(id) => open({ name: "message", id })}
+                  />
+                );
             }
           }}
         </NavStack>
@@ -580,7 +621,7 @@ function Workspace(props: {
             </If>
             <View class="flex-row items-center gap-2 px-3">
               <Text class="line-clamp-1 flex-1 text-[13px] text-muted-foreground">
-                {user?.username ?? api.origin}
+                {user?.username ?? serverName}
               </Text>
               <Action
                 label={t("preferences.title")}

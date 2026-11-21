@@ -146,9 +146,221 @@ test("previews a QR deep link and exchanges its code after explicit confirmation
   ).toBe(true);
 });
 
-test("receives and marks a direct message as read, then addresses a reply by username", async () => {
+test("continues a draft across tabs and safely retries the same notification", async () => {
+  const submissions: { key: string; body: string }[] = [];
   const app = await open("./App.tsx", {
-    locale: "zh-CN",
+    storage: chinesePreferences,
+    platform: "linux",
+    width: 1120,
+    height: 1080,
+    network: {
+      ...baseNetwork(),
+      [`${endpoints}/messages`]: { body: page() },
+      [`POST ${endpoints}/send*`]: ({ headers, body }) => {
+        submissions.push({
+          key: headers["idempotency-key"] ?? headers["Idempotency-Key"],
+          body: body ?? "",
+        });
+        if (submissions.length === 1)
+          return {
+            status: 503,
+            body: { code: "unavailable", message: "服务器暂时无法响应" },
+          };
+        return { status: 202, body: { message_id: "m2", status: "pending" } };
+      },
+      [`${endpoints}/messages/m2`]: {
+        body: {
+          id: "m2",
+          status: "success",
+          message: { title: "Deploy", body: "Ready" },
+          created_at: 1780000000000,
+          deliveries: [
+            { id: "d1", account_id: "a1", status: "success", channel: "ntfy" },
+            {
+              id: "d2",
+              account_id: "a2",
+              status: "failed",
+              channel: "telegram",
+            },
+            {
+              id: "d3",
+              account_id: "a3",
+              status: "pending",
+              channel: "bark",
+              next_retry_at: 1780000010000,
+            },
+          ],
+        },
+      },
+    },
+  });
+  await login(app);
+  await app.type("label:标题", "Deploy");
+  await app.type("label:正文", "Ready");
+  await app.press("显示发送选项");
+  await app.type("label:有效期（秒）", "600");
+  await app.press("role:button[发送通知]");
+  await app.waitFor("服务器暂时无法响应");
+  await app.press("role:button[投递]");
+  await app.waitFor("还没有通知的投递记录。");
+  await app.press("role:button[发送]");
+  expect(app.value("label:标题")).toBe("Deploy");
+  expect(app.value("label:正文")).toBe("Ready");
+  expect(app.value("label:有效期（秒）")).toBe("600");
+  await app.press("label:提交后等待结果");
+  await app.press("role:button[发送通知]");
+  await app.waitFor("等待重试");
+  expect(app.shows("重放通知")).toBe(false);
+  expect(submissions.length).toBe(2);
+  expect(Boolean(submissions[0].key)).toBe(true);
+  expect(submissions[0]).toEqual(submissions[1]);
+  expect(
+    app.requests().some((request) => request.url.endsWith("/send?wait=true")),
+  ).toBe(true);
+  await app.press("role:button[发送]");
+  expect(app.value("label:标题")).toBe("");
+  await app.press("查看上次投递");
+  await app.waitFor("等待重试");
+});
+
+test("submits a notification with just a title or just a body", async () => {
+  const sent: { title: string; body: string }[] = [];
+  const app = await open("./App.tsx", {
+    storage: chinesePreferences,
+    platform: "linux",
+    width: 1120,
+    network: {
+      ...baseNetwork(),
+      [`POST ${endpoints}/send`]: ({ body }) => {
+        const message = JSON.parse(body ?? "{}");
+        sent.push({ title: message.title, body: message.body });
+        return {
+          status: 202,
+          body: { message_id: String(sent.length), status: "pending" },
+        };
+      },
+      [`${endpoints}/messages/*`]: () => ({
+        body: {
+          id: String(sent.length),
+          created_at: 1780000000000,
+          status: "success",
+          message: sent[sent.length - 1],
+          deliveries: [],
+          inbox_deliveries: 2,
+        },
+      }),
+    },
+  });
+  await login(app);
+  expect(app.enabled("role:button[发送通知]")).toBe(false);
+  await app.type("label:标题", "已到家");
+  await app.press("role:button[发送通知]");
+  await app.waitFor("已送达 2 个收件箱");
+  await app.press("role:button[发送]");
+  expect(app.enabled("role:button[发送通知]")).toBe(false);
+  await app.type("label:正文", "到时见");
+  await app.press("role:button[发送通知]");
+  await app.waitFor("到时见");
+  expect(sent).toEqual([
+    { title: "已到家", body: "" },
+    { title: "", body: "到时见" },
+  ]);
+});
+
+test("clears private drafts when disconnecting and signing back in", async () => {
+  const app = await open("./App.tsx", {
+    storage: chinesePreferences,
+    platform: "linux",
+    width: 1120,
+    network: {
+      ...baseNetwork(),
+      [`POST ${endpoints}/auth/logout`]: { status: 204 },
+    },
+  });
+  await login(app);
+  await app.type("label:标题", "Private draft");
+  await app.type("label:正文", "Unsent message");
+  await app.press("role:button[断开连接]");
+  await app.waitFor("连接雁字服务器");
+  expect(JSON.stringify(app.storage()).includes("Unsent message")).toBe(false);
+  await login(app);
+  expect(app.value("label:标题")).toBe("");
+  expect(app.value("label:正文")).toBe("");
+});
+
+test("opens a reply to its sender, restores a body-only reply and shows its inbox receipt", async () => {
+  const keys: string[] = [];
+  const app = await open("./App.tsx", {
+    storage: chinesePreferences,
+    platform: "linux",
+    width: 1120,
+    network: {
+      ...baseNetwork(),
+      [`${endpoints}/inbox`]: {
+        body: page([{ ...inboxItem, title: "" }], "1"),
+      },
+      [`${endpoints}/inbox?*`]: { body: page([], "1") },
+      [`POST ${endpoints}/inbox/1/read`]: { status: 204 },
+      [`POST ${endpoints}/inbox/send`]: ({ body, headers }) => {
+        expect(JSON.parse(body ?? "{}")).toEqual({
+          recipient: "bob",
+          title: "",
+          body: "Received",
+          format: "text",
+        });
+        keys.push(headers["idempotency-key"] ?? headers["Idempotency-Key"]);
+        if (keys.length === 1)
+          return {
+            status: 503,
+            body: { code: "unavailable", message: "服务器暂时无法响应" },
+          };
+        return { status: 201, body: { id: 2, message_id: "m3" } };
+      },
+      [`${endpoints}/messages/m3`]: {
+        body: {
+          id: "m3",
+          status: "success",
+          message: { title: "", body: "Received" },
+          created_at: 1780000000000,
+          deliveries: [],
+          inbox_deliveries: 1,
+          inbox_recipient: "bob",
+        },
+      },
+    },
+  });
+  await login(app);
+  await app.waitFor("收件箱 (1)");
+  await app.press("收件箱 (1)");
+  await app.waitFor("Hello Alice");
+  await app.waitFor("查看");
+  await app.press("查看");
+  await app.waitFor("Hello Alice");
+  expect(
+    app.requests().some((request) => request.url.endsWith("/1/read")),
+  ).toBe(true);
+  await app.press("回复 bob");
+  await app.waitFor("发给 bob");
+  expect(app.shows("label:收件人用户名")).toBe(false);
+  await app.type("label:正文", "Received");
+  await app.press("role:button[发送消息]");
+  await app.waitFor("服务器暂时无法响应");
+  await app.press("返回");
+  await app.press("回复 bob");
+  expect(app.value("label:正文")).toBe("Received");
+  await app.press("role:button[发送消息]");
+  await app.waitFor("消息已发送给 bob。");
+  expect(Boolean(keys[0])).toBe(true);
+  expect(keys).toEqual([keys[0], keys[0]]);
+  await app.press("role:button[投递详情]");
+  await app.waitFor("已送达 bob 的收件箱");
+  expect(app.shows("渠道投递")).toBe(false);
+  expect(app.shows("暂时没有渠道投递记录。")).toBe(false);
+});
+
+test("keeps reply recipients separate from new messages and locks the reply address", async () => {
+  const app = await open("./App.tsx", {
+    storage: chinesePreferences,
     platform: "linux",
     width: 1120,
     network: {
@@ -156,32 +368,108 @@ test("receives and marks a direct message as read, then addresses a reply by use
       [`${endpoints}/inbox`]: { body: page([inboxItem], "1") },
       [`${endpoints}/inbox?*`]: { body: page([], "1") },
       [`POST ${endpoints}/inbox/1/read`]: { status: 204 },
-      [`POST ${endpoints}/inbox/send`]: ({ body }) => {
-        expect(JSON.parse(body ?? "{}")).toEqual({
-          recipient: "bob",
-          title: "Reply",
-          body: "Received",
-          format: "text",
-        });
-        return { status: 201, body: { id: "i2" } };
-      },
     },
   });
   await login(app);
   await app.waitFor("收件箱 (1)");
   await app.press("收件箱 (1)");
-  await app.press("查看");
-  await app.waitFor("Hello Alice");
-  expect(
-    app.requests().some((request) => request.url.endsWith("/1/read")),
-  ).toBe(true);
+  await app.press("给用户发消息");
+  await app.type("label:收件人用户名", "mira");
+  await app.type("label:正文", "New message");
   await app.press("返回");
+  await app.press("查看");
+  await app.press("回复 bob");
+  expect(app.shows("label:收件人用户名")).toBe(false);
+  await app.waitFor("发给 bob");
+  expect(app.value("label:正文")).toBe("");
+  await app.type("label:正文", "Private reply");
+  await app.press("返回");
+  await app.press("返回");
+  await app.press("给用户发消息");
+  expect(app.value("label:收件人用户名")).toBe("mira");
+  expect(app.value("label:正文")).toBe("New message");
+  await app.press("返回");
+  await app.press("查看");
+  await app.press("回复 bob");
+  await app.waitFor("发给 bob");
+  expect(app.value("label:正文")).toBe("Private reply");
+});
+
+test("locks the Topic when opened from its page and lets general drafts change their target", async () => {
+  let target = "";
+  const app = await open("./App.tsx", {
+    storage: chinesePreferences,
+    platform: "linux",
+    width: 1120,
+    network: {
+      ...baseNetwork(),
+      [`${endpoints}/topics/ops/subscriptions`]: { body: page() },
+      [`POST ${endpoints}/topics/ops/publish`]: ({ body }) => {
+        const sent = JSON.parse(body ?? "{}");
+        expect(sent.topic_password).toBe("fixture-topic-password");
+        expect(sent.body).toBe("For operations");
+        target = "ops";
+        return {
+          status: 202,
+          body: { message_id: "topic1", status: "pending" },
+        };
+      },
+      [`${endpoints}/messages/topic1`]: {
+        body: {
+          id: "topic1",
+          topic: "ops",
+          created_at: 1780000000000,
+          status: "success",
+          message: { title: "", body: "For operations", format: "text" },
+          deliveries: [],
+        },
+      },
+    },
+  });
+  await login(app);
+  await app.waitFor("role:button[发送通知]");
+  await app.press("label:主题");
+  await app.press("ops");
+  await app.type("label:正文", "General draft");
+  await app.press("role:button[主题]");
+  await app.waitFor("ops");
+  await app.press("查看");
+  await app.press("发布通知");
+  expect(app.shows("label:主题")).toBe(false);
+  expect(app.value("label:正文")).toBe("");
+  await app.type("label:正文", "For operations");
+  await app.press("返回");
+  await app.press("发布通知");
+  expect(app.shows("label:主题")).toBe(false);
+  expect(app.value("label:正文")).toBe("For operations");
+  await app.type("label:主题密码（如需）", "fixture-topic-password");
+  await app.press("role:button[发送通知]");
+  await app.waitFor("已成功");
+  expect(target).toBe("ops");
+  await app.press("role:button[发送]");
+  expect(app.shows("label:主题")).toBe(true);
+  expect(app.value("label:正文")).toBe("General draft");
+});
+
+test("supports a legacy inbox receipt without a message link", async () => {
+  const app = await open("./App.tsx", {
+    storage: chinesePreferences,
+    platform: "linux",
+    width: 1120,
+    network: {
+      ...baseNetwork(),
+      [`POST ${endpoints}/inbox/send`]: { status: 201, body: { id: 2 } },
+    },
+  });
+  await login(app);
+  await app.press("role:button[收件箱]");
   await app.press("给用户发消息");
   await app.type("label:收件人用户名", "bob");
   await app.type("label:标题", "Reply");
   await app.type("label:正文", "Received");
   await app.press("role:button[发送消息]");
   await app.waitFor("消息已发送给 bob。");
+  expect(app.shows("role:button[投递详情]")).toBe(false);
 });
 
 test("subscribes to a protected Topic with a separate password", async () => {

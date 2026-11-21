@@ -10,6 +10,11 @@ const statuses: Record<
     style: "text-waiting",
     live: true,
   },
+  waiting: {
+    label: "delivery_status.waiting",
+    style: "text-waiting",
+    live: true,
+  },
   sending: {
     label: "delivery_status.sending",
     style: "text-waiting",

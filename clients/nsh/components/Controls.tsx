@@ -189,17 +189,19 @@ export function ReadState(props: {
   emptyLabel: string;
 }) {
   return (
-    <View class="gap-2">
-      <Problem message={props.problem} />
-      <If when={props.loading && props.empty}>
-        <Hint>{t("controls.loading")}</Hint>
-      </If>
-      <If when={!props.loading && !props.problem && props.empty}>
-        <View class="rounded-lg border border-border bg-card p-4">
-          <Hint>{props.emptyLabel}</Hint>
-        </View>
-      </If>
-    </View>
+    <If when={props.empty || props.problem}>
+      <View class="gap-2">
+        <Problem message={props.problem} />
+        <If when={props.loading && props.empty}>
+          <Hint>{t("controls.loading")}</Hint>
+        </If>
+        <If when={!props.loading && !props.problem && props.empty}>
+          <View class="rounded-lg border border-border bg-card p-4">
+            <Hint>{props.emptyLabel}</Hint>
+          </View>
+        </If>
+      </View>
+    </If>
   );
 }
 

@@ -151,6 +151,8 @@ export interface HistoryEntry {
   topic?: string | null;
   created_at: number;
   deliveries?: Delivery[];
+  inbox_deliveries?: number;
+  inbox_recipient?: string | null;
 }
 
 export interface User {
