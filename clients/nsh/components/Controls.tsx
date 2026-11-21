@@ -33,7 +33,7 @@ export function Action(props: {
       disabled={props.disabled}
       testID={props.testID}
       accessibilityLabel={props.accessibilityLabel}
-      class={`min-h-11 items-center justify-center rounded-md px-3 py-2 focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 ${buttonSurfaces[props.kind ?? "secondary"]} ${props.icon ? "flex-row gap-2" : ""} ${props.class ?? ""}`}
+      class={`min-h-12 items-center justify-center rounded-md px-3 py-2 focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 transition-colors duration-100 motion-reduce:transition-none ${buttonSurfaces[props.kind ?? "secondary"]} ${props.icon ? "flex-row gap-2" : ""} ${props.class ?? ""}`}
     >
       <If when={props.icon}>
         {(icon) => (
@@ -84,7 +84,7 @@ export function Field(props: {
         readonly={props.disabled}
         onSubmit={props.onSubmit}
         testID={props.testID}
-        class={`min-h-11 rounded-md border border-input bg-card px-3 py-2.5 text-base text-foreground focus:border-ring ${props.multiline ? "min-h-28" : ""}`}
+        class={`min-h-12 rounded-lg border border-input bg-card px-3 py-2.5 text-base text-foreground focus:border-ring ${props.multiline ? "min-h-28" : ""}`}
       />
       <If when={props.hint}>
         <Hint>{props.hint}</Hint>
@@ -116,11 +116,11 @@ export function Choice(props: {
         accessibilityLabel={props.label}
         offset={4}
         class="rounded-md focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
-        popupClass="rounded-xl border border-border bg-popover p-1.5 shadow-md"
+        popupClass="rounded-xl border border-border bg-popover p-1.5 shadow-sm"
         backdropClass="bg-foreground/30"
-        itemClass="min-h-11 rounded-md px-3 py-2 text-sm text-popover-foreground focus:bg-muted selected:bg-accent disabled:opacity-50"
+        itemClass="min-h-12 rounded-md px-3 py-2 text-sm text-popover-foreground focus:bg-muted selected:bg-accent disabled:opacity-50"
         trigger={
-          <View class="min-h-11 flex-row items-center justify-between gap-2 rounded-md border border-input bg-card px-3 py-2.5">
+          <View class="min-h-12 flex-row items-center justify-between gap-2 rounded-md border border-input bg-card px-3 py-2.5">
             <Text
               class={
                 props.value == null
@@ -152,7 +152,7 @@ export function Toggle(props: {
       onChange={({ checked }) => props.onChange(checked)}
       disabled={props.disabled}
       accessibilityLabel={props.label}
-      class="min-h-11 flex-row items-center gap-3 self-start rounded-md focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+      class="min-h-12 flex-row items-center gap-3 self-start rounded-md focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
       trackClass="w-11 rounded-full bg-muted p-0.5 border border-input checked:border-primary checked:bg-primary"
       thumbClass="size-4 rounded-full bg-foreground checked:bg-primary-foreground checked:translate-x-5 transition-transform duration-100 motion-reduce:transition-none"
     >
@@ -217,7 +217,7 @@ export function Section(props: { title: string; children?: JSX.Element }) {
 export function Panel(props: { children?: JSX.Element; class?: string }) {
   return (
     <View
-      class={`gap-4 rounded-lg border border-border bg-card p-4 ${props.class ?? ""}`}
+      class={`gap-4 rounded-xl border border-border bg-card p-4 md:p-5 ${props.class ?? ""}`}
     >
       {props.children}
     </View>

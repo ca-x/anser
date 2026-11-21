@@ -57,7 +57,7 @@ export function AccountList({ api, catalog, channel }: {
           <EuiButtonEmpty size="xs" color="danger" onClick={() => { action.clear(); setRemoving(item); }}>{t("删除")}</EuiButtonEmpty>
         </div> },
       ]} />
-    </div> : !list.next && <Empty title={t("还没有渠道账号")} description={available.length ? t("新增一个账号并测试发送，确认凭据与接收端正常。") : undefined} />}
+    </div> : !list.error && !list.next && <Empty title={t("还没有渠道账号")} description={available.length ? t("新增一个账号并测试发送，确认凭据与接收端正常。") : undefined} />}
     <More next={list.next} busy={list.busy} load={() => { void list.loadMore(); }} />
     {editor && <AccountEditor key={editor === "new" ? "new" : editor.id} api={api} account={editor === "new" ? undefined : editor}
       channels={editor === "new" ? available : catalog} onDone={() => { setEditor(undefined); list.reload(); }} close={() => setEditor(undefined)} />}

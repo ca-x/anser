@@ -15,7 +15,11 @@ export function MessageTable({ items, navigate }: { items: MessageDetail[]; navi
   const t = useT();
   const date = useDate();
   return <EuiBasicTable<MessageDetail> rowHeader="message.title" tableCaption={t("消息投递记录")} items={items} itemId="id" columns={[
-    { field: "message.title", name: t("消息"), render: (_title: string, item: MessageDetail) => <EuiLink onClick={() => navigate(`/admin/messages/${segment(item.id)}`)}>
+    { field: "message.title", name: t("消息"), render: (_title: string, item: MessageDetail) => <EuiLink href={`/admin/messages/${segment(item.id)}`} onClick={(event) => {
+      if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+      event.preventDefault();
+      navigate(`/admin/messages/${segment(item.id)}`);
+    }}>
       {item.message?.title || t("无标题通知")}
     </EuiLink> },
     { field: "topic", name: t("主题"), render: (value: string | null) => value || t("直接投递") },
@@ -32,7 +36,7 @@ export function Messages({ api, navigate }: { api: Api; navigate: Navigate }) {
     <Failure message={list.error} retry={list.reload} />
     {list.loading ? <Progress /> : list.items.length ? <div className="data-surface">
       <MessageTable items={list.items} navigate={navigate} /><More next={list.next} busy={list.busy} load={() => void list.loadMore()} />
-    </div> : <Empty title={t("暂无投递记录")} description={t("发出的通知会在这里显示状态和发送尝试。")} action={<EuiButton onClick={() => navigate("/admin/send")}>{t("发送通知")}</EuiButton>} />}
+    </div> : !list.error && <Empty title={t("暂无投递记录")} description={t("发出的通知会在这里显示状态和发送尝试。")} action={<EuiButton onClick={() => navigate("/admin/send")}>{t("发送通知")}</EuiButton>} />}
   </>;
 }
 
@@ -64,7 +68,7 @@ export function MessageView({ api, id, navigate }: { api: Api; id: string; navig
     {data.loading && <Progress />}
     {detail && <>
       <section className="detail-intro">
-        <div className="detail-meta"><Status value={detail.status} /><span>{detail.topic || t("直接投递")}</span><time>{date(detail.created_at)}</time><Tags values={detail.message.tags} /></div>
+        <div className="detail-meta"><Status value={detail.status} /><span>{detail.topic || t("直接投递")}</span><time dateTime={new Date(detail.created_at).toISOString()}>{date(detail.created_at)}</time><Tags values={detail.message.tags} /></div>
         <pre className="message-body">{detail.message.body}</pre>
         <code className="message-id">{detail.id}</code>
       </section>

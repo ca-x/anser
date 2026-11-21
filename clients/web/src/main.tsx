@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
-  EuiAvatar, EuiButton, EuiButtonEmpty, EuiFieldPassword, EuiFieldText, EuiFormRow,
+  EuiAvatar, EuiButton, EuiButtonEmpty, EuiFieldPassword, EuiFieldText, EuiFlyout, EuiFlyoutBody, EuiFlyoutHeader, EuiFormRow, EuiTitle,
 } from "@elastic/eui";
 import { Api, ApiError, errorMessage, type SignIn, type User } from "./api";
 import { Failure, Progress } from "./components/Common";
@@ -38,6 +38,7 @@ const Proxies = lazy(() => import("./pages/Proxies").then(({ Proxies }) => ({ de
 
 const sessionKey = "anser.auth.session";
 const guest = new Api();
+const compactNavigation = window.matchMedia("(max-width: 740px)");
 const pages = [
   { path: "/admin", label: "投递总览", icon: overviewIcon },
   { path: "/admin/send", label: "发送通知", icon: sendIcon },
@@ -78,9 +79,10 @@ function App() {
   const [path, setPath] = useState(pathName);
   const initialPath = useRef(path);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [compact, setCompact] = useState(() => compactNavigation.matches);
 
   useEffect(() => {
-    const update = () => setPath(pathName());
+    const update = () => { setPath(pathName()); setMenuOpen(false); };
     window.addEventListener("popstate", update);
     return () => window.removeEventListener("popstate", update);
   }, []);
@@ -89,15 +91,13 @@ function App() {
   }, [path, user]);
 
   useEffect(() => {
-    if (!menuOpen) return;
-    const close = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      setMenuOpen(false);
-      document.querySelector<HTMLButtonElement>(".nav-trigger")?.focus();
+    const resize = ({ matches }: MediaQueryListEvent) => {
+      setCompact(matches);
+      if (!matches) setMenuOpen(false);
     };
-    window.addEventListener("keydown", close);
-    return () => window.removeEventListener("keydown", close);
-  }, [menuOpen]);
+    compactNavigation.addEventListener("change", resize);
+    return () => compactNavigation.removeEventListener("change", resize);
+  }, []);
 
   const navigate = useCallback((to: string, replace = false) => {
     if (pathName() !== to || window.location.pathname !== to) {
@@ -154,8 +154,8 @@ function App() {
   else main = <div className="shell">
     <a className="skip" href="#main">{t("跳至主内容")}</a>
     <header className="shell-header">
-      <EuiButtonEmpty className="nav-trigger" size="s" iconType="menu" aria-expanded={menuOpen} aria-controls="main-navigation"
-        onClick={() => setMenuOpen((open) => !open)}>{t("菜单")}</EuiButtonEmpty>
+      <EuiButtonEmpty className="nav-trigger" size="s" iconType="menu" aria-expanded={menuOpen} aria-controls={menuOpen ? "compact-navigation" : undefined}
+        aria-haspopup="dialog" onClick={() => setMenuOpen(true)}>{t("菜单")}</EuiButtonEmpty>
       <a href="/admin" className="wordmark" onClick={(event) => { event.preventDefault(); navigate("/admin"); }}>
         <img src={logo} alt="" width="44" height="44" /><strong>{t("雁字")}</strong>
       </a>
@@ -166,7 +166,27 @@ function App() {
         <EuiButtonEmpty size="s" onClick={() => { void api.write("/auth/logout", "POST").catch(() => undefined).finally(signOut); }}>{t("退出")}</EuiButtonEmpty>
       </div>
     </header>
-    <nav className={`sidebar${menuOpen ? " sidebar-open" : ""}`} id="main-navigation" aria-label={t("控制台")}>
+    {compact ? menuOpen && <EuiFlyout id="compact-navigation" className="console-navigation-flyout"
+      side="left" size="min(85vw, 320px)" paddingSize="m" ownFocus outsideClickCloses
+      focusTrapProps={{ returnFocus: false }} onClose={() => {
+        setMenuOpen(false);
+        requestAnimationFrame(() => document.querySelector<HTMLButtonElement>(".nav-trigger")?.focus());
+      }} aria-labelledby="compact-navigation-title">
+      <EuiFlyoutHeader hasBorder><EuiTitle size="s"><h2 id="compact-navigation-title">{t("控制台")}</h2></EuiTitle></EuiFlyoutHeader>
+      <EuiFlyoutBody><Navigation path={path} navigate={(to) => {
+        navigate(to);
+        requestAnimationFrame(() => document.getElementById("main")?.focus({ preventScroll: true }));
+      }} /></EuiFlyoutBody>
+    </EuiFlyout> : <Navigation path={path} navigate={navigate} sidebar />}
+    <main id="main" className="workspace" tabIndex={-1}><Suspense fallback={<Progress />}><Workspace key={path} path={path} api={api} navigate={navigate} /></Suspense></main>
+  </div>;
+
+  return main;
+}
+
+function Navigation({ path, navigate, sidebar }: { path: string; navigate: (path: string) => void; sidebar?: boolean }) {
+  const t = useT();
+  return <nav className={sidebar ? "sidebar" : undefined} aria-label={t("控制台")}>
       {[pages.slice(0, 3), pages.slice(3, 8), pages.slice(8)].map((group, index) => <ul className="nav-group" key={index}>{group.map((item) => {
         const selected = path === item.path || (item.path !== "/admin" && path.startsWith(`${item.path}/`));
         return <li key={item.path}><a href={item.path} aria-current={selected ? "page" : undefined}
@@ -174,11 +194,7 @@ function App() {
           <img className="nav-icon" src={item.icon} alt="" aria-hidden="true" width="24" height="24" /><span>{t(item.label)}</span>
         </a></li>;
       })}</ul>)}
-    </nav>
-    <main id="main" className="workspace" tabIndex={-1}><Suspense fallback={<Progress />}><Workspace key={path} path={path} api={api} navigate={navigate} /></Suspense></main>
-  </div>;
-
-  return main;
+  </nav>;
 }
 
 function Login({ onLogin }: { onLogin: (result: SignIn) => void }) {
@@ -238,7 +254,7 @@ function Login({ onLogin }: { onLogin: (result: SignIn) => void }) {
           : <>
             <EuiFormRow label={t("用户名")} fullWidth><EuiFieldText autoComplete="username" readOnly={busy} required fullWidth
               value={username} onChange={(event) => setUsername(event.target.value)} /></EuiFormRow>
-            <EuiFormRow label={t("密码")} fullWidth><EuiFieldPassword required fullWidth type="password" autoComplete="current-password"
+            <EuiFormRow label={t("密码")} fullWidth><EuiFieldPassword required fullWidth type="dual" autoComplete="current-password"
               readOnly={busy} value={password} onChange={(event) => setPassword(event.target.value)} /></EuiFormRow>
           </>}
         <EuiButton fill fullWidth type="submit" isLoading={busy}>{t(challenge ? "验证并登录" : "登录")}</EuiButton>

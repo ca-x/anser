@@ -53,13 +53,32 @@ ANSER_REQUIRE_WEB=1 cargo build --locked --release -p anser-server
 ![投递总览](docs/screenshots/zh-CN/server-overview.png)
 
 <details>
-<summary>服务端的插件、代理与账号安全设置</summary>
+<summary>投递详情、插件、代理与账号安全设置</summary>
+
+![投递和发送尝试详情](docs/screenshots/zh-CN/server-delivery.png)
 
 ![渠道插件的运行和账号设置](docs/screenshots/zh-CN/server-plugin.png)
 
 ![出站代理设置](docs/screenshots/zh-CN/server-proxies.png)
 
 ![账号安全设置](docs/screenshots/zh-CN/server-security.png)
+
+</details>
+
+<details>
+<summary>移动端网页管理台</summary>
+
+![移动端管理员登录](docs/screenshots/zh-CN/server-mobile-login.png)
+
+![移动端投递总览](docs/screenshots/zh-CN/server-mobile-overview.png)
+
+![移动端导航抽屉](docs/screenshots/zh-CN/server-mobile-menu.png)
+
+![移动端发送通知](docs/screenshots/zh-CN/server-mobile-send.png)
+
+![移动端渠道插件](docs/screenshots/zh-CN/server-mobile-channels.png)
+
+![移动端出站代理](docs/screenshots/zh-CN/server-mobile-proxies.png)
 
 </details>
 

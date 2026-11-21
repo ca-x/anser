@@ -7,7 +7,7 @@ use anser_core::api::{
 };
 use anser_core::routing::{Candidate, Mode, plan_round};
 use rand::Rng;
-use sqlx::{Acquire, SqliteConnection};
+use sqlx::{Acquire, QueryBuilder, Sqlite, SqliteConnection};
 
 use crate::manage::{self, StoredAccount};
 use crate::{DataError, Result, Store, new_id, now_ms};
@@ -459,9 +459,42 @@ impl Store {
         key_id: Option<&str>,
         prefix: Option<&str>,
     ) -> Result<Page<MessageDetail>> {
-        let mut values = sqlx::query_as::<_, StoredMessage>("SELECT id,topic,status,body,created_at FROM messages WHERE (? IS NULL OR (created_at,id)<(SELECT created_at,id FROM messages WHERE id=?)) AND (? IS NULL OR key_id=? OR (SELECT user_id FROM api_keys WHERE id=messages.key_id)=(SELECT user_id FROM api_keys WHERE id=?)) AND (? IS NULL OR substr(topic,1,length(?))=?) ORDER BY created_at DESC,id DESC LIMIT ?")
-            .bind(after).bind(after).bind(key_id).bind(key_id).bind(key_id).bind(prefix).bind(prefix).bind(prefix)
-            .bind(limit + 1).fetch_all(&self.0).await?.into_iter().map(StoredMessage::detail).collect::<Result<Vec<_>>>()?;
+        let mut query = QueryBuilder::<Sqlite>::new(
+            "SELECT id,topic,status,body,created_at FROM messages WHERE 1=1",
+        );
+        if let Some(cursor) = after {
+            // Resolve the opaque cursor in the same snapshot as the page query.
+            query
+                .push(" AND (created_at,id)<(SELECT created_at,id FROM messages WHERE id=")
+                .push_bind(cursor)
+                .push(")");
+        }
+        if let Some(key) = key_id {
+            // Match historical sessions for this user, and still allow a machine
+            // key (which has no user) to read its own messages.
+            query
+                .push(" AND key_id IN (SELECT ")
+                .push_bind(key)
+                .push(" UNION ALL SELECT id FROM api_keys WHERE user_id=(SELECT user_id FROM api_keys WHERE id=")
+                .push_bind(key)
+                .push("))");
+        }
+        if let Some(prefix) = prefix {
+            query
+                .push(" AND substr(topic,1,length(")
+                .push_bind(prefix)
+                .push("))=")
+                .push_bind(prefix);
+        }
+        let mut values = query
+            .push(" ORDER BY created_at DESC,id DESC LIMIT ")
+            .push_bind(i64::from(limit) + 1)
+            .build_query_as::<StoredMessage>()
+            .fetch_all(&self.0)
+            .await?
+            .into_iter()
+            .map(StoredMessage::detail)
+            .collect::<Result<Vec<_>>>()?;
         Ok(manage::page(&mut values, limit, |value| &value.id))
     }
 
@@ -937,6 +970,65 @@ mod tests {
                 .await
                 .unwrap()
                 .contains(&("queue_depth".into(), 1))
+        );
+    }
+
+    #[tokio::test]
+    async fn history_cursor_keeps_timestamp_ties_and_session_visibility() {
+        let (_temp, store) = fixture().await;
+        sqlx::raw_sql(
+            r#"INSERT INTO users (id,username,password_hash,admin,created_at)
+                VALUES ('u','user','hash',0,0);
+             INSERT INTO api_keys (id,secret_hash,name,scopes,created_at,user_id,session,enabled)
+                VALUES ('old',zeroblob(32),'old','[]',0,'u',1,0),
+                       ('new',zeroblob(32),'new','[]',0,'u',1,1);
+             INSERT INTO messages (id,key_id,topic,body,request,created_at,retain_until)
+                VALUES ('e','sender','ops/private','{"title":"test","body":"test"}','{}',4,99),
+                       ('d','old','ops/team','{"title":"test","body":"test"}','{}',3,99),
+                       ('c','new','ops/team','{"title":"test","body":"test"}','{}',3,99),
+                       ('b','new','operations','{"title":"test","body":"test"}','{}',3,99),
+                       ('a','old',NULL,'{"title":"test","body":"test"}','{}',2,99);"#,
+        )
+        .execute(&store.0)
+        .await
+        .unwrap();
+
+        let first = store
+            .messages(None, 1, Some("new"), Some("ops/"))
+            .await
+            .unwrap();
+        assert_eq!(first.items[0].id, "d");
+        let second = store
+            .messages(first.next_cursor.as_deref(), 1, Some("new"), Some("ops/"))
+            .await
+            .unwrap();
+        assert_eq!(second.items[0].id, "c");
+        assert!(second.next_cursor.is_none());
+        assert_eq!(
+            store
+                .messages(None, 10, Some("sender"), None)
+                .await
+                .unwrap()
+                .items[0]
+                .id,
+            "e"
+        );
+        assert_eq!(
+            store
+                .messages(None, 10, None, None)
+                .await
+                .unwrap()
+                .items
+                .len(),
+            5
+        );
+        assert!(
+            store
+                .messages(Some("removed"), 10, None, None)
+                .await
+                .unwrap()
+                .items
+                .is_empty()
         );
     }
 

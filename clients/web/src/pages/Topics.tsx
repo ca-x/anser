@@ -39,7 +39,7 @@ export function Topics({ api }: { api: Api }) {
         </div> },
       ]} />
       <More next={topics.next} busy={topics.busy} load={() => void topics.loadMore()} />
-    </div> : <Empty title={t("还没有主题")} description={t("创建主题，把同一类通知发给相应订阅者。")} />}
+    </div> : !topics.error && <Empty title={t("还没有主题")} description={t("创建主题，把同一类通知发给相应订阅者。")} />}
     {editor && <TopicEditor api={api} topic={editor === "new" ? undefined : editor} accounts={accounts.items}
       channels={channels.data?.items ?? []} close={() => setEditor(undefined)} onDone={() => { setEditor(undefined); topics.reload(); }}
       moreAccounts={accounts.next ? () => void accounts.loadMore() : undefined} />}
@@ -159,7 +159,7 @@ function Subscriptions({ api, topic, accounts, close, moreAccounts }: {
           { field: "filter", name: t("过滤标签"), render: (values: string[]) => <Tags values={values} /> },
           { field: "created_at", name: t("建立时间"), render: date },
           { name: t("操作"), render: (item: Subscription) => <EuiButtonEmpty color="danger" size="xs" onClick={() => { remove.clear(); setRemoving(item); }}>{t("退订")}</EuiButtonEmpty> },
-        ]} /> : <Empty title={t("还没有订阅")} description={t("添加接收人并按需要设置消息标签过滤。")} />}
+        ]} /> : !list.error && <Empty title={t("还没有订阅")} description={t("添加接收人并按需要设置消息标签过滤。")} />}
         <More next={list.next} busy={list.busy} load={() => void list.loadMore()} />
       </div>
     </Drawer>

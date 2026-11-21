@@ -53,13 +53,32 @@ The delivery overview shows the queue, successful deliveries, dead letters, and 
 ![Delivery overview](docs/screenshots/en/server-overview.png)
 
 <details>
-<summary>Server plugins, proxies, and account security</summary>
+<summary>Delivery details, server plugins, proxies, and account security</summary>
+
+![Delivery and attempt details](docs/screenshots/en/server-delivery.png)
 
 ![Channel plugin runtime and account settings](docs/screenshots/en/server-plugin.png)
 
 ![Outbound proxy settings](docs/screenshots/en/server-proxies.png)
 
 ![Account security settings](docs/screenshots/en/server-security.png)
+
+</details>
+
+<details>
+<summary>Mobile web console</summary>
+
+![Mobile administrator sign-in](docs/screenshots/en/server-mobile-login.png)
+
+![Mobile delivery overview](docs/screenshots/en/server-mobile-overview.png)
+
+![Mobile navigation drawer](docs/screenshots/en/server-mobile-menu.png)
+
+![Sending a notification on mobile](docs/screenshots/en/server-mobile-send.png)
+
+![Channel plugins on mobile](docs/screenshots/en/server-mobile-channels.png)
+
+![Outbound proxies on mobile](docs/screenshots/en/server-mobile-proxies.png)
 
 </details>
 

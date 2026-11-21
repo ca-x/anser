@@ -1,8 +1,8 @@
 {
   "name": "雁字",
   "id": "io.github.cax.anser",
-  "version": "0.3.0",
-  "build": 5,
+  "version": "0.4.0",
+  "build": 6,
   "icon": "assets/logo.png",
   "theme": "theme.json",
   "appearance": "system",

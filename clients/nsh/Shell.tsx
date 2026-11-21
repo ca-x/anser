@@ -248,7 +248,7 @@ function Workspace(props: {
           <Button
             onPress={() => go(tab().id)}
             selected={selected()}
-            class={`min-h-11 rounded-sm items-center hover:bg-muted active:bg-accent focus-visible:ring-2 focus-visible:ring-ring ${wide() ? "flex-row gap-2.5 border-l-2 px-2.5 py-2" : "flex-1 justify-center gap-0.5 border-b-2 px-1 py-1"} ${selected() ? "border-primary" : "border-transparent"}`}
+            class={`min-h-12 rounded-lg items-center hover:bg-muted active:bg-accent focus-visible:ring-2 focus-visible:ring-ring transition-colors duration-100 motion-reduce:transition-none ${wide() ? "flex-row gap-2.5 px-3 py-2" : "min-w-0 flex-1 justify-center gap-0.5 px-1 py-1"} ${selected() ? "bg-accent" : ""}`}
           >
             <Image
               src={tab().icon}
@@ -257,7 +257,7 @@ function Workspace(props: {
               accessibilityElementsHidden
             />
             <Text
-              class={`text-sm ${selected() ? "font-semibold text-accent-foreground" : "text-foreground"}`}
+              class={`${wide() ? "text-sm" : "text-center text-xs"} ${selected() ? "font-semibold text-accent-foreground" : "text-foreground"}`}
             >
               {tab().title()}
               {badge(tab().id) ? ` (${badge(tab().id)})` : ""}
@@ -303,7 +303,7 @@ function Workspace(props: {
         <If when={wide()}>
           <View
             role="navigation"
-            class="w-48 gap-5 border-r border-border bg-sidebar px-3 pt-5 pb-4"
+            class="w-52 gap-5 border-r border-border bg-sidebar px-3 pt-5 pb-4"
           >
             <Brand compact />
             <View class="gap-1">{links()}</View>

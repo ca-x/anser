@@ -5,7 +5,7 @@ import {
   EuiFlyout, EuiFlyoutBody, EuiFlyoutFooter, EuiFlyoutHeader, EuiFormRow, EuiLoadingSpinner,
   EuiText, EuiTextArea, EuiTitle,
 } from "@elastic/eui";
-import { useId } from "react";
+import { useId, useMemo } from "react";
 import type { JsonObject } from "../api";
 
 export function PageTitle({ title, action, description }: { title: string; action?: ReactNode; description?: string }) {
@@ -31,7 +31,7 @@ export function Progress({ label }: { label?: string }) {
 }
 
 export function Empty({ title, description, action }: { title: string; description?: string; action?: ReactNode }) {
-  return <EuiEmptyPrompt iconType="listBullet" title={<h2>{title}</h2>} body={description && <p>{description}</p>} actions={action} />;
+  return <EuiEmptyPrompt className="data-empty" iconType="listBullet" title={<h2>{title}</h2>} body={description && <p>{description}</p>} actions={action} />;
 }
 
 export function More({ next, busy, load }: { next?: string | null; busy?: boolean; load: () => void }) {
@@ -59,9 +59,8 @@ export function Status({ value }: { value: string }) {
 
 export function useDate() {
   const language = useLanguage();
-  return (value?: number | null) => value
-    ? new Intl.DateTimeFormat(language, { dateStyle: "medium", timeStyle: "short" }).format(value)
-    : "—";
+  const formatter = useMemo(() => new Intl.DateTimeFormat(language, { dateStyle: "medium", timeStyle: "short" }), [language]);
+  return (value?: number | null) => value == null ? "—" : formatter.format(value);
 }
 
 export function Tags({ values }: { values?: string[] }) {
@@ -89,7 +88,7 @@ export function Drawer({ title, close, children, footer, size = "m" }: {
   title: string; close: () => void; children: ReactNode; footer?: ReactNode; size?: "s" | "m" | "l";
 }) {
   const id = useId();
-  return <EuiFlyout onClose={close} ownFocus size={size} aria-labelledby={id}>
+  return <EuiFlyout className="console-form-flyout" onClose={close} ownFocus size={size} aria-labelledby={id}>
     <EuiFlyoutHeader hasBorder><EuiTitle size="m"><h2 id={id}>{title}</h2></EuiTitle></EuiFlyoutHeader>
     <EuiFlyoutBody>{children}</EuiFlyoutBody>
     {footer && <EuiFlyoutFooter><div className="drawer-footer">{footer}</div></EuiFlyoutFooter>}

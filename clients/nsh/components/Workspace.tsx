@@ -42,17 +42,18 @@ export function WorkspacePage(props: {
       title={props.title}
       header={
         <View class="border-b border-border bg-card">
-          <View class="min-h-14 w-full max-w-4xl flex-row items-center gap-3 self-center px-4 md:px-8">
+          <View class="min-h-16 w-full max-w-4xl flex-row items-center gap-2 self-center px-4 md:px-8">
             <If when={props.back}>
               <Action
-                label={t("workspace.back")}
+                label={`‹ ${t("workspace.back")}`}
+                accessibilityLabel={t("workspace.back")}
                 onPress={() => props.back?.()}
                 kind="quiet"
               />
             </If>
             <Text
               role="header"
-              class="flex-1 text-2xl font-semibold text-foreground"
+              class="min-w-0 flex-1 text-xl font-semibold text-foreground md:text-2xl"
             >
               {props.title}
             </Text>
@@ -62,12 +63,12 @@ export function WorkspacePage(props: {
     >
       <View class="flex-1 bg-background">
         <Scroll class="flex-1" keyboardDismissMode="on-drag">
-          <View class="w-full max-w-4xl self-center gap-6 px-4 pt-5 pb-8 md:px-8 md:pt-7">
+          <View class="w-full max-w-4xl self-center gap-5 px-4 pt-5 pb-8 md:gap-6 md:px-8 md:pt-7">
             {props.children}
           </View>
         </Scroll>
         <If when={props.footer}>
-          <View class="border-t border-border bg-card px-4 py-2 md:px-8">
+          <View class="border-t border-border bg-card px-4 py-2.5 md:px-8">
             <View class="w-full max-w-4xl self-center">{props.footer}</View>
           </View>
         </If>
@@ -86,9 +87,9 @@ export function RecordRow(props: {
 }) {
   return (
     <View
-      class={`min-h-14 flex-row items-center gap-3 border-b border-border px-3 py-2 ${props.class ?? ""}`}
+      class={`min-h-16 flex-row flex-wrap items-center gap-x-3 gap-y-1 border-b border-border px-3 py-2.5 ${props.class ?? ""}`}
     >
-      <View class="min-w-0 flex-1 gap-0.5">
+      <View class="min-w-24 flex-1 gap-1">
         <Text class="text-base font-medium text-foreground">{props.title}</Text>
         <If when={props.subtitle}>
           <Text class="text-[13px] text-muted-foreground">

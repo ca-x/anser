@@ -35,7 +35,7 @@ export function Dashboard({ api, navigate }: { api: Api; navigate: (path: string
       <div className="section-header"><h2>{t("最近投递")}</h2><EuiButtonEmpty size="s" onClick={() => navigate("/admin/messages")}>{t("全部记录")}</EuiButtonEmpty></div>
       <Failure message={latest.error} retry={latest.reload} />
       {latest.loading ? <Progress /> : latest.data?.items.length ? <div className="data-surface"><MessageTable items={latest.data.items} navigate={navigate} /></div>
-        : <Empty title={t("还没有投递记录")} description={t("发送消息后，会在这里显示当前状态。")} />}
+        : !latest.error && <Empty title={t("还没有投递记录")} description={t("发送消息后，会在这里显示当前状态。")} />}
     </section>
   </>;
 }
@@ -94,7 +94,7 @@ export function Users({ api }: { api: Api }) {
         { field: "created_at", name: t("创建时间"), render: date },
       ]} />
       <More next={users.next} busy={users.busy} load={() => void users.loadMore()} />
-    </div> : <Empty title={t("暂无用户")} description={t("新增用户后，可用密码登录与配对客户端。")} />}
+    </div> : !users.error && <Empty title={t("暂无用户")} description={t("新增用户后，可用密码登录与配对客户端。")} />}
     {editing && <UserEditor api={api} user={editing === "new" ? undefined : editing} close={() => setEditing(undefined)}
       done={() => { setEditing(undefined); users.reload(); }} />}
   </>;
@@ -157,7 +157,7 @@ export function Keys({ api }: { api: Api }) {
         </div> },
       ]} />
       <More next={list.next} busy={list.busy} load={() => void list.loadMore()} />
-    </div> : <Empty title={t("暂无 API 密钥")} description={t("创建一个具有所需作用域的密钥。")} />}
+    </div> : !list.error && <Empty title={t("暂无 API 密钥")} description={t("创建一个具有所需作用域的密钥。")} />}
     {creating && <KeyEditor api={api} close={() => setCreating(false)} done={(key) => { setCreating(false); setIssued(key); list.reload(); }} />}
     {confirming && <Confirm title={confirming.operation === "rotate" ? t("轮换 API 密钥？") : t("停用 API 密钥？")}
       label={confirming.operation === "rotate" ? t("确认轮换") : t("确认停用")} busy={task.busy}

@@ -144,7 +144,7 @@ export function Connection(props: {
 
   return (
     <Scroll class="flex-1 bg-background" keyboardDismissMode="on-drag">
-      <View class="w-full max-w-lg self-center gap-6 px-5 pt-12 pb-10 md:pt-20">
+      <View class="w-full max-w-lg self-center gap-5 px-4 pt-8 pb-10 md:gap-6 md:px-6 md:pt-16">
         <Brand />
         <Panel>
           <Text role="header" class="text-[22px] font-semibold text-foreground">
