@@ -53,9 +53,11 @@ The delivery overview shows the queue, successful deliveries, dead letters, and 
 ![Delivery overview](docs/screenshots/en/server-overview.png)
 
 <details>
-<summary>Server plugin and account security settings</summary>
+<summary>Server plugins, proxies, and account security</summary>
 
 ![Channel plugin runtime and account settings](docs/screenshots/en/server-plugin.png)
+
+![Outbound proxy settings](docs/screenshots/en/server-proxies.png)
 
 ![Account security settings](docs/screenshots/en/server-security.png)
 
@@ -68,9 +70,17 @@ The delivery overview shows the queue, successful deliveries, dead letters, and 
 
 ![Channel plugin settings in the native client](docs/screenshots/en/nsh-plugin.png)
 
+![Outbound proxy settings in the native client](docs/screenshots/en/nsh-proxies.png)
+
 </details>
 
 Choose English or Simplified Chinese and a light, dark, or system theme from the gear menu on the sign-in page or in the console. The NSH client has the same options in Preferences. Each browser or device remembers its own choices.
+
+## Outbound proxies
+
+Administrators can save named HTTP or HTTPS proxies with optional credentials. Each channel account that supports HTTP proxies can select a saved profile. Changes apply to the next delivery attempt for every account using that profile. Select **Use account settings** to return to the account's inline proxy or direct connection.
+
+List both the proxy host and the notification destination host in `ANSER_OUTBOUND_ALLOW_HOSTS`. Enter hostnames or IP addresses separated by commas. Detach a profile from its accounts before deleting it. SMTP and LazyCat use their own transports. For terminal commands, run `anser api proxies --help`.
 
 ## API and channels
 

@@ -16,26 +16,41 @@ import {
   Section,
   Toggle,
 } from "../components/Controls";
-import { channelConfigDraft, ChannelConfig } from "../components/ChannelConfig";
+import {
+  channelConfigDraft,
+  ChannelConfig,
+  supportsProxy,
+} from "../components/ChannelConfig";
 import { RecordRow, WorkspacePage } from "../components/Workspace";
 import { operation, paged } from "../state";
+import { ProxyPicker } from "./Proxies";
 
 export function Accounts(props: {
   api: AnserApi;
   channels: Channel[];
   revision: number;
   onPlugins?: () => void;
+  onProxies?: () => void;
   onOpen: (account: Account) => void;
   onCreate: () => void;
 }) {
   return (
     <WorkspacePage title={t("accounts.channel_accounts")}>
-      <If when={props.onPlugins}>
-        <Action
-          label={t("plugins.title")}
-          onPress={() => props.onPlugins?.()}
-          class="self-start"
-        />
+      <If when={props.onPlugins || props.onProxies}>
+        <View class="flex-row flex-wrap gap-2">
+          <If when={props.onPlugins}>
+            <Action
+              label={t("plugins.title")}
+              onPress={() => props.onPlugins?.()}
+            />
+          </If>
+          <If when={props.onProxies}>
+            <Action
+              label={t("proxies.title")}
+              onPress={() => props.onProxies?.()}
+            />
+          </If>
+        </View>
       </If>
       <AccountList
         api={props.api}
@@ -147,6 +162,7 @@ export function AccountEditor(props: {
   channels: Channel[];
   account?: Account;
   presetChannel?: string;
+  canManageProxies: boolean;
   onBack: () => void;
   onSaved: (account: Account) => void;
   onDeleted: () => void;
@@ -156,6 +172,8 @@ export function AccountEditor(props: {
   const channelId = signal(original?.channel ?? props.presetChannel ?? "");
   const channel = () =>
     props.channels.find((entry) => entry.id === channelId());
+  const proxyId = signal(original?.proxy_id ?? null);
+  const proxySupported = () => supportsProxy(channel());
   const tags = signal((original?.tags ?? []).join(", "));
   const weight = signal(String(original?.weight ?? 1));
   const priority = signal(String(original?.priority ?? 0));
@@ -164,7 +182,7 @@ export function AccountEditor(props: {
   );
   const enabled = signal(original?.enabled ?? true);
   const replaceConfig = signal(!original);
-  const config = channelConfigDraft(channel);
+  const config = channelConfigDraft(channel, () => Boolean(proxyId()));
   const action = operation();
   const test = operation();
   const testing = signal(false);
@@ -196,6 +214,8 @@ export function AccountEditor(props: {
         enabled: enabled(),
       };
       if (!original) data.channel = channelId();
+      if (proxySupported() && proxyId() !== (original?.proxy_id ?? null))
+        data.proxy_id = proxyId();
       if (replaceConfig()) data.config = config.value();
       const saved = await props.api.saveAccount(original?.id, data);
       if (!action.live()) return;
@@ -281,6 +301,7 @@ export function AccountEditor(props: {
           disabled={Boolean(original || props.presetChannel)}
           onChange={(value) => {
             channelId.set(value ?? "");
+            proxyId.set(null);
             config.clear();
           }}
         />
@@ -326,6 +347,13 @@ export function AccountEditor(props: {
       </Panel>
       <If when={channelId()}>
         <Section title={t("common.channel_configuration")}>
+          <If when={props.canManageProxies && proxySupported()}>
+            <ProxyPicker
+              api={props.api}
+              selected={proxyId()}
+              onChange={proxyId.set}
+            />
+          </If>
           <If when={original}>
             <Toggle
               label={t("accounts.replace_saved_configuration")}

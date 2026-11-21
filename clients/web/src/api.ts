@@ -43,6 +43,13 @@ export interface Account {
   priority: number;
   enabled: boolean;
   rate_limit?: number | null;
+  proxy_id?: string | null;
+}
+export interface OutboundProxy {
+  id: string;
+  name: string;
+  url: string;
+  authenticated: boolean;
 }
 export interface Target {
   channel?: string;

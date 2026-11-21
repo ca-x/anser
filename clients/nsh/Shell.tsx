@@ -25,7 +25,7 @@ import { Action, confirm, Hint } from "./components/Controls";
 import { Brand, WorkspacePage } from "./components/Workspace";
 import { PreferenceControls } from "./components/Preferences";
 import { createPreferences, type Preferences } from "./preferences";
-import type { Account, Channel, Topic, User } from "./contracts";
+import type { Account, Channel, ProxyProfile, Topic, User } from "./contracts";
 import { inboxState } from "./inbox";
 import type { Pairing } from "./pairing";
 import { parsePairing } from "./pairing";
@@ -36,6 +36,7 @@ import { DefaultRoute } from "./pages/DefaultRoute";
 import { History, MessageDetail } from "./pages/History";
 import { Inbox, InboxDetail, InboxSend } from "./pages/Inbox";
 import { PluginSettings, Plugins } from "./pages/Plugins";
+import { ProxyEditor, ProxyProfiles } from "./pages/Proxies";
 import { Security } from "./pages/Security";
 import { TopicDetail, TopicEditor, Topics } from "./pages/Topics";
 
@@ -54,6 +55,8 @@ type Route =
   | { name: "accounts" }
   | { name: "account-editor"; account?: Account; presetChannel?: string }
   | { name: "plugins" }
+  | { name: "proxies" }
+  | { name: "proxy-editor"; profile?: ProxyProfile }
   | { name: "plugin"; channel: Channel }
   | { name: "history" }
   | { name: "message"; id: string }
@@ -189,12 +192,13 @@ function Workspace(props: {
   const { api, user } = props.session;
   const channels = signal(props.session.channels);
   const accountsRevision = signal(0);
+  const proxyRevision = signal(0);
   const nav = createNavStack<Route>([{ name: "compose" }]);
   const selection = signal<Section>("compose");
   const systemTabs = platform.os === "ios" || platform.os === "android";
   const wide = () => !systemTabs && windowSize().width >= 780;
   const accountAdmin = user?.admin ?? true;
-  const pluginAdmin = () => {
+  const globalAdmin = () => {
     const permissions = channels().filter(
       (channel) => channel.can_manage !== undefined,
     );
@@ -346,8 +350,13 @@ function Workspace(props: {
                     channels={channels()}
                     revision={accountsRevision()}
                     onPlugins={
-                      pluginAdmin()
+                      globalAdmin()
                         ? () => open({ name: "plugins" })
+                        : undefined
+                    }
+                    onProxies={
+                      globalAdmin()
+                        ? () => open({ name: "proxies" })
                         : undefined
                     }
                     onOpen={(account) =>
@@ -363,6 +372,7 @@ function Workspace(props: {
                     channels={channels()}
                     account={route.account}
                     presetChannel={route.presetChannel}
+                    canManageProxies={globalAdmin()}
                     onBack={back}
                     onSaved={finishAccountEdit}
                     onDeleted={finishAccountEdit}
@@ -378,6 +388,34 @@ function Workspace(props: {
                     onRefresh={channels.set}
                   />
                 );
+              case "proxies":
+                return (
+                  globalAdmin() && (
+                    <ProxyProfiles
+                      api={api}
+                      revision={proxyRevision()}
+                      onBack={back}
+                      onOpen={(profile) =>
+                        open({ name: "proxy-editor", profile })
+                      }
+                      onCreate={() => open({ name: "proxy-editor" })}
+                    />
+                  )
+                );
+              case "proxy-editor":
+                return (
+                  globalAdmin() && (
+                    <ProxyEditor
+                      api={api}
+                      profile={route.profile}
+                      onBack={back}
+                      onSaved={() => {
+                        proxyRevision.update((revision) => revision + 1);
+                        back();
+                      }}
+                    />
+                  )
+                );
               case "plugin":
                 return (
                   <PluginSettings
@@ -387,7 +425,7 @@ function Workspace(props: {
                         (channel) => channel.id === route.channel.id,
                       ) ?? route.channel
                     }
-                    admin={pluginAdmin()}
+                    admin={globalAdmin()}
                     revision={accountsRevision()}
                     onBack={back}
                     onOpenAccount={(account) =>

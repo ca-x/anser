@@ -28,6 +28,11 @@ enum Resource {
         #[command(subcommand)]
         action: AccountAction,
     },
+    /// Manage reusable outbound proxy profiles (requires an admin API key).
+    Proxies {
+        #[command(subcommand)]
+        action: Crud,
+    },
     /// Manage topics.
     Topics {
         #[command(subcommand)]
@@ -135,6 +140,7 @@ pub async fn run(remote: Remote) -> anyhow::Result<()> {
                 command(Method::PUT, "accounts", [id]).json(serde_json::json!({"enabled":false}))
             }
         },
+        Resource::Proxies { action } => resource("proxies", action).await?,
         Resource::Topics { action } => resource("topics", action).await?,
         Resource::Send {
             topic,

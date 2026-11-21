@@ -4,7 +4,7 @@ import {
   EuiAccordion, EuiBadge, EuiBasicTable, EuiButton, EuiButtonEmpty, EuiCallOut, EuiFieldNumber,
   EuiFieldText, EuiFormRow, EuiHorizontalRule, EuiSelect, EuiSwitch, EuiText,
 } from "@elastic/eui";
-import { Api, segment, type Account, type Channel, type JsonObject, type Page } from "../api";
+import { Api, segment, type Account, type Channel, type JsonObject, type OutboundProxy, type Page } from "../api";
 import { useMutation, usePage, useResource } from "../resources";
 import { Confirm, Drawer, Empty, Failure, More, PageTitle, Progress, split, Tags } from "../components/Common";
 import { blankMessage, Composer } from "../components/Composer";
@@ -91,19 +91,26 @@ function AccountEditor({ api, account, channels, close, onDone }: {
   const [limit, setLimit] = useState<number | "">(account?.rate_limit ?? "");
   const [enabled, setEnabled] = useState(account?.enabled ?? true);
   const [replace, setReplace] = useState(false);
+  const previousProxy = account?.proxy_id ?? "";
+  const [proxyId, setProxyId] = useState(previousProxy);
   const [config, setConfig] = useState<JsonObject>({});
   const formId = useId();
   const advancedId = useId();
   const task = useMutation();
   const channel = channels.find((entry) => entry.id === channelId);
+  const properties = channel?.config_schema.properties;
+  const supportsProxy = !!properties && typeof properties === "object" && Object.hasOwn(properties, "proxy");
+  const proxies = usePage<OutboundProxy>(api, supportsProxy ? "/proxies" : undefined);
+  const useSharedProxy = supportsProxy && proxyId !== "";
 
   const save = () => task.run(async () => {
     const payload: JsonObject = { name: name.trim(), tags: split(tags), weight, priority, enabled };
     if (limit !== "" || account?.rate_limit != null) payload.rate_limit = limit === "" ? null : limit;
     if (!account) payload.channel = channelId;
+    if (supportsProxy && proxyId !== previousProxy) payload.proxy_id = proxyId || null;
     if (!account || replace) {
       if (!channel) throw new Error("此渠道当前不可用。");
-      payload.config = serializeConfig(channel, config);
+      payload.config = serializeConfig(channel, config, useSharedProxy);
     }
     await api.write(account ? `/accounts/${segment(account.id)}` : "/accounts", account ? "PUT" : "POST", payload);
     onDone();
@@ -115,7 +122,22 @@ function AccountEditor({ api, account, channels, close, onDone }: {
       <EuiFormRow label={t("账号名称")} fullWidth><EuiFieldText required fullWidth value={name} onChange={(event) => setName(event.target.value)} /></EuiFormRow>
       <EuiFormRow label={t("渠道")} fullWidth><EuiSelect fullWidth required disabled={!!account || channels.length === 1} value={channelId}
         options={channels.map(({ id, display_name }) => ({ value: id, text: channelName(id, display_name) }))}
-        onChange={(event) => { setChannel(event.target.value); setConfig({}); }} /></EuiFormRow>
+        onChange={(event) => { setChannel(event.target.value); setConfig({}); setProxyId(""); }} /></EuiFormRow>
+      {supportsProxy && <>
+        <EuiFormRow label={t("代理配置")} helpText={t("未选择共享代理时，使用账号内设置的出站代理，未设置则直连。")} fullWidth>
+          <EuiSelect fullWidth value={proxyId} disabled={proxies.loading}
+            options={[
+              { value: "", text: t("使用账号配置") },
+              ...(proxyId && !proxies.items.some(({ id }) => id === proxyId) ? [{ value: proxyId, text: t("当前代理配置") }] : []),
+              ...proxies.items.map(({ id, name }) => ({ value: id, text: name })),
+            ]}
+            onChange={(event) => setProxyId(event.target.value)} />
+        </EuiFormRow>
+        <Failure message={proxies.error} retry={proxies.reload} />
+        {proxies.next && <EuiButtonEmpty size="xs" flush="left" isLoading={proxies.busy} onClick={() => { void proxies.loadMore(); }}>
+          {t("加载更多代理配置")}
+        </EuiButtonEmpty>}
+      </>}
       <EuiSwitch label={t("启用账号")} checked={enabled} onChange={(event) => setEnabled(event.target.checked)} />
       <EuiAccordion id={advancedId} buttonContent={t("标签与路由")}>
         <div className="stack inset">
@@ -132,7 +154,7 @@ function AccountEditor({ api, account, channels, close, onDone }: {
       <EuiHorizontalRule margin="xs" />
       {account && <EuiSwitch label={t("替换渠道配置")} disabled={!channelAvailable(channel)} checked={replace} onChange={(event) => setReplace(event.target.checked)} />}
       {account && replace && <EuiText size="s" color="subdued"><p>{t("请填写整套新配置。原有凭据只在服务器端使用。")}</p></EuiText>}
-      {(!account || replace) && channel && <ChannelFields value={config} channel={channel} update={setConfig} />}
+      {(!account || replace) && channel && <ChannelFields value={config} channel={channel} update={setConfig} useSharedProxy={useSharedProxy} />}
     </form>
   </Drawer>;
 }

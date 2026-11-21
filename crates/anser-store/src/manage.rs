@@ -19,6 +19,7 @@ pub struct StoredAccount {
     pub priority: i32,
     pub enabled: bool,
     pub rate_limit: Option<u32>,
+    pub proxy_id: Option<String>,
     pub encrypted_config: Vec<u8>,
     pub circuit_until: i64,
 }
@@ -34,6 +35,7 @@ impl StoredAccount {
             priority: self.priority,
             enabled: self.enabled,
             rate_limit: self.rate_limit,
+            proxy_id: self.proxy_id.clone(),
         })
     }
 }
@@ -163,6 +165,7 @@ fn management_accounts() -> Select<account::Entity> {
             C::Priority,
             C::Enabled,
             C::RateLimit,
+            C::ProxyId,
             C::EncryptedConfig,
             C::CircuitUntil,
         ])
@@ -229,20 +232,36 @@ impl Store {
     }
 
     pub async fn create_account(&self, account: &Account, encrypted: &[u8]) -> Result<()> {
-        sqlx::query("INSERT INTO accounts(id,space_id,channel,name,encrypted_config,tags,weight,priority,enabled,rate_limit) VALUES(?,'default',?,?,?,?,?,?,?,?)")
+        let mut tx = self.0.begin_with("BEGIN IMMEDIATE").await?;
+        super::proxies::ensure_proxy(&mut tx, account.proxy_id.as_deref()).await?;
+        sqlx::query("INSERT INTO accounts(id,space_id,channel,name,encrypted_config,tags,weight,priority,enabled,rate_limit,proxy_id) VALUES(?,'default',?,?,?,?,?,?,?,?,?)")
             .bind(&account.id).bind(&account.channel).bind(&account.name).bind(encrypted)
             .bind(serde_json::to_string(&account.tags)?).bind(account.weight).bind(account.priority)
-            .bind(account.enabled).bind(account.rate_limit).execute(&self.0).await.map_err(conflict)?;
+            .bind(account.enabled).bind(account.rate_limit).bind(&account.proxy_id)
+            .execute(&mut *tx).await.map_err(conflict)?;
+        tx.commit().await?;
         Ok(())
     }
 
-    pub async fn update_account(&self, account: &Account, encrypted: Option<&[u8]>) -> Result<()> {
-        let updated = sqlx::query("UPDATE accounts SET name=?,tags=?,weight=?,priority=?,enabled=?,rate_limit=?,encrypted_config=COALESCE(?,encrypted_config),consecutive_failures=CASE WHEN ? IS NOT NULL THEN 0 ELSE consecutive_failures END,circuit_until=CASE WHEN ? IS NOT NULL THEN 0 ELSE circuit_until END WHERE id=? AND channel=? AND space_id='default'")
+    pub async fn update_account(
+        &self,
+        account: &Account,
+        encrypted: Option<&[u8]>,
+        proxy: Option<Option<&str>>,
+    ) -> Result<Account> {
+        let mut tx = self.0.begin_with("BEGIN IMMEDIATE").await?;
+        super::proxies::ensure_proxy(&mut tx, proxy.flatten()).await?;
+        let updated: StoredAccount = sqlx::query_as("UPDATE accounts SET name=?,tags=?,weight=?,priority=?,enabled=?,rate_limit=?,encrypted_config=COALESCE(?,encrypted_config),proxy_id=CASE WHEN ? THEN ? ELSE proxy_id END,consecutive_failures=CASE WHEN ? IS NOT NULL OR (? AND proxy_id IS NOT ?) THEN 0 ELSE consecutive_failures END,circuit_until=CASE WHEN ? IS NOT NULL OR (? AND proxy_id IS NOT ?) THEN 0 ELSE circuit_until END WHERE id=? AND channel=? AND space_id='default' RETURNING id,channel,name,tags,weight,priority,enabled,rate_limit,proxy_id,encrypted_config,circuit_until")
             .bind(&account.name).bind(serde_json::to_string(&account.tags)?).bind(account.weight)
             .bind(account.priority).bind(account.enabled).bind(account.rate_limit)
-            .bind(encrypted).bind(encrypted).bind(encrypted).bind(&account.id).bind(&account.channel)
-            .execute(&self.0).await.map_err(conflict)?;
-        affected(updated.rows_affected())
+            .bind(encrypted).bind(proxy.is_some()).bind(proxy.flatten())
+            .bind(encrypted).bind(proxy.is_some()).bind(proxy.flatten())
+            .bind(encrypted).bind(proxy.is_some()).bind(proxy.flatten())
+            .bind(&account.id).bind(&account.channel)
+            .fetch_optional(&mut *tx).await.map_err(conflict)?.ok_or(DataError::Missing)?;
+        let public = updated.public()?;
+        tx.commit().await?;
+        Ok(public)
     }
 
     pub async fn delete_account(&self, id: &str) -> Result<()> {
@@ -500,7 +519,7 @@ pub(crate) fn page<T>(values: &mut Vec<T>, limit: u32, key: impl Fn(&T) -> &str)
 
 impl Store {
     pub async fn has_credentials(&self) -> Result<bool> {
-        Ok(sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM accounts) OR EXISTS(SELECT 1 FROM deliveries WHERE encrypted_target IS NOT NULL) OR EXISTS(SELECT 1 FROM user_totp WHERE setup_expires_at IS NULL OR setup_expires_at>?)")
+        Ok(sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM accounts) OR EXISTS(SELECT 1 FROM proxy_profiles) OR EXISTS(SELECT 1 FROM deliveries WHERE encrypted_target IS NOT NULL) OR EXISTS(SELECT 1 FROM user_totp WHERE setup_expires_at IS NULL OR setup_expires_at>?)")
             .bind(now_ms()).fetch_one(&self.0).await?)
     }
 }

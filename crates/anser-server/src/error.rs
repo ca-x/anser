@@ -87,6 +87,11 @@ impl From<anser_store::DataError> for ApiError {
                 "conflict",
                 "Resource conflicts with existing data",
             ),
+            ProxyInUse => Self::new(
+                StatusCode::CONFLICT,
+                "proxy_in_use",
+                "The proxy profile is assigned to an account",
+            ),
             NoTargets => Self::new(
                 StatusCode::UNPROCESSABLE_ENTITY,
                 "no_available_targets",

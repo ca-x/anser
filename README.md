@@ -53,9 +53,11 @@ ANSER_REQUIRE_WEB=1 cargo build --locked --release -p anser-server
 ![投递总览](docs/screenshots/zh-CN/server-overview.png)
 
 <details>
-<summary>服务端的插件与账号安全设置</summary>
+<summary>服务端的插件、代理与账号安全设置</summary>
 
 ![渠道插件的运行和账号设置](docs/screenshots/zh-CN/server-plugin.png)
+
+![出站代理设置](docs/screenshots/zh-CN/server-proxies.png)
 
 ![账号安全设置](docs/screenshots/zh-CN/server-security.png)
 
@@ -68,9 +70,17 @@ ANSER_REQUIRE_WEB=1 cargo build --locked --release -p anser-server
 
 ![原生客户端的插件设置](docs/screenshots/zh-CN/nsh-plugin.png)
 
+![原生客户端的代理设置](docs/screenshots/zh-CN/nsh-proxies.png)
+
 </details>
 
 网页端登录页和管理台的齿轮菜单，以及 NSH 客户端的设置页，均可切换简体中文或英文，以及浅色、深色或跟随系统的主题。偏好保存在当前浏览器或客户端设备。
+
+## 出站代理
+
+管理员可在代理设置中保存多个 HTTP 或 HTTPS 代理，也可填写代理的登录凭据。支持 HTTP 代理的渠道账号可以选择其中一个配置。修改代理后，引用它的账号会在下一次发送尝试时使用新配置。选择使用账号配置后，账号会改用其原有代理或直连。
+
+部署时将代理主机和通知目标主机都加入 `ANSER_OUTBOUND_ALLOW_HOSTS`。列表以逗号分隔，只填主机名或 IP。删除配置前，先解除账号引用。SMTP 邮件和懒猫通知使用各自的传输方式。终端管理命令见 `anser api proxies --help`。
 
 ## API 与渠道
 

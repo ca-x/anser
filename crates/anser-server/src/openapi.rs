@@ -35,6 +35,21 @@ pub async fn document() -> Json<Value> {
         ("/v1/api-keys/{id}", &["DELETE / Disable API key"]),
         ("/v1/api-keys/{id}/rotate", &["POST / Rotate API key"]),
         (
+            "/v1/proxies",
+            &[
+                "GET / List outbound proxy profiles",
+                "POST / Create an outbound proxy profile",
+            ],
+        ),
+        (
+            "/v1/proxies/{id}",
+            &[
+                "GET / Read outbound proxy profile metadata",
+                "PUT / Update an outbound proxy profile",
+                "DELETE / Delete an unassigned proxy profile",
+            ],
+        ),
+        (
             "/v1/accounts",
             &[
                 "GET / List channel accounts",
@@ -128,6 +143,7 @@ pub async fn document() -> Json<Value> {
                         | "/v1/messages"
                         | "/v1/users"
                         | "/v1/api-keys"
+                        | "/v1/proxies"
                         | "/v1/inbox"
                         | "/v1/topics/{name}/subscriptions"
                 )
@@ -172,6 +188,12 @@ pub async fn document() -> Json<Value> {
                     "Requires a user session. Confirming or disabling TOTP revokes other sessions and outstanding pairing codes."
                 );
             }
+            if method == "DELETE" && path == "/v1/proxies/{id}" {
+                operation["responses"]["409"] = json!({
+                    "description":"proxy_in_use: one or more channel accounts reference this proxy",
+                    "content":{"application/json":{"schema":reference("Error")}}
+                });
+            }
             methods.insert(method.to_ascii_lowercase(), operation);
         }
         paths.insert(path.into(), Value::Object(methods));
@@ -210,6 +232,8 @@ fn request_schema(path: &str, method: &str) -> Option<&'static str> {
         ("POST", "/v1/users") => Some("UserInput"),
         ("PUT", "/v1/users/{id}") => Some("UserUpdate"),
         ("POST", "/v1/api-keys") => Some("KeyInput"),
+        ("POST", "/v1/proxies") => Some("ProxyCreate"),
+        ("PUT", "/v1/proxies/{id}") => Some("ProxyUpdate"),
         ("POST", "/v1/accounts") => Some("AccountCreate"),
         ("PUT", "/v1/accounts/{id}") => Some("AccountUpdate"),
         ("POST", "/v1/accounts/{id}/test") => Some("Message"),
@@ -238,6 +262,9 @@ fn success_schema(path: &str, method: &str) -> Option<(&'static str, Value)> {
         ("GET", "/v1/api-keys") => ("200", page("ApiKey")),
         ("POST", "/v1/api-keys") => ("201", reference("IssuedKey")),
         ("POST", "/v1/api-keys/{id}/rotate") => ("200", reference("IssuedKey")),
+        ("GET", "/v1/proxies") => ("200", page("Proxy")),
+        ("POST", "/v1/proxies") => ("201", reference("Proxy")),
+        ("GET" | "PUT", "/v1/proxies/{id}") => ("200", reference("Proxy")),
         ("GET", "/v1/accounts") => ("200", page("Account")),
         ("POST", "/v1/accounts") => ("201", reference("Account")),
         ("GET" | "PUT", "/v1/accounts/{id}") => ("200", reference("Account")),
@@ -276,12 +303,18 @@ fn schemas() -> Value {
         json!({"type":"string","enum":["pending","sending","success","failed","dead","cancelled"]});
     let strings = json!({"type":"array","items":string});
     let key_fields = json!({"name":string,"scopes":{"type":"array","items":{"type":"string","enum":["send","subscribe","admin"]}},"topic_prefix":string,"expires_at":time});
-    let account_fields = json!({"name":string,"channel":string,"enabled":boolean,"tags":strings,"weight":integer,"priority":integer,"rate_limit":{"type":"integer","nullable":true,"minimum":1}});
+    let account_fields = json!({"name":string,"channel":string,"enabled":boolean,"tags":strings,"weight":integer,"priority":integer,"rate_limit":{"type":"integer","nullable":true,"minimum":1},"proxy_id":{"type":"string","nullable":true,"description":"Proxy profile used at delivery. Omit when updating to preserve the assignment. Null clears it."}});
     let mut account_in = account_fields.clone();
     account_in["config"] =
         json!({"type":"object","writeOnly":true,"description":"See the channel's config_schema."});
     let mut account_out = account_fields.clone();
     account_out["id"] = string.clone();
+    let proxy_input = json!({
+        "name":string,
+        "url":{"type":"string","format":"uri","description":"HTTP(S) proxy origin without credentials. Omit on update to preserve the connection. Provide it to replace the connection and any authentication."},
+        "username":secret,
+        "password":secret
+    });
     let topic_fields = json!({"name":string,"description":string,"enabled":boolean,"default_tags":strings,"retention":integer,"policy":reference("Policy"),"protected":boolean});
     let mut topic_in = topic_fields.clone();
     topic_in["password"] = json!({"type":"string","nullable":true,"writeOnly":true});
@@ -320,6 +353,9 @@ fn schemas() -> Value {
             "Account":{"type":"object","properties":account_out},
             "AccountCreate":{"type":"object","required":["name","channel","config"],"properties":account_in},
             "AccountUpdate":{"type":"object","properties":account_in},
+            "Proxy":{"type":"object","required":["id","name","url","authenticated"],"properties":{"id":string,"name":string,"url":{"type":"string","format":"uri","description":"Credential-free HTTP(S) origin"},"authenticated":boolean}},
+            "ProxyCreate":{"type":"object","required":["name","url"],"properties":proxy_input},
+            "ProxyUpdate":{"type":"object","required":["name"],"properties":proxy_input},
             "Channel":{"type":"object","required":["id","display_name","enabled","available","can_manage","config_schema","capabilities"],"properties":{"id":string,"display_name":string,"enabled":{"type":"boolean","description":"Persisted desired state"},"available":{"type":"boolean","description":"Current service availability"},"can_manage":{"type":"boolean","description":"Whether the requesting identity may manage global channel runtime"},"config_schema":{"type":"object"},"capabilities":{"type":"object"}}},
             "ChannelRuntime":{"type":"object","required":["id","enabled","available"],"properties":{"id":string,"enabled":{"type":"boolean","description":"Persisted desired state"},"available":{"type":"boolean","description":"Current service availability"}}},
             "ChannelChange":{"type":"object","properties":{"enabled":boolean,"reload":boolean},"oneOf":[{"required":["enabled"],"properties":{"reload":{"enum":[false]}}},{"required":["reload"],"properties":{"reload":{"enum":[true]}},"not":{"required":["enabled"]}}]},

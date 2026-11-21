@@ -25,6 +25,10 @@ struct Server {
 
 impl Server {
     fn start(database: &Path) -> Self {
+        Self::with_outbound_hosts(database, "")
+    }
+
+    fn with_outbound_hosts(database: &Path, outbound_hosts: &str) -> Self {
         let mut child = Command::new(env!("CARGO_BIN_EXE_anser"))
             .args(["serve", "--bind", "127.0.0.1:0", "--workers", "1"])
             .arg("--database")
@@ -34,6 +38,7 @@ impl Server {
             .env("ANSER_BOOTSTRAP_PASSWORD", BOOTSTRAP_PASSWORD)
             .env("ANSER_BOOTSTRAP_API_KEY", BOOTSTRAP_KEY)
             .env("ANSER_ALLOW_PRIVATE_NETWORK", "1")
+            .env("ANSER_OUTBOUND_ALLOW_HOSTS", outbound_hosts)
             .env("RUST_LOG", "warn")
             .stdout(Stdio::null())
             .stderr(Stdio::piped())
@@ -1120,4 +1125,277 @@ async fn totp_enrollment_login_recovery_and_disable_preserve_session_boundaries(
     let bob = server.login("bob", ACCOUNT_PASSWORD).await;
     let bob_status: Value = server.get("/v1/auth/totp", Some(&bob)).await;
     assert_eq!(bob_status, json!({"enabled":false}));
+}
+
+mod outbound_proxy {
+    use super::*;
+    use axum::Router;
+    use axum::extract::State;
+    use axum::http::{HeaderMap, Uri, header};
+    use axum::routing::post;
+    use base64::Engine as _;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use tokio::net::TcpListener;
+    use tokio::task::JoinHandle;
+
+    const DESTINATION: &str = "http://127.0.0.1:1";
+    const USERNAME: &str = "fixture-proxy-user@corp";
+    const PASSWORD: &str = "fixture-proxy-pass%40:蓝";
+
+    struct Mock {
+        auth: Option<String>,
+        hits: AtomicUsize,
+    }
+
+    async fn proxy_request(
+        State(mock): State<Arc<Mock>>,
+        uri: Uri,
+        headers: HeaderMap,
+    ) -> (StatusCode, axum::Json<Value>) {
+        let authorization = headers
+            .get(header::PROXY_AUTHORIZATION)
+            .and_then(|value| value.to_str().ok());
+        if authorization != mock.auth.as_deref() {
+            return (
+                StatusCode::PROXY_AUTHENTICATION_REQUIRED,
+                axum::Json(json!({})),
+            );
+        }
+        if uri.to_string() != format!("{DESTINATION}/") {
+            return (StatusCode::BAD_REQUEST, axum::Json(json!({})));
+        }
+        mock.hits.fetch_add(1, Ordering::SeqCst);
+        (
+            StatusCode::OK,
+            axum::Json(json!({"event":"message","id":"fixture"})),
+        )
+    }
+
+    async fn start_proxy(auth: Option<String>) -> (String, Arc<Mock>, JoinHandle<()>) {
+        let mock = Arc::new(Mock {
+            auth,
+            hits: AtomicUsize::new(0),
+        });
+        let router = Router::new()
+            .route("/", post(proxy_request))
+            .with_state(mock.clone());
+        let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+        let origin = format!("http://{}", listener.local_addr().unwrap());
+        let task = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+        (origin, mock, task)
+    }
+
+    #[tokio::test]
+    async fn reusable_profiles_drive_delivery_and_preserve_inline_fallback() {
+        let credentials =
+            base64::engine::general_purpose::STANDARD.encode(format!("{USERNAME}:{PASSWORD}"));
+        let (first_url, first_mock, first_task) =
+            start_proxy(Some(format!("Basic {credentials}"))).await;
+        let (fallback_url, fallback_mock, fallback_task) = start_proxy(None).await;
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("proxy-test.sqlite3");
+        let admin = Some(BOOTSTRAP_KEY);
+        let server = Server::start(&path);
+        let _: Value = server
+            .json(
+                Method::POST,
+                "/v1/users",
+                admin,
+                json!({"username":"proxy-viewer","password":ACCOUNT_PASSWORD}),
+                StatusCode::CREATED,
+            )
+            .await;
+        let viewer = server.login("proxy-viewer", ACCOUNT_PASSWORD).await;
+        let forbidden = server
+            .request(Method::GET, "/v1/proxies", Some(&viewer))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(forbidden.status(), StatusCode::FORBIDDEN);
+        let _: Value = server
+            .json(
+                Method::POST,
+                "/v1/proxies",
+                admin,
+                json!({"name":"incomplete","url":first_url,"username":USERNAME}),
+                StatusCode::BAD_REQUEST,
+            )
+            .await;
+        let _: Value = server
+            .json(
+                Method::POST,
+                "/v1/proxies",
+                admin,
+                json!({"name":"invalid","url":"socks5://127.0.0.1:4567"}),
+                StatusCode::BAD_REQUEST,
+            )
+            .await;
+        let profile: Value = server
+            .json(
+                Method::POST,
+                "/v1/proxies",
+                admin,
+                json!({"name":"Primary","url":first_url,"username":USERNAME,"password":PASSWORD}),
+                StatusCode::CREATED,
+            )
+            .await;
+        let proxy_id = json_string(&profile, "id");
+        assert_eq!(
+            profile,
+            json!({"id":proxy_id,"name":"Primary","url":first_url,"authenticated":true})
+        );
+        let proxy_path = format!("/v1/proxies/{proxy_id}");
+        let detail: Value = server.get(&proxy_path, admin).await;
+        assert_eq!(detail, profile);
+        let forbidden = server
+            .request(Method::GET, &proxy_path, Some(&viewer))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(forbidden.status(), StatusCode::FORBIDDEN);
+        for database in [path.clone(), path.with_file_name("proxy-test.sqlite3-wal")] {
+            let bytes = std::fs::read(database).unwrap();
+            for secret in [b"fixture-proxy-user".as_slice(), b"fixture-proxy-pass"] {
+                assert!(!bytes.windows(secret.len()).any(|window| window == secret));
+            }
+        }
+        let _: Value = server
+            .json(
+                Method::POST,
+                "/v1/accounts",
+                admin,
+                json!({"name":"SMTP","channel":"email","proxy_id":proxy_id,"config":{}}),
+                StatusCode::BAD_REQUEST,
+            )
+            .await;
+        let account: Value = server
+            .json(
+                Method::POST,
+                "/v1/accounts",
+                admin,
+                json!({"name":"Test ntfy","channel":"ntfy","proxy_id":proxy_id,
+                "config":{"server_url":DESTINATION,"topic":"probe","proxy":fallback_url}}),
+                StatusCode::CREATED,
+            )
+            .await;
+        assert_eq!(account["proxy_id"], proxy_id);
+        let account_id = json_string(&account, "id");
+        let account_path = format!("/v1/accounts/{account_id}");
+        let test_path = format!("{account_path}/test");
+        let test_body = json!({"title":"Check outbound proxy","body":"fixture"});
+        let blocked: Value = server
+            .json(
+                Method::POST,
+                &test_path,
+                admin,
+                test_body.clone(),
+                StatusCode::UNPROCESSABLE_ENTITY,
+            )
+            .await;
+        assert_eq!(
+            blocked["details"]["provider_code"],
+            "outbound_proxy_blocked"
+        );
+        assert_eq!(first_mock.hits.load(Ordering::SeqCst), 0);
+
+        drop(server);
+        let server = Server::with_outbound_hosts(&path, "127.0.0.1");
+        let _: Value = server
+            .json(
+                Method::POST,
+                &test_path,
+                admin,
+                test_body.clone(),
+                StatusCode::OK,
+            )
+            .await;
+        assert_eq!(first_mock.hits.load(Ordering::SeqCst), 1);
+        assert_eq!(fallback_mock.hits.load(Ordering::SeqCst), 0);
+        let in_use = server
+            .request(Method::DELETE, &proxy_path, admin)
+            .send()
+            .await
+            .unwrap();
+        let error: Value = checked_json(in_use, StatusCode::CONFLICT).await;
+        assert_eq!(error["code"], "proxy_in_use");
+
+        let renamed: Value = server
+            .json(
+                Method::PUT,
+                &proxy_path,
+                admin,
+                json!({"name":"Renamed"}),
+                StatusCode::OK,
+            )
+            .await;
+        assert_eq!(
+            renamed,
+            json!({"id":proxy_id,"name":"Renamed","url":first_url,"authenticated":true})
+        );
+        let updated_account: Value = server
+            .json(
+                Method::PUT,
+                &account_path,
+                admin,
+                json!({"config":{"server_url":DESTINATION,"topic":"changed"}}),
+                StatusCode::OK,
+            )
+            .await;
+        assert_eq!(updated_account["proxy_id"], proxy_id);
+        let receipt: Value = server.json(Method::POST, "/v1/send?wait=true", admin,
+            json!({"title":"Via worker","body":"fixture","channels":[{"account_id":account_id}]}),
+            StatusCode::OK).await;
+        assert_eq!(receipt["status"], "success");
+        assert_eq!(first_mock.hits.load(Ordering::SeqCst), 2);
+
+        let replacement: Value = server
+            .json(
+                Method::PUT,
+                &proxy_path,
+                admin,
+                json!({"name":"Renamed","url":fallback_url}),
+                StatusCode::OK,
+            )
+            .await;
+        assert_eq!(
+            replacement,
+            json!({"id":proxy_id,"name":"Renamed","url":fallback_url,"authenticated":false})
+        );
+        let _: Value = server
+            .json(
+                Method::POST,
+                &test_path,
+                admin,
+                test_body.clone(),
+                StatusCode::OK,
+            )
+            .await;
+        assert_eq!(fallback_mock.hits.load(Ordering::SeqCst), 1);
+        let detached: Value = server
+            .json(
+                Method::PUT,
+                &account_path,
+                admin,
+                json!({"proxy_id":null}),
+                StatusCode::OK,
+            )
+            .await;
+        assert!(detached["proxy_id"].is_null());
+        let _: Value = server
+            .json(Method::POST, &test_path, admin, test_body, StatusCode::OK)
+            .await;
+        assert_eq!(fallback_mock.hits.load(Ordering::SeqCst), 2);
+
+        let list: Value = server.get("/v1/proxies?limit=1", admin).await;
+        assert_eq!(list["items"], json!([replacement]));
+        let deleted = server
+            .request(Method::DELETE, &proxy_path, admin)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(deleted.status(), StatusCode::NO_CONTENT);
+        first_task.abort();
+        fallback_task.abort();
+    }
 }

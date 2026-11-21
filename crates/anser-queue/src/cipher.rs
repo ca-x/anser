@@ -1,3 +1,4 @@
+use anser_store::manage::StoredAccount;
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use chacha20poly1305::aead::{Aead, KeyInit, Payload};
@@ -13,6 +14,31 @@ pub struct Cipher(XChaCha20Poly1305);
 pub struct CipherError;
 
 impl Cipher {
+    pub fn seal_proxy(&self, id: &str, url: &str) -> Result<Vec<u8>, CipherError> {
+        self.seal_bytes(&proxy_context(id), url.as_bytes())
+    }
+
+    pub fn open_channel_config(
+        &self,
+        account: &StoredAccount,
+        encrypted_proxy: Option<&[u8]>,
+    ) -> Result<Value, CipherError> {
+        let mut config = self.open(&account.id, &account.encrypted_config)?;
+        match (&account.proxy_id, encrypted_proxy) {
+            (Some(id), Some(encrypted)) => {
+                let bytes = self.open_bytes(&proxy_context(id), encrypted)?;
+                let url = str::from_utf8(&bytes).map_err(|_| CipherError)?;
+                config
+                    .as_object_mut()
+                    .ok_or(CipherError)?
+                    .insert("proxy".into(), Value::String(url.to_owned()));
+            }
+            (None, None) => {}
+            _ => return Err(CipherError),
+        }
+        Ok(config)
+    }
+
     pub fn from_base64(encoded: &str) -> Result<Self, CipherError> {
         let key = Zeroizing::new(
             URL_SAFE_NO_PAD
@@ -76,4 +102,7 @@ impl Cipher {
                 .map_err(|_| CipherError)?,
         ))
     }
+}
+fn proxy_context(id: &str) -> String {
+    format!("outbound-proxy:{id}")
 }

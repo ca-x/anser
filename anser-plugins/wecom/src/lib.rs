@@ -127,7 +127,7 @@ impl Wecom {
         base: &str,
         policy: Option<&NetworkPolicy>,
     ) -> Result<SendOutcome, SendError> {
-        let content = Content::prepare(message, config.proxy.as_deref(), policy).await?;
+        let content = Content::prepare(message, policy).await?;
         let root = Url::parse(base).map_err(|_| invalid_config())?;
         let proxy = config.proxy.as_deref();
         let http = match policy {
@@ -187,18 +187,14 @@ struct ImageRequest {
 }
 
 impl Content {
-    async fn prepare(
-        message: &Message,
-        proxy: Option<&str>,
-        policy: Option<&NetworkPolicy>,
-    ) -> Result<Self, SendError> {
+    async fn prepare(message: &Message, policy: Option<&NetworkPolicy>) -> Result<Self, SendError> {
         if let [attachment] = message.attachments.as_slice() {
             if message.extras.get("wecom_image").is_some() {
                 return Err(invalid_image());
             }
             let url = Url::parse(&attachment.url).map_err(|_| invalid_image())?;
             let client = match policy {
-                Some(policy) => client_with_policy(&url, proxy, policy).await?,
+                Some(policy) => client_with_policy(&url, None, policy).await?,
                 None => {
                     anser_channel_http::request_destination_client(
                         &url,

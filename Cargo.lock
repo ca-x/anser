@@ -40,21 +40,23 @@ checksum = "683d7910e743518b0e34f1186f92494becacb047c7b6bf616c96772180fef923"
 
 [[package]]
 name = "anser-channel-http"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "anser-core",
  "anser-plugin-api",
  "httpdate",
+ "percent-encoding",
  "pulldown-cmark",
  "reqwest",
  "serde",
  "serde_json",
  "tokio",
+ "zeroize",
 ]
 
 [[package]]
 name = "anser-core"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -62,7 +64,7 @@ dependencies = [
 
 [[package]]
 name = "anser-host"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "anser-core",
  "anser-plugin-api",
@@ -85,7 +87,7 @@ dependencies = [
 
 [[package]]
 name = "anser-plugin-api"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "anser-core",
  "serde",
@@ -95,7 +97,7 @@ dependencies = [
 
 [[package]]
 name = "anser-plugin-bark"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "aes",
  "anser-channel-http",
@@ -111,7 +113,7 @@ dependencies = [
 
 [[package]]
 name = "anser-plugin-email"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "anser-channel-http",
  "anser-core",
@@ -125,7 +127,7 @@ dependencies = [
 
 [[package]]
 name = "anser-plugin-feishu"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "anser-channel-http",
  "anser-core",
@@ -141,7 +143,7 @@ dependencies = [
 
 [[package]]
 name = "anser-plugin-lazycat"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "anser-core",
  "anser-plugin-api",
@@ -161,7 +163,7 @@ dependencies = [
 
 [[package]]
 name = "anser-plugin-ntfy"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "anser-channel-http",
  "anser-core",
@@ -173,7 +175,7 @@ dependencies = [
 
 [[package]]
 name = "anser-plugin-serverchan"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "anser-channel-http",
  "anser-core",
@@ -185,7 +187,7 @@ dependencies = [
 
 [[package]]
 name = "anser-plugin-telegram"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "anser-channel-http",
  "anser-core",
@@ -197,7 +199,7 @@ dependencies = [
 
 [[package]]
 name = "anser-plugin-wechat-mp"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "anser-channel-http",
  "anser-core",
@@ -211,7 +213,7 @@ dependencies = [
 
 [[package]]
 name = "anser-plugin-wecom"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "anser-channel-http",
  "anser-core",
@@ -226,7 +228,7 @@ dependencies = [
 
 [[package]]
 name = "anser-queue"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "anser-channel-http",
  "anser-core",
@@ -246,7 +248,7 @@ dependencies = [
 
 [[package]]
 name = "anser-sdk"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "anser-channel-http",
  "anser-core",
@@ -261,7 +263,7 @@ dependencies = [
 
 [[package]]
 name = "anser-server"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "anser-channel-http",
  "anser-core",
@@ -295,7 +297,7 @@ dependencies = [
 
 [[package]]
 name = "anser-store"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "anser-core",
  "rand 0.8.8",

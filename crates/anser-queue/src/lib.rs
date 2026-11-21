@@ -285,14 +285,15 @@ async fn send_one(
     if now >= lease.deadline {
         return Ok(());
     }
-    let Slot::Started { n, account } = context.store.reserve(&lease, &delivery).await? else {
+    let Slot::Started { n, account, proxy } = context.store.reserve(&lease, &delivery).await?
+    else {
         return Ok(());
     };
     let timeout = duration((lease.deadline - now_ms()).min(15_000));
     let send = async {
         let mut config = context
             .cipher
-            .open(&delivery.account_id, &account.encrypted_config)
+            .open_channel_config(&account, proxy.as_deref())
             .map_err(|_| {
                 SendError::new(
                     "credential_error",

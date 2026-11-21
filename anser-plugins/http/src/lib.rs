@@ -8,12 +8,14 @@ use std::time::{Duration, SystemTime};
 
 use anser_core::{Message, MessageFormat};
 use anser_plugin_api::SendError;
+use percent_encoding::percent_decode_str;
 use pulldown_cmark::{Event, Options, Parser, TagEnd};
 pub use reqwest;
 use reqwest::dns::{Addrs, Name, Resolve, Resolving};
 use reqwest::{Client, Proxy, StatusCode, Url, redirect};
 use serde::de::DeserializeOwned;
 use serde_json::Value;
+use zeroize::Zeroizing;
 #[cfg(feature = "test-support")]
 pub mod mock;
 pub mod token;
@@ -137,18 +139,49 @@ pub fn validate_proxy(proxy: Option<&str>) -> Result<(), SendError> {
     Ok(())
 }
 
-fn proxy_url(value: &str) -> Result<Url, SendError> {
-    let proxy = url(value).map_err(|_| invalid_proxy())?;
+struct ProxyEndpoint {
+    url: Url,
+    credentials: Option<(Zeroizing<String>, Zeroizing<String>)>,
+}
+
+fn proxy_url(value: &str) -> Result<ProxyEndpoint, SendError> {
+    let mut proxy = Url::parse(value).map_err(|_| invalid_proxy())?;
+    let credentials = if proxy.username().is_empty() && proxy.password().is_none() {
+        None
+    } else {
+        let username = decode_proxy_credential(proxy.username())?;
+        let password = decode_proxy_credential(proxy.password().unwrap_or_default())?;
+        if username.is_empty() || username.contains(':') {
+            return Err(invalid_proxy());
+        }
+        proxy.set_password(None).map_err(|_| invalid_proxy())?;
+        proxy.set_username("").map_err(|_| invalid_proxy())?;
+        Some((username, password))
+    };
+    validate_url(&proxy).map_err(|_| invalid_proxy())?;
     if proxy.path() != "/" || proxy.query().is_some() {
         return Err(invalid_proxy());
     }
-    Ok(proxy)
+    Ok(ProxyEndpoint {
+        url: proxy,
+        credentials,
+    })
+}
+
+fn decode_proxy_credential(value: &str) -> Result<Zeroizing<String>, SendError> {
+    let decoded = percent_decode_str(value)
+        .decode_utf8()
+        .map_err(|_| invalid_proxy())?;
+    if decoded.chars().any(char::is_control) {
+        return Err(invalid_proxy());
+    }
+    Ok(Zeroizing::new(decoded.into_owned()))
 }
 
 fn invalid_proxy() -> SendError {
     SendError::new(
         "invalid_proxy",
-        "configure an HTTP(S) proxy URL without credentials, path or query",
+        "configure an HTTP(S) proxy origin with optional valid Basic credentials",
         false,
     )
 }
@@ -235,8 +268,12 @@ pub async fn client_with_policy(
 
     if let Some(proxy) = proxy {
         let proxy = proxy_url(proxy)?;
-        let proxy_host = proxy.host_str().expect("validated proxy has a hostname");
+        let proxy_host = proxy
+            .url
+            .host_str()
+            .expect("validated proxy has a hostname");
         let proxy_port = proxy
+            .url
             .port_or_known_default()
             .expect("validated proxy has a port");
         // An HTTP proxy may resolve requests using its own DNS. Operators must
@@ -250,7 +287,13 @@ pub async fn client_with_policy(
         }
         let proxy_addresses = resolve_host_with_policy(proxy_host, proxy_port, policy).await?;
         pinned.push((proxy_host.to_owned(), proxy_addresses));
-        builder = builder.proxy(Proxy::all(proxy.as_str()).map_err(|_| invalid_proxy())?);
+        let outbound = if let Some((username, password)) = proxy.credentials {
+            // Reqwest's custom proxy stores auth in a sensitive header, separate from its URL.
+            Proxy::custom(move |_| Some(proxy.url.clone())).basic_auth(&username, &password)
+        } else {
+            Proxy::all(proxy.url).map_err(|_| invalid_proxy())?
+        };
+        builder = builder.proxy(outbound);
     }
     builder
         .dns_resolver(Arc::new(PinnedDns(pinned)))
@@ -328,6 +371,11 @@ pub fn status_error(response: &reqwest::Response) -> Option<SendError> {
             true,
         ),
         StatusCode::REQUEST_TIMEOUT => ("http_timeout", "provider timed out the request", true),
+        StatusCode::PROXY_AUTHENTICATION_REQUIRED => (
+            "proxy_auth",
+            "outbound proxy rejected the credentials",
+            false,
+        ),
         StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN => (
             "http_auth",
             "provider rejected the credentials or permissions",

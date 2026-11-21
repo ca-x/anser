@@ -75,6 +75,7 @@ mod tests {
 }
 
 pub mod manage;
+pub mod proxies;
 pub mod queue;
 pub mod totp;
 pub mod users;
@@ -89,6 +90,8 @@ pub enum DataError {
     Missing,
     #[error("resource conflicts with existing data")]
     Conflict,
+    #[error("proxy profile is assigned to an account")]
+    ProxyInUse,
     #[error("permission denied")]
     Forbidden,
     #[error("authentication factor is invalid or no longer current")]

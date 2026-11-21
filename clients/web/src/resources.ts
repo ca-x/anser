@@ -18,7 +18,7 @@ export function useResource<T>(api: Api, path: string | undefined) {
   return { ...result, loading: result.data === undefined && result.error === undefined, reload };
 }
 
-export function usePage<T>(api: Api, path: string) {
+export function usePage<T>(api: Api, path: string | undefined) {
   const result = useResource<Page<T>>(api, path);
   const [extra, setExtra] = useState<{ base: Page<T>; items: T[]; next?: string | null }>();
   const [busy, setBusy] = useState(false);
@@ -32,7 +32,7 @@ export function usePage<T>(api: Api, path: string) {
     reload: result.reload,
     loadMore: async () => {
       const base = result.data;
-      if (!next || !base || busy) return;
+      if (!path || !next || !base || busy) return;
       setBusy(true);
       setExtraError(undefined);
       try {

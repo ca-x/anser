@@ -14,6 +14,7 @@ import accountsIcon from "./assets/icons/id-badge.svg?no-inline";
 import channelsIcon from "./assets/icons/plug.svg?no-inline";
 import topicsIcon from "./assets/icons/tag.svg?no-inline";
 import routingIcon from "./assets/icons/route.svg?no-inline";
+import proxyIcon from "./assets/icons/router.svg?no-inline";
 import usersIcon from "./assets/icons/user-group.svg?no-inline";
 import keysIcon from "./assets/icons/key.svg?no-inline";
 import pairIcon from "./assets/icons/scan-qr.svg?no-inline";
@@ -33,6 +34,7 @@ const Messages = lazy(() => import("./pages/Delivery").then(({ Messages }) => ({
 const MessageView = lazy(() => import("./pages/Delivery").then(({ MessageView }) => ({ default: MessageView })));
 const Send = lazy(() => import("./pages/Delivery").then(({ Send }) => ({ default: Send })));
 const Security = lazy(() => import("./pages/Security").then(({ Security }) => ({ default: Security })));
+const Proxies = lazy(() => import("./pages/Proxies").then(({ Proxies }) => ({ default: Proxies })));
 
 const sessionKey = "anser.auth.session";
 const guest = new Api();
@@ -44,6 +46,7 @@ const pages = [
   { path: "/admin/channels", label: "渠道插件", icon: channelsIcon },
   { path: "/admin/topics", label: "主题与订阅", icon: topicsIcon },
   { path: "/admin/routing", label: "默认路由", icon: routingIcon },
+  { path: "/admin/proxies", label: "出站代理", icon: proxyIcon },
   { path: "/admin/users", label: "用户", icon: usersIcon },
   { path: "/admin/api-keys", label: "API 密钥", icon: keysIcon },
   { path: "/admin/pair", label: "配对客户端", icon: pairIcon },
@@ -164,7 +167,7 @@ function App() {
       </div>
     </header>
     <nav className={`sidebar${menuOpen ? " sidebar-open" : ""}`} id="main-navigation" aria-label={t("控制台")}>
-      {[pages.slice(0, 3), pages.slice(3, 7), pages.slice(7)].map((group, index) => <ul className="nav-group" key={index}>{group.map((item) => {
+      {[pages.slice(0, 3), pages.slice(3, 8), pages.slice(8)].map((group, index) => <ul className="nav-group" key={index}>{group.map((item) => {
         const selected = path === item.path || (item.path !== "/admin" && path.startsWith(`${item.path}/`));
         return <li key={item.path}><a href={item.path} aria-current={selected ? "page" : undefined}
           onClick={(event) => { if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return; event.preventDefault(); navigate(item.path); }}>
@@ -261,6 +264,7 @@ function Workspace({ path, api, navigate }: { path: string; api: Api; navigate: 
     case "/admin/channels": return <Channels api={api} navigate={navigate} />;
     case "/admin/topics": return <Topics api={api} />;
     case "/admin/routing": return <DefaultRoute api={api} />;
+    case "/admin/proxies": return <Proxies api={api} />;
     case "/admin/users": return <Users api={api} />;
     case "/admin/api-keys": return <Keys api={api} />;
     case "/admin/pair": return <Pair api={api} />;

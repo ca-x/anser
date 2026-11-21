@@ -75,7 +75,11 @@ pub struct PendingDelivery {
 }
 
 pub enum Slot {
-    Started { n: i64, account: StoredAccount },
+    Started {
+        n: i64,
+        account: Box<StoredAccount>,
+        proxy: Option<Vec<u8>>,
+    },
     Deferred,
     Invalid,
     LeaseLost,
@@ -210,7 +214,7 @@ impl Store {
         if now >= lease.deadline || !owns(&mut tx, lease, now).await? {
             return Ok(Slot::LeaseLost);
         }
-        let account: Option<StoredAccount> = sqlx::query_as("SELECT id,channel,name,tags,weight,priority,enabled,rate_limit,encrypted_config,circuit_until FROM accounts WHERE id=? AND channel=? AND enabled=1")
+        let account: Option<StoredAccount> = sqlx::query_as("SELECT id,channel,name,tags,weight,priority,enabled,rate_limit,proxy_id,encrypted_config,circuit_until FROM accounts WHERE id=? AND channel=? AND enabled=1")
             .bind(&delivery.account_id).bind(&delivery.channel).fetch_optional(&mut *tx).await?;
         let Some(account) = account else {
             sqlx::query("UPDATE deliveries SET state='permanent',due_at=NULL WHERE id=?")
@@ -262,8 +266,13 @@ impl Store {
             .bind(&delivery.id).bind(now).bind(&delivery.id).fetch_one(&mut *tx).await?;
         sqlx::query("UPDATE deliveries SET state='sending',attempts_in_round=attempts_in_round+1,due_at=NULL WHERE id=?")
             .bind(&delivery.id).execute(&mut *tx).await?;
+        let proxy = super::proxies::proxy_credentials(&mut tx, account.proxy_id.as_deref()).await?;
         tx.commit().await?;
-        Ok(Slot::Started { n, account })
+        Ok(Slot::Started {
+            n,
+            account: Box::new(account),
+            proxy,
+        })
     }
 
     pub async fn record(
@@ -850,6 +859,7 @@ mod tests {
                     priority: 0,
                     enabled: true,
                     rate_limit: None,
+                    proxy_id: None,
                 },
                 &[1],
             )

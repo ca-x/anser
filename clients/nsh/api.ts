@@ -10,6 +10,8 @@ import type {
   Message,
   Page,
   Policy,
+  ProxyProfile,
+  ProxyProfileInput,
   Publish,
   SignIn,
   Subscription,
@@ -313,6 +315,34 @@ export class AnserApi {
       signal,
     );
   }
+
+  proxies(cursor?: string | null, signal?: AbortSignal) {
+    return this.request<Page<ProxyProfile>>(
+      pagePath("/proxies", cursor),
+      "GET",
+      undefined,
+      signal,
+    );
+  }
+
+  saveProxy(id: string | undefined, input: ProxyProfileInput) {
+    return this.request<ProxyProfile>(
+      id ? `/proxies/${segment(id)}` : "/proxies",
+      id ? "PUT" : "POST",
+      input,
+    );
+  }
+
+  async deleteProxy(id: string) {
+    try {
+      await this.request<void>(`/proxies/${segment(id)}`, "DELETE");
+    } catch (error) {
+      if (error instanceof ApiError && error.code === "proxy_in_use")
+        throw new ApiError(error.code, t("proxies.in_use"), 409);
+      throw error;
+    }
+  }
+
   saveAccount(id: string | undefined, body: JsonObject) {
     return this.request<Account>(
       id ? `/accounts/${segment(id)}` : "/accounts",

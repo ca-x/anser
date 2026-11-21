@@ -45,6 +45,7 @@ pub struct Account {
     pub priority: i32,
     pub enabled: bool,
     pub rate_limit: Option<u32>,
+    pub proxy_id: Option<String>,
 }
 
 /// Account configuration passed only to the selected channel.

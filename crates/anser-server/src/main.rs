@@ -4,6 +4,7 @@ mod channel_runtime;
 mod cli;
 mod error;
 mod openapi;
+mod proxies;
 mod totp;
 mod web;
 

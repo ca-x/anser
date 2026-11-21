@@ -91,11 +91,24 @@ function secretField(name: string, property: Property) {
   );
 }
 
-export function channelConfigDraft(channel: () => Channel | undefined) {
+export function supportsProxy(channel?: Channel) {
+  const properties = channel?.config_schema.properties;
+  return Boolean(
+    properties && typeof properties === "object" && "proxy" in properties,
+  );
+}
+
+export function channelConfigDraft(
+  channel: () => Channel | undefined,
+  sharedProxy: () => boolean,
+) {
   const values = signal<Record<string, string>>({});
   const raw = signal("");
   const advanced = signal(false);
-  const definitions = () => fields(channel());
+  const definitions = () =>
+    fields(channel()).filter(
+      (field) => !sharedProxy() || field.name !== "proxy",
+    );
   const clear = () => {
     values.set({});
     raw.set("");
@@ -103,11 +116,14 @@ export function channelConfigDraft(channel: () => Channel | undefined) {
   };
   const value = (): JsonObject => {
     const definition = definitions();
-    if (advanced() || !definition.length)
-      return parseObject(
+    if (advanced() || !definition.length) {
+      const result = parseObject(
         raw().trim() || "{}",
         t("common.channel_configuration"),
       );
+      if (sharedProxy()) delete result.proxy;
+      return result;
+    }
     const result: JsonObject = {};
     const entered = values();
     for (const field of definition) {

@@ -84,6 +84,16 @@ pub fn router() -> Router<Arc<App>> {
             get(account).put(update_account).delete(delete_account),
         )
         .route("/v1/accounts/{id}/test", post(test_account))
+        .route(
+            "/v1/proxies",
+            get(crate::proxies::list).post(crate::proxies::create),
+        )
+        .route(
+            "/v1/proxies/{id}",
+            get(crate::proxies::detail)
+                .put(crate::proxies::update)
+                .delete(crate::proxies::delete),
+        )
         .route("/v1/channels", get(channels))
         .route("/v1/channels/{id}", get(channel))
         .route(
@@ -234,6 +244,7 @@ struct AccountInput {
     #[serde(default = "enabled")]
     enabled: bool,
     rate_limit: Option<u32>,
+    proxy_id: Option<String>,
 }
 
 fn default_weight() -> u32 {
@@ -254,6 +265,8 @@ struct AccountUpdate {
     enabled: Option<bool>,
     #[serde(default, deserialize_with = "nullable")]
     rate_limit: Option<Option<u32>>,
+    #[serde(default, deserialize_with = "nullable")]
+    proxy_id: Option<Option<String>>,
 }
 
 async fn accounts(
@@ -293,8 +306,10 @@ async fn create_account(
         priority: input.priority,
         enabled: input.enabled,
         rate_limit: input.rate_limit,
+        proxy_id: input.proxy_id,
     };
     validate_account(&account)?;
+    validate_account_proxy(&app, &account.channel, account.proxy_id.as_deref()).await?;
     let encrypted = seal_account(&app, &account, &input.config).await?;
     app.store.create_account(&account, &encrypted).await?;
     Ok((StatusCode::CREATED, Json(account)))
@@ -307,7 +322,8 @@ async fn update_account(
     ApiJson(input): ApiJson<AccountUpdate>,
 ) -> ApiResult<Json<Account>> {
     identity.admin_global()?;
-    let mut account = app.store.account(&id).await?.public()?;
+    let previous = app.store.account(&id).await?;
+    let mut account = previous.public()?;
     if input
         .channel
         .is_some_and(|channel| channel != account.channel)
@@ -332,15 +348,49 @@ async fn update_account(
     if let Some(rate_limit) = input.rate_limit {
         account.rate_limit = rate_limit;
     }
+    if let Some(proxy_id) = &input.proxy_id {
+        validate_account_proxy(&app, &account.channel, proxy_id.as_deref()).await?;
+        account.proxy_id.clone_from(proxy_id);
+    }
     validate_account(&account)?;
     let encrypted = match input.config {
-        Some(config) => Some(seal_account(&app, &account, &config).await?),
+        Some(mut config) => {
+            if account.proxy_id.is_some()
+                && let Some(config) = config.as_object_mut()
+                && !config.contains_key("proxy")
+            {
+                let mut old = app.cipher.open(&id, &previous.encrypted_config)?;
+                if let Some(proxy) = old.as_object_mut().and_then(|value| value.remove("proxy")) {
+                    config.insert("proxy".into(), proxy);
+                }
+            }
+            Some(seal_account(&app, &account, &config).await?)
+        }
         None => None,
     };
-    app.store
-        .update_account(&account, encrypted.as_deref())
-        .await?;
-    Ok(Json(account))
+    let proxy = input.proxy_id.as_ref().map(|id| id.as_deref());
+    Ok(Json(
+        app.store
+            .update_account(&account, encrypted.as_deref(), proxy)
+            .await?,
+    ))
+}
+
+async fn validate_account_proxy(app: &App, channel: &str, proxy_id: Option<&str>) -> ApiResult<()> {
+    if proxy_id.is_none() {
+        return Ok(());
+    }
+    let schema = app
+        .host
+        .config_schema(channel)
+        .await
+        .map_err(ApiError::channel)?;
+    if schema["properties"].get("proxy").is_none() {
+        return Err(ApiError::bad(
+            "This channel does not support an outbound proxy",
+        ));
+    }
+    Ok(())
 }
 
 async fn seal_account(app: &App, account: &Account, config: &Value) -> ApiResult<Vec<u8>> {
@@ -387,8 +437,8 @@ async fn test_account(
 ) -> ApiResult<Json<anser_plugin_api::SendOutcome>> {
     identity.admin_global()?;
     validate_message(&message)?;
-    let account = app.store.account(&id).await?;
-    let config = app.cipher.open(&id, &account.encrypted_config)?;
+    let (account, proxy) = app.store.account_for_send(&id).await?;
+    let config = app.cipher.open_channel_config(&account, proxy.as_deref())?;
     let outcome = tokio::time::timeout(
         Duration::from_secs(20),
         app.host
@@ -565,8 +615,8 @@ async fn subscribe(
     let id = new_id();
     let encrypted = match (input.account_id.as_deref(), input.target.take()) {
         (Some(account_id), Some(target)) => {
-            let account = app.store.account(account_id).await?;
-            let mut config = app.cipher.open(account_id, &account.encrypted_config)?;
+            let (account, proxy) = app.store.account_for_send(account_id).await?;
+            let mut config = app.cipher.open_channel_config(&account, proxy.as_deref())?;
             validate_target_override(&account.channel, &target, &mut config)?;
             app.host
                 .validate(&account.channel, &config)

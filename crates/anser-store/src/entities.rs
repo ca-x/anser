@@ -16,6 +16,7 @@ pub(crate) mod account {
         pub priority: i32,
         pub enabled: bool,
         pub rate_limit: Option<u32>,
+        pub proxy_id: Option<String>,
         pub encrypted_config: Vec<u8>,
         pub circuit_until: i64,
         pub created_at: i64,
@@ -40,6 +41,27 @@ pub(crate) mod user {
         pub admin: bool,
         pub enabled: bool,
         pub created_at: i64,
+    }
+
+    #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+    pub enum Relation {}
+
+    impl ActiveModelBehavior for ActiveModel {}
+}
+
+pub(crate) mod proxy {
+    use sea_orm::entity::prelude::*;
+
+    #[derive(Clone, Debug, PartialEq, DeriveEntityModel)]
+    #[sea_orm(table_name = "proxy_profiles")]
+    pub struct Model {
+        #[sea_orm(primary_key, auto_increment = false)]
+        pub id: String,
+        pub space_id: String,
+        pub name: String,
+        pub url: String,
+        pub authenticated: bool,
+        pub encrypted_connection: Vec<u8>,
     }
 
     #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

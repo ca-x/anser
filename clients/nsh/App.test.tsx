@@ -551,3 +551,165 @@ test("sets up and disables two-factor authentication for the signed-in user", as
   await app.waitFor("设置双重验证");
   expect(enabled).toBe(false);
 });
+
+const proxyProfile = {
+  id: "p1",
+  name: "Office egress",
+  url: "https://proxy.example.test:8443",
+  authenticated: true,
+};
+
+const chinesePreferences = {
+  "anser.preferences": JSON.stringify({
+    language: "zh-CN",
+    appearance: "system",
+  }),
+};
+
+test("admin manages reusable proxy profiles without reading credentials", async () => {
+  let profile: typeof proxyProfile | undefined;
+  let inUse = true;
+  const app = await open("./App.tsx", {
+    platform: "linux",
+    storage: chinesePreferences,
+    width: 1120,
+    height: 900,
+    network: {
+      ...baseNetwork(),
+      [`${endpoints}/proxies`]: () => ({
+        body: page(profile ? [profile] : []),
+      }),
+      [`POST ${endpoints}/proxies`]: ({ body }) => {
+        expect(JSON.parse(body ?? "{}")).toEqual({
+          name: proxyProfile.name,
+          url: proxyProfile.url,
+          username: "fixture-user",
+          password: "fixture-secret",
+        });
+        profile = proxyProfile;
+        return { status: 201, body: profile };
+      },
+      [`PUT ${endpoints}/proxies/p1`]: ({ body }) => {
+        expect(JSON.parse(body ?? "{}")).toEqual({ name: "Shared egress" });
+        profile = { ...proxyProfile, name: "Shared egress" };
+        return { body: profile };
+      },
+      [`DELETE ${endpoints}/proxies/p1`]: () => {
+        if (inUse)
+          return {
+            status: 409,
+            body: { code: "proxy_in_use", message: "profile in use" },
+          };
+        profile = undefined;
+        return { status: 204 };
+      },
+    },
+  });
+  await login(app);
+  await app.press("role:button[账号]");
+  await app.press("代理配置");
+  await app.press("添加代理配置");
+  await app.type("label:配置名称", proxyProfile.name);
+  await app.type(
+    "label:代理地址",
+    "https://embedded:password@proxy.example.test:8443",
+  );
+  await app.press("保存代理配置");
+  await app.waitFor(
+    "请输入 HTTP 或 HTTPS 代理地址，地址中不要包含凭据、路径、查询参数或片段。",
+  );
+  expect(
+    app
+      .requests()
+      .filter(
+        (request) =>
+          request.method === "POST" && request.url.endsWith("/proxies"),
+      ).length,
+  ).toBe(0);
+  await app.clear("label:代理地址");
+  await app.type("label:代理地址", proxyProfile.url);
+  await app.press("使用代理认证");
+  await app.type("label:代理用户名", "fixture-user");
+  await app.type("label:代理密码", "fixture-secret");
+  await app.press("保存代理配置");
+  await app.waitFor(proxyProfile.name);
+  await app.press("查看");
+  expect(app.shows("label:代理密码")).toBe(false);
+
+  await app.clear("label:配置名称");
+  await app.type("label:配置名称", "Shared egress");
+  await app.press("保存代理配置");
+  await app.waitFor("Shared egress");
+  await app.press("查看");
+  app.onDialog(() => "删除代理配置");
+  await app.press("删除代理配置");
+  await app.waitFor("此配置正在使用。请先解除渠道账号与它的关联。");
+  inUse = false;
+  await app.press("删除代理配置");
+  await app.waitFor("尚无代理配置。添加后可在多个渠道账号中复用。");
+});
+
+test("links and removes a proxy profile while preserving the saved account config", async () => {
+  let proxyId: string | null = null;
+  const existing = {
+    id: "a1",
+    channel: "ntfy",
+    name: "Operations",
+    enabled: true,
+  };
+  const app = await open("./App.tsx", {
+    platform: "linux",
+    storage: chinesePreferences,
+    width: 1120,
+    height: 1080,
+    network: {
+      ...baseNetwork(),
+      [`${endpoints}/channels`]: {
+        body: page([
+          {
+            ...channel,
+            can_manage: true,
+            config_schema: {
+              properties: {
+                topic: { type: "string" },
+                proxy: { type: "string", format: "uri" },
+              },
+            },
+          },
+        ]),
+      },
+      [`${endpoints}/accounts`]: () => ({
+        body: page([{ ...existing, proxy_id: proxyId }]),
+      }),
+      [`${endpoints}/proxies`]: { body: page([proxyProfile]) },
+      [`PUT ${endpoints}/accounts/a1`]: ({ body }) => {
+        const input = JSON.parse(body ?? "{}");
+        expect(input.proxy_id).toBe(proxyId === null ? proxyProfile.id : null);
+        expect("config" in input).toBe(false);
+        proxyId = input.proxy_id;
+        return { body: { ...existing, proxy_id: proxyId } };
+      },
+    },
+  });
+  await login(app);
+  await app.press("role:button[账号]");
+  await app.waitFor("Operations");
+  await app.press("查看");
+  await app.press("替换已保存的配置");
+  await app.waitFor("label:HTTP 代理地址");
+  await app.press("label:出站代理");
+  await app.press(proxyProfile.name);
+  expect(app.shows("label:HTTP 代理地址")).toBe(false);
+  await app.press("替换已保存的配置");
+  await app.press("保存账号");
+  await app.waitFor("Operations");
+  expect(proxyId).toBe(proxyProfile.id);
+
+  await app.press("查看");
+  await app.waitFor(proxyProfile.name);
+  await app.press("label:出站代理");
+  await app.press("使用账号连接设置");
+  await app.press("保存账号");
+  await app.waitFor("Operations");
+  expect(proxyId).toBe(null);
+});
