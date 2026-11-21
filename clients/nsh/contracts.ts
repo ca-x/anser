@@ -11,6 +11,9 @@ export interface Page<T> {
 export interface Channel {
   id: string;
   display_name: string;
+  enabled?: boolean;
+  available?: boolean;
+  can_manage?: boolean;
   config_schema: JsonObject;
   capabilities: {
     formats?: Format[];
@@ -18,6 +21,8 @@ export interface Channel {
     user_target?: boolean;
   };
 }
+
+export type ChannelRuntime = Pick<Channel, "id" | "enabled" | "available">;
 
 export interface Account {
   id: string;
@@ -142,6 +147,16 @@ export interface User {
 export interface SignIn {
   token: string;
   user: User;
+}
+
+export interface TotpStatus {
+  enabled: boolean;
+}
+
+export interface TotpSetup {
+  secret: string;
+  uri: string;
+  expires_at: number;
 }
 
 export interface InboxItem {

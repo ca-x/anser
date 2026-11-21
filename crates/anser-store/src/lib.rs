@@ -16,6 +16,7 @@ pub enum OpenError {
     Migrate(#[from] sqlx::migrate::MigrateError),
 }
 
+mod channel_settings;
 mod entities;
 
 pub struct Store(SqlitePool, DatabaseConnection, tokio::sync::Mutex<()>);
@@ -75,6 +76,7 @@ mod tests {
 
 pub mod manage;
 pub mod queue;
+pub mod totp;
 pub mod users;
 
 #[derive(Debug, thiserror::Error)]
@@ -89,6 +91,8 @@ pub enum DataError {
     Conflict,
     #[error("permission denied")]
     Forbidden,
+    #[error("authentication factor is invalid or no longer current")]
+    InvalidFactor,
     #[error("request has no available destinations")]
     NoTargets,
     #[error("queue could not commit a submission batch")]

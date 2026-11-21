@@ -1,6 +1,7 @@
 import { t } from "nsh/i18n";
 import {
   cleanup,
+  effect,
   platform,
   signal,
   Text,
@@ -9,6 +10,7 @@ import {
   windowSize,
 } from "nsh";
 import { Button, createNavStack, NavStack } from "nsh/base";
+import { currentWindow, isAvailable as desktopAvailable } from "nsh/desktop";
 import { TabBar } from "nsh/mobile";
 import { messageFor, type AnserApi } from "./api";
 import { Action, confirm, Hint } from "./components/Controls";
@@ -25,6 +27,8 @@ import { Connection } from "./pages/Connection";
 import { DefaultRoute } from "./pages/DefaultRoute";
 import { History, MessageDetail } from "./pages/History";
 import { Inbox, InboxDetail, InboxSend } from "./pages/Inbox";
+import { PluginSettings, Plugins } from "./pages/Plugins";
+import { Security } from "./pages/Security";
 import { TopicDetail, TopicEditor, Topics } from "./pages/Topics";
 
 type Session = { api: AnserApi; channels: Channel[]; user?: User };
@@ -38,8 +42,11 @@ type Route =
   | { name: "topic-editor"; topic?: Topic }
   | { name: "default-route" }
   | { name: "preferences" }
+  | { name: "security" }
   | { name: "accounts" }
-  | { name: "account-editor"; account?: Account }
+  | { name: "account-editor"; account?: Account; presetChannel?: string }
+  | { name: "plugins" }
+  | { name: "plugin"; channel: Channel }
   | { name: "history" }
   | { name: "message"; id: string }
   | { name: "inbox" }
@@ -60,7 +67,7 @@ const sections: {
   },
   {
     id: "topics",
-    title: () => "Topic",
+    title: () => t("shell.topics"),
     ios: "tag",
     android: "android:ic_menu_agenda",
   },
@@ -86,6 +93,10 @@ const sections: {
 
 export function AnserApp() {
   const preferences = createPreferences();
+  if (desktopAvailable || platform.os === "web") {
+    const appWindow = currentWindow();
+    effect(() => appWindow.set({ title: t("workspace.anser") }));
+  }
   const session = signal<Session | undefined>(undefined);
   const pairing = signal<Pairing | undefined>(undefined);
   const linkError = signal("");
@@ -161,14 +172,33 @@ function Workspace(props: {
   pendingPairing?: Pairing;
   onDismissPairing: () => void;
 }) {
-  const { api, channels, user } = props.session;
+  const { api, user } = props.session;
+  const channels = signal(props.session.channels);
+  const accountsRevision = signal(0);
   const nav = createNavStack<Route>([{ name: "compose" }]);
   const selection = signal<Section>("compose");
   const systemTabs = platform.os === "ios" || platform.os === "android";
   const wide = () => !systemTabs && windowSize().width >= 780;
   const accountAdmin = user?.admin ?? true;
+  const pluginAdmin = () => {
+    const permissions = channels().filter(
+      (channel) => channel.can_manage !== undefined,
+    );
+    return permissions.length
+      ? permissions.some((channel) => channel.can_manage)
+      : user?.admin === true;
+  };
   const open = (page: Route) => nav.push(page);
   const back = () => nav.pop();
+  const openPreferences = () => {
+    const current = nav.routes().at(-1)?.name;
+    if (current === "security") back();
+    else if (current !== "preferences") open({ name: "preferences" });
+  };
+  const finishAccountEdit = () => {
+    accountsRevision.update((revision) => revision + 1);
+    back();
+  };
   const go = (tab: Section) => {
     if (selection() !== tab || nav.routes().length !== 1) {
       selection.set(tab);
@@ -263,7 +293,7 @@ function Workspace(props: {
             </View>
             <Action
               label={t("preferences.title")}
-              onPress={() => open({ name: "preferences" })}
+              onPress={openPreferences}
               kind="quiet"
             />
             <Action
@@ -280,7 +310,7 @@ function Workspace(props: {
                 return (
                   <Compose
                     api={api}
-                    channels={channels}
+                    channels={channels()}
                     initialTopic={route.topic}
                     onAccepted={(id) => open({ name: "message", id })}
                   />
@@ -289,7 +319,13 @@ function Workspace(props: {
                 return (
                   <Accounts
                     api={api}
-                    channels={channels}
+                    channels={channels()}
+                    revision={accountsRevision()}
+                    onPlugins={
+                      pluginAdmin()
+                        ? () => open({ name: "plugins" })
+                        : undefined
+                    }
                     onOpen={(account) =>
                       open({ name: "account-editor", account })
                     }
@@ -300,11 +336,52 @@ function Workspace(props: {
                 return (
                   <AccountEditor
                     api={api}
-                    channels={channels}
+                    channels={channels()}
                     account={route.account}
+                    presetChannel={route.presetChannel}
                     onBack={back}
-                    onSaved={() => nav.setRoutes([{ name: "accounts" }])}
-                    onDeleted={() => nav.setRoutes([{ name: "accounts" }])}
+                    onSaved={finishAccountEdit}
+                    onDeleted={finishAccountEdit}
+                  />
+                );
+              case "plugins":
+                return (
+                  <Plugins
+                    api={api}
+                    channels={channels()}
+                    onBack={back}
+                    onOpen={(channel) => open({ name: "plugin", channel })}
+                    onRefresh={channels.set}
+                  />
+                );
+              case "plugin":
+                return (
+                  <PluginSettings
+                    api={api}
+                    channel={
+                      channels().find(
+                        (channel) => channel.id === route.channel.id,
+                      ) ?? route.channel
+                    }
+                    admin={pluginAdmin()}
+                    revision={accountsRevision()}
+                    onBack={back}
+                    onOpenAccount={(account) =>
+                      open({ name: "account-editor", account })
+                    }
+                    onCreateAccount={() =>
+                      open({
+                        name: "account-editor",
+                        presetChannel: route.channel.id,
+                      })
+                    }
+                    onChange={(updated) =>
+                      channels.update((items) =>
+                        items.map((channel) =>
+                          channel.id === updated.id ? updated : channel,
+                        ),
+                      )
+                    }
                   />
                 );
               case "topics":
@@ -337,7 +414,7 @@ function Workspace(props: {
                 return (
                   <TopicEditor
                     api={api}
-                    channels={channels}
+                    channels={channels()}
                     topic={route.topic}
                     onBack={back}
                     onSaved={(topic) =>
@@ -353,13 +430,22 @@ function Workspace(props: {
                 return (
                   <WorkspacePage title={t("preferences.title")} back={back}>
                     <PreferenceControls preferences={props.preferences} />
+                    <If when={user}>
+                      <Action
+                        label={t("security.title")}
+                        class="self-start"
+                        onPress={() => open({ name: "security" })}
+                      />
+                    </If>
                   </WorkspacePage>
                 );
+              case "security":
+                return user && <Security api={api} onBack={back} />;
               case "default-route":
                 return (
                   <DefaultRoute
                     api={api}
-                    channels={channels}
+                    channels={channels()}
                     onBack={back}
                     onSaved={back}
                   />
@@ -375,7 +461,7 @@ function Workspace(props: {
                 return (
                   <MessageDetail
                     api={api}
-                    channels={channels}
+                    channels={channels()}
                     id={route.id}
                     onBack={back}
                     onReplay={
@@ -436,7 +522,7 @@ function Workspace(props: {
               </Text>
               <Action
                 label={t("preferences.title")}
-                onPress={() => open({ name: "preferences" })}
+                onPress={openPreferences}
                 kind="quiet"
               />
               <Action

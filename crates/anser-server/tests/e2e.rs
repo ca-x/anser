@@ -556,6 +556,142 @@ mod durable_delivery {
         assert_eq!(mock.calls.load(Ordering::SeqCst), 2);
     }
 
+    #[tokio::test]
+    async fn channel_disablement_survives_restart_until_an_admin_enables_it() {
+        let temp = tempfile::tempdir().unwrap();
+        let database = temp.path().join("anser.sqlite3");
+        let (mock, address, _mock_server) = mock_server().await;
+        mock.success.store(true, Ordering::SeqCst);
+        let store = anser_store::Store::open(&database).await.unwrap();
+        store
+            .set_channel_enabled("fixture-uncompiled", false)
+            .await
+            .unwrap();
+        drop(store);
+
+        let server = Server::start(&database);
+        let _: Value = server
+            .json(
+                Method::POST,
+                "/v1/accounts",
+                Some(BOOTSTRAP_KEY),
+                json!({
+                    "name":"runtime setting fixture",
+                    "channel":"ntfy",
+                    "config":{"server_url":format!("http://{address}/"),"topic":"runtime-fixture"}
+                }),
+                StatusCode::CREATED,
+            )
+            .await;
+        let _: Value = server
+            .json(
+                Method::POST,
+                "/v1/users",
+                Some(BOOTSTRAP_KEY),
+                json!({"username":"operator","password":ACCOUNT_PASSWORD}),
+                StatusCode::CREATED,
+            )
+            .await;
+        let operator = server.login("operator", ACCOUNT_PASSWORD).await;
+        let detail_path = "/v1/channels/ntfy";
+        let runtime_path = "/v1/channels/ntfy/runtime";
+        let description: Value = server.get(detail_path, Some(BOOTSTRAP_KEY)).await;
+        assert_eq!(description["enabled"], true);
+        assert_eq!(description["available"], true);
+        assert_eq!(description["can_manage"], true);
+        assert!(description["config_schema"].is_object());
+        let regular_description: Value = server.get(detail_path, Some(&operator)).await;
+        assert_eq!(regular_description["can_manage"], false);
+        let _: Value = server
+            .json(
+                Method::PUT,
+                runtime_path,
+                Some(&operator),
+                json!({"enabled":false}),
+                StatusCode::FORBIDDEN,
+            )
+            .await;
+        let disabled: Value = server
+            .json(
+                Method::PUT,
+                runtime_path,
+                Some(BOOTSTRAP_KEY),
+                json!({"enabled":false}),
+                StatusCode::OK,
+            )
+            .await;
+        assert_eq!(
+            disabled,
+            json!({"id":"ntfy","enabled":false,"available":false})
+        );
+
+        drop(server);
+        let server = Server::start(&database);
+        let detail: Value = server.get(detail_path, Some(BOOTSTRAP_KEY)).await;
+        assert_eq!(detail["enabled"], false);
+        assert_eq!(detail["available"], false);
+        assert_eq!(detail["config_schema"], description["config_schema"]);
+        let list: Value = server.get("/v1/channels", Some(&operator)).await;
+        let ntfy = list["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|channel| channel["id"] == "ntfy")
+            .unwrap();
+        assert_eq!(ntfy["enabled"], false);
+        assert_eq!(ntfy["available"], false);
+        assert_eq!(ntfy["can_manage"], false);
+        let store = anser_store::Store::open(&database).await.unwrap();
+        assert_eq!(
+            store
+                .channel_settings()
+                .await
+                .unwrap()
+                .get("fixture-uncompiled"),
+            Some(&false)
+        );
+        drop(store);
+
+        let payload =
+            json!({"title":"Runtime test","body":"Check saved plugin setting","channels":["ntfy"]});
+        let no_targets: Value = server
+            .json(
+                Method::POST,
+                "/v1/send",
+                Some(BOOTSTRAP_KEY),
+                payload.clone(),
+                StatusCode::UNPROCESSABLE_ENTITY,
+            )
+            .await;
+        assert_eq!(no_targets["code"], "no_available_targets");
+        assert_eq!(mock.calls.load(Ordering::SeqCst), 0);
+
+        let enabled: Value = server
+            .json(
+                Method::PUT,
+                runtime_path,
+                Some(BOOTSTRAP_KEY),
+                json!({"enabled":true}),
+                StatusCode::OK,
+            )
+            .await;
+        assert_eq!(
+            enabled,
+            json!({"id":"ntfy","enabled":true,"available":true})
+        );
+        let receipt: Receipt = server
+            .json(
+                Method::POST,
+                "/v1/send?wait=true&timeout_ms=2000",
+                Some(BOOTSTRAP_KEY),
+                payload,
+                StatusCode::OK,
+            )
+            .await;
+        assert_eq!(receipt.status, "success");
+        assert_eq!(mock.calls.load(Ordering::SeqCst), 1);
+    }
+
     #[derive(Default)]
     struct FanoutMock {
         successes: AtomicUsize,
@@ -777,4 +913,211 @@ mod durable_delivery {
         }
         assert_eq!(mock.callbacks.load(Ordering::SeqCst), 0);
     }
+}
+
+fn fixture_totp(seed: &[u8], step: u64) -> String {
+    use hmac::{Hmac, KeyInit, Mac};
+
+    let mut mac = Hmac::<sha1::Sha1>::new_from_slice(seed).unwrap();
+    mac.update(&step.to_be_bytes());
+    let bytes = mac.finalize().into_bytes();
+    let offset = usize::from(bytes[19] & 15);
+    let truncated = u32::from_be_bytes(bytes[offset..offset + 4].try_into().unwrap());
+    format!("{:06}", (truncated & 0x7fff_ffff) % 1_000_000)
+}
+
+#[tokio::test]
+async fn totp_enrollment_login_recovery_and_disable_preserve_session_boundaries() {
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("anser.sqlite3");
+    let server = Server::start(&path);
+    let existing = server.login(BOOTSTRAP_USER, BOOTSTRAP_PASSWORD).await;
+    let owner = server.login(BOOTSTRAP_USER, BOOTSTRAP_PASSWORD).await;
+    let _: Value = server
+        .json(
+            Method::POST,
+            "/v1/users",
+            Some(&owner),
+            json!({"username":"bob", "password":ACCOUNT_PASSWORD}),
+            StatusCode::CREATED,
+        )
+        .await;
+    let pair: Value = server
+        .json(
+            Method::POST,
+            "/v1/auth/pair",
+            Some(&existing),
+            json!({"server":format!("http://{}", server.address)}),
+            StatusCode::OK,
+        )
+        .await;
+    let pair_url = reqwest::Url::parse(json_string(&pair, "url")).unwrap();
+    let pair_code = pair_url
+        .query_pairs()
+        .find(|(key, _)| key == "code")
+        .unwrap()
+        .1;
+    let status: Value = server.get("/v1/auth/totp", Some(&owner)).await;
+    assert_eq!(status, json!({"enabled":false}));
+    let wrong_password: Value = server
+        .json(
+            Method::POST,
+            "/v1/auth/totp/setup",
+            Some(&owner),
+            json!({"password":"wrong-password"}),
+            StatusCode::BAD_REQUEST,
+        )
+        .await;
+    assert_eq!(wrong_password["code"], "invalid_password");
+    let setup_response = server
+        .request(Method::POST, "/v1/auth/totp/setup", Some(&owner))
+        .json(&json!({"password":BOOTSTRAP_PASSWORD}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(setup_response.headers()["cache-control"], "no-store");
+    let setup: Value = checked_json(setup_response, StatusCode::OK).await;
+    let secret = json_string(&setup, "secret");
+    let uri = reqwest::Url::parse(json_string(&setup, "uri")).unwrap();
+    assert_eq!(uri.scheme(), "otpauth");
+    assert!(
+        uri.query_pairs()
+            .any(|(key, value)| key == "secret" && value == secret)
+    );
+    assert!(setup["expires_at"].as_i64().unwrap() > anser_store::now_ms());
+    let wrong_session: Value = server
+        .json(
+            Method::POST,
+            "/v1/auth/totp/confirm",
+            Some(&existing),
+            json!({"code":"000000"}),
+            StatusCode::BAD_REQUEST,
+        )
+        .await;
+    assert_eq!(wrong_session["code"], "totp_setup_expired");
+    let wrong_confirmation: Value = server
+        .json(
+            Method::POST,
+            "/v1/auth/totp/confirm",
+            Some(&owner),
+            json!({"code":"invalid"}),
+            StatusCode::BAD_REQUEST,
+        )
+        .await;
+    assert_eq!(wrong_confirmation["code"], "invalid_totp");
+
+    let seed = data_encoding::BASE32_NOPAD
+        .decode(secret.as_bytes())
+        .unwrap();
+    let current = u64::try_from(anser_store::now_ms()).unwrap() / 30_000;
+    let confirmation_code = fixture_totp(&seed, current);
+    let confirmation: Value = server
+        .json(
+            Method::POST,
+            "/v1/auth/totp/confirm",
+            Some(&owner),
+            json!({"code":confirmation_code}),
+            StatusCode::OK,
+        )
+        .await;
+    assert_eq!(confirmation["enabled"], true);
+    let recovery = confirmation["recovery_codes"].as_array().unwrap();
+    assert_eq!(recovery.len(), 8);
+    let status: Value = server.get("/v1/auth/totp", Some(&owner)).await;
+    assert_eq!(status, json!({"enabled":true}));
+    let revoked = server
+        .request(Method::GET, "/v1/auth/me", Some(&existing))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(revoked.status(), StatusCode::UNAUTHORIZED);
+    let revoked_pair = server
+        .request(Method::POST, "/v1/auth/pair/exchange", None)
+        .json(&json!({"code":pair_code}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(revoked_pair.status(), StatusCode::UNAUTHORIZED);
+
+    drop(server);
+    let server = Server::start(&path);
+    let status: Value = server.get("/v1/auth/totp", Some(&owner)).await;
+    assert_eq!(status, json!({"enabled":true}));
+
+    let login = || server.request(Method::POST, "/v1/auth/login", None);
+    let valid_password = json!({"username":BOOTSTRAP_USER, "password":BOOTSTRAP_PASSWORD});
+    let missing: Value = checked_json(
+        login().json(&valid_password).send().await.unwrap(),
+        StatusCode::UNAUTHORIZED,
+    )
+    .await;
+    assert_eq!(missing["code"], "totp_required");
+    let password_error: Value = checked_json(
+        login()
+            .json(&json!({"username":BOOTSTRAP_USER,"password":"wrong-password"}))
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::UNAUTHORIZED,
+    )
+    .await;
+    assert_eq!(password_error["code"], "authentication_required");
+    let login_code = |code: &str| {
+        login().json(&json!({"username":BOOTSTRAP_USER, "password":BOOTSTRAP_PASSWORD,"code":code}))
+    };
+    let enrollment_replay: Value = checked_json(
+        login_code(&confirmation_code).send().await.unwrap(),
+        StatusCode::UNAUTHORIZED,
+    )
+    .await;
+    assert_eq!(enrollment_replay["code"], "invalid_totp");
+    let next_code = fixture_totp(&seed, current + 1);
+    let authenticated: Value =
+        checked_json(login_code(&next_code).send().await.unwrap(), StatusCode::OK).await;
+    let other_session = json_string(&authenticated, "token");
+    let login_replay: Value = checked_json(
+        login_code(&next_code).send().await.unwrap(),
+        StatusCode::UNAUTHORIZED,
+    )
+    .await;
+    assert_eq!(login_replay["code"], "invalid_totp");
+
+    let first_recovery = recovery[0].as_str().unwrap();
+    let (first, second) = tokio::join!(
+        login_code(first_recovery).send(),
+        login_code(first_recovery).send()
+    );
+    let first = first.unwrap();
+    let second = second.unwrap();
+    let denied = if first.status() == StatusCode::OK {
+        second
+    } else {
+        assert_eq!(second.status(), StatusCode::OK);
+        first
+    };
+    let spent: Value = checked_json(denied, StatusCode::UNAUTHORIZED).await;
+    assert_eq!(spent["code"], "invalid_totp");
+
+    let disabled: Value = server
+        .json(
+            Method::POST,
+            "/v1/auth/totp/disable",
+            Some(&owner),
+            json!({"password":BOOTSTRAP_PASSWORD, "code":recovery[1].as_str().unwrap().to_ascii_lowercase()}),
+            StatusCode::OK,
+        )
+        .await;
+    assert_eq!(disabled, json!({"enabled":false}));
+    let status: Value = server.get("/v1/auth/totp", Some(&owner)).await;
+    assert_eq!(status, disabled);
+    let revoked = server
+        .request(Method::GET, "/v1/auth/me", Some(other_session))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(revoked.status(), StatusCode::UNAUTHORIZED);
+    server.login(BOOTSTRAP_USER, BOOTSTRAP_PASSWORD).await;
+    let bob = server.login("bob", ACCOUNT_PASSWORD).await;
+    let bob_status: Value = server.get("/v1/auth/totp", Some(&bob)).await;
+    assert_eq!(bob_status, json!({"enabled":false}));
 }

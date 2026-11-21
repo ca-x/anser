@@ -1,6 +1,6 @@
 import { t } from "nsh/i18n";
 import { cleanup, effect, Scroll, signal, Text, View } from "nsh";
-import { AnserApi } from "../api";
+import { AnserApi, ApiError } from "../api";
 import type { Channel, User } from "../contracts";
 import type { Pairing } from "../pairing";
 import { parsePairing } from "../pairing";
@@ -29,6 +29,8 @@ export function Connection(props: {
   const username = signal("");
   const key = signal("");
   const password = signal("");
+  const verificationCode = signal("");
+  const challenge = signal(false);
   const link = signal("");
   const pair = signal<Pairing | undefined>(undefined);
   const showImport = signal(false);
@@ -42,10 +44,22 @@ export function Connection(props: {
   });
 
   function usePairing(imported: Pairing) {
+    resetChallenge();
     address.set(imported.origin);
     pair.set(imported.code ? imported : undefined);
     link.set("");
     showImport.set(false);
+  }
+
+  function resetChallenge() {
+    challenge.set(false);
+    verificationCode.set("");
+  }
+
+  function credentialChanged(set: (value: string) => void, value: string) {
+    set(value);
+    resetChallenge();
+    connect.problem.set("");
   }
 
   function submit(withCode = false) {
@@ -75,12 +89,30 @@ export function Connection(props: {
         const signed = await (
           withCode && invitation?.code
             ? publicApi.exchange(invitation.code)
-            : publicApi.login(username().trim(), password())
-        ).finally(() => {
-          publicApi.close();
-          if (pending === publicApi) pending = undefined;
-        });
+            : publicApi.login(
+                username().trim(),
+                password(),
+                challenge() ? verificationCode().trim() : undefined,
+              )
+        )
+          .catch((error: unknown) => {
+            if (
+              !withCode &&
+              connect.live() &&
+              error instanceof ApiError &&
+              error.code === "totp_required"
+            ) {
+              challenge.set(true);
+            }
+            verificationCode.set("");
+            throw error;
+          })
+          .finally(() => {
+            publicApi.close();
+            if (pending === publicApi) pending = undefined;
+          });
         if (!connect.live()) return;
+        resetChallenge();
         user = signed.user;
         api = new AnserApi(publicApi.origin, signed.token);
       } else {
@@ -94,6 +126,7 @@ export function Connection(props: {
         pending = undefined;
         password.set("");
         key.set("");
+        resetChallenge();
         pair.set(undefined);
         props.onConnect(api, channels, user);
       } finally {
@@ -123,7 +156,7 @@ export function Connection(props: {
             keyboard="url"
             value={address()}
             onChange={(value) => {
-              address.set(value);
+              credentialChanged(address.set, value);
               pair.set(undefined);
             }}
             placeholder="https://anser.example.com"
@@ -141,13 +174,15 @@ export function Connection(props: {
                     method.set(value ?? "password");
                     key.set("");
                     password.set("");
+                    resetChallenge();
+                    connect.problem.set("");
                   }}
                   items={[
                     {
                       value: "password",
                       title: t("connection.username_and_password"),
                     },
-                    { value: "key", title: "API Key" },
+                    { value: "key", title: t("common.api_key") },
                   ]}
                   disabled={connect.busy()}
                 />
@@ -155,7 +190,7 @@ export function Connection(props: {
                   when={method() === "password"}
                   else={
                     <Field
-                      label="API Key"
+                      label={t("common.api_key")}
                       value={key()}
                       onChange={key.set}
                       onSubmit={() => submit()}
@@ -170,19 +205,38 @@ export function Connection(props: {
                     <Field
                       label={t("connection.username")}
                       value={username()}
-                      onChange={username.set}
+                      onChange={(value) =>
+                        credentialChanged(username.set, value)
+                      }
                       testID="username"
                       disabled={connect.busy()}
                     />
                     <Field
                       label={t("connection.password")}
                       value={password()}
-                      onChange={password.set}
-                      onSubmit={() => submit()}
+                      onChange={(value) =>
+                        credentialChanged(password.set, value)
+                      }
+                      onSubmit={() => {
+                        if (!challenge()) submit();
+                      }}
                       masked
                       testID="password"
                       disabled={connect.busy()}
                     />
+                    <If when={challenge()}>
+                      <Field
+                        label={t("security.verification_or_recovery_code")}
+                        value={verificationCode()}
+                        onChange={verificationCode.set}
+                        onSubmit={() => {
+                          if (verificationCode().trim()) submit();
+                        }}
+                        masked
+                        testID="verification-code"
+                        disabled={connect.busy()}
+                      />
+                    </If>
                   </View>
                 </If>
                 <Hint>
@@ -201,7 +255,9 @@ export function Connection(props: {
                     !address().trim() ||
                     (method() === "key"
                       ? !key().trim()
-                      : !username().trim() || !password())
+                      : !username().trim() ||
+                        !password() ||
+                        (challenge() && !verificationCode().trim()))
                   }
                 />
               </View>

@@ -11,8 +11,8 @@ export function PreferenceControls(props: { preferences: Preferences }) {
         value={current.settings().language}
         items={[
           { value: "system", title: t("preferences.follow_system") },
-          { value: "zh-CN", title: "简体中文" },
-          { value: "en", title: "English" },
+          { value: "zh-CN", title: t("preferences.simplified_chinese") },
+          { value: "en", title: t("preferences.english") },
         ]}
         onChange={current.changeLanguage}
       />

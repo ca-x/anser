@@ -1,4 +1,4 @@
-import { useT } from "../preferences";
+import { useChannelName, useT } from "../preferences";
 import { useId, useState } from "react";
 import {
   EuiAccordion, EuiButtonEmpty, EuiFieldNumber, EuiFieldText, EuiFormRow, EuiSelect, EuiSwitch, EuiText,
@@ -19,6 +19,7 @@ export const modes = [
 export function PolicyFields({ value, update, channels, accounts }: {
   value: Policy; update: (value: Policy) => void; channels: Channel[]; accounts: Account[];
 }) {
+  const channelName = useChannelName();
   const t = useT();
   const advanced = useId();
   function updateTarget(index: number, target?: Target) {
@@ -42,7 +43,7 @@ export function PolicyFields({ value, update, channels, accounts }: {
       <div className="form-grid">
         <EuiFormRow label={t("渠道")} fullWidth><EuiSelect fullWidth
           value={target.channel ?? ""}
-          options={[{ value: "", text: t("不限渠道") }, ...channels.map(({ id, display_name }) => ({ value: id, text: t(display_name) }))]}
+          options={[{ value: "", text: t("不限渠道") }, ...channels.map(({ id, display_name }) => ({ value: id, text: channelName(id, display_name) }))]}
           onChange={(event) => updateTarget(index, { ...target, channel: event.target.value || undefined, account_id: undefined })} />
         </EuiFormRow>
         <EuiFormRow label={t("账号")} fullWidth><EuiSelect fullWidth value={target.account_id ?? ""}

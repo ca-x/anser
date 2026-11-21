@@ -31,15 +31,19 @@ impl Cipher {
     }
 
     pub fn seal(&self, id: &str, value: &Value) -> Result<Vec<u8>, CipherError> {
+        let bytes = Zeroizing::new(serde_json::to_vec(value).map_err(|_| CipherError)?);
+        self.seal_bytes(id, &bytes)
+    }
+
+    pub fn seal_bytes(&self, id: &str, bytes: &[u8]) -> Result<Vec<u8>, CipherError> {
         let mut nonce = [0; 24];
         rand::rngs::OsRng.fill_bytes(&mut nonce);
-        let bytes = Zeroizing::new(serde_json::to_vec(value).map_err(|_| CipherError)?);
         let ciphertext = self
             .0
             .encrypt(
                 XNonce::from_slice(&nonce),
                 Payload {
-                    msg: &bytes,
+                    msg: bytes,
                     aad: id.as_bytes(),
                 },
             )
@@ -52,10 +56,15 @@ impl Cipher {
     }
 
     pub fn open(&self, id: &str, value: &[u8]) -> Result<Value, CipherError> {
+        let bytes = self.open_bytes(id, value)?;
+        serde_json::from_slice(&bytes).map_err(|_| CipherError)
+    }
+
+    pub fn open_bytes(&self, id: &str, value: &[u8]) -> Result<Zeroizing<Vec<u8>>, CipherError> {
         if value.len() < 41 || value[0] != 1 {
             return Err(CipherError);
         }
-        let bytes = Zeroizing::new(
+        Ok(Zeroizing::new(
             self.0
                 .decrypt(
                     XNonce::from_slice(&value[1..25]),
@@ -65,7 +74,6 @@ impl Cipher {
                     },
                 )
                 .map_err(|_| CipherError)?,
-        );
-        serde_json::from_slice(&bytes).map_err(|_| CipherError)
+        ))
     }
 }

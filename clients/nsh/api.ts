@@ -3,6 +3,7 @@ import type {
   Acceptance,
   Account,
   Channel,
+  ChannelRuntime,
   HistoryEntry,
   InboxItem,
   JsonObject,
@@ -13,6 +14,8 @@ import type {
   SignIn,
   Subscription,
   Topic,
+  TotpSetup,
+  TotpStatus,
   User,
 } from "./contracts";
 
@@ -66,8 +69,19 @@ function segment(value: string) {
 }
 
 function pagePath(path: string, cursor?: string | null) {
-  return cursor ? `${path}?cursor=${encodeURIComponent(cursor)}` : path;
+  if (!cursor) return path;
+  const separator = path.includes("?") ? "&" : "?";
+  return `${path}${separator}cursor=${encodeURIComponent(cursor)}`;
 }
+
+const authErrors = new Map([
+  ["totp_required", "security.second_factor_required"],
+  ["invalid_totp", "security.invalid_code"],
+  ["invalid_password", "security.invalid_password"],
+  ["totp_setup_expired", "security.setup_expired"],
+  ["totp_already_enabled", "security.already_enabled"],
+  ["totp_not_enabled", "security.not_enabled"],
+]);
 
 export class AnserApi {
   readonly origin: string;
@@ -115,6 +129,20 @@ export class AnserApi {
         signal: abort.signal,
         redirect: "error",
       });
+      const data =
+        response.status === 204
+          ? undefined
+          : await response.json().catch(() => undefined);
+      const payload = data as { code?: string; message?: string } | undefined;
+      if (
+        !response.ok &&
+        payload?.code &&
+        (path === "/auth/login" || path.startsWith("/auth/totp"))
+      ) {
+        const message = authErrors.get(payload.code);
+        if (message)
+          throw new ApiError(payload.code, t(message), response.status);
+      }
       if (response.status === 401)
         throw new ApiError(
           "unauthorized",
@@ -129,12 +157,7 @@ export class AnserApi {
           t("api.your_credentials_do_not_allow_this"),
           403,
         );
-      const data =
-        response.status === 204
-          ? undefined
-          : await response.json().catch(() => undefined);
       if (!response.ok) {
-        const payload = data as { code?: string; message?: string } | undefined;
         throw new ApiError(
           payload?.code ?? "http_error",
           payload?.message ?? t("api.http_status", { status: response.status }),
@@ -177,8 +200,12 @@ export class AnserApi {
     }
   }
 
-  login(username: string, password: string) {
-    return this.request<SignIn>("/auth/login", "POST", { username, password });
+  login(username: string, password: string, code?: string) {
+    return this.request<SignIn>("/auth/login", "POST", {
+      username,
+      password,
+      code,
+    });
   }
 
   exchange(code: string) {
@@ -191,6 +218,37 @@ export class AnserApi {
 
   logout() {
     return this.request<void>("/auth/logout", "POST");
+  }
+
+  totpStatus(signal?: AbortSignal) {
+    return this.request<TotpStatus>("/auth/totp", "GET", undefined, signal);
+  }
+
+  setupTotp(password: string, signal: AbortSignal) {
+    return this.request<TotpSetup>(
+      "/auth/totp/setup",
+      "POST",
+      { password },
+      signal,
+    );
+  }
+
+  confirmTotp(code: string, signal: AbortSignal) {
+    return this.request<TotpStatus & { recovery_codes: string[] }>(
+      "/auth/totp/confirm",
+      "POST",
+      { code },
+      signal,
+    );
+  }
+
+  disableTotp(password: string, code: string, signal: AbortSignal) {
+    return this.request<TotpStatus>(
+      "/auth/totp/disable",
+      "POST",
+      { password, code },
+      signal,
+    );
   }
 
   inbox(cursor?: string | null, wait = false, signal?: AbortSignal) {
@@ -227,9 +285,29 @@ export class AnserApi {
     return result.items;
   }
 
-  accounts(cursor?: string | null, signal?: AbortSignal) {
+  channel(id: string, signal?: AbortSignal) {
+    return this.request<Channel>(
+      `/channels/${segment(id)}`,
+      "GET",
+      undefined,
+      signal,
+    );
+  }
+
+  changeChannel(id: string, change: { enabled: boolean } | { reload: true }) {
+    return this.request<ChannelRuntime>(
+      `/channels/${segment(id)}/runtime`,
+      "PUT",
+      change,
+    );
+  }
+
+  accounts(cursor?: string | null, signal?: AbortSignal, channel?: string) {
     return this.request<Page<Account>>(
-      pagePath("/accounts", cursor),
+      pagePath(
+        channel ? `/accounts?channel=${segment(channel)}` : "/accounts",
+        cursor,
+      ),
       "GET",
       undefined,
       signal,

@@ -16,19 +16,22 @@ use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::IntoResponse;
 use axum::routing::{delete, get, post};
 use axum::{Json, Router};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use crate::auth::{self, Identity, Rate};
+use crate::channel_runtime::{Change, ChannelRuntime, RuntimeState};
 use crate::error::{ApiError, ApiJson, ApiPath, ApiQuery, ApiResult};
 
 pub struct App {
     pub store: Arc<Store>,
     pub enqueuer: Enqueuer,
     pub host: Arc<ChannelHost>,
+    pub channel_runtime: ChannelRuntime,
     pub cipher: Arc<Cipher>,
     pub requests: Rate,
     pub login_requests: Rate,
+    pub totp_requests: Rate,
     pub dummy_password: String,
     pub public_url: Option<String>,
     pub requests_per_minute: u32,
@@ -44,6 +47,7 @@ pub struct App {
 pub struct Pagination {
     cursor: Option<String>,
     limit: Option<u32>,
+    channel: Option<String>,
 }
 
 impl Pagination {
@@ -61,6 +65,10 @@ pub fn router() -> Router<Arc<App>> {
         .route("/v1/health", get(health))
         .route("/v1/openapi.json", get(crate::openapi::document))
         .route("/v1/auth/login", post(auth::login))
+        .route("/v1/auth/totp", get(crate::totp::status))
+        .route("/v1/auth/totp/setup", post(crate::totp::setup))
+        .route("/v1/auth/totp/confirm", post(crate::totp::confirm))
+        .route("/v1/auth/totp/disable", post(crate::totp::disable))
         .route("/v1/auth/me", get(auth::me))
         .route("/v1/auth/logout", post(auth::logout))
         .route("/v1/auth/pair", post(auth::pair))
@@ -128,18 +136,32 @@ async fn health(State(app): State<Arc<App>>) -> (StatusCode, Json<Value>) {
     }
 }
 
-async fn channels(State(app): State<Arc<App>>, _: Identity) -> ApiResult<Json<Page<Value>>> {
-    let mut items = Vec::new();
-    for channel in app.host.ids() {
-        if let Ok(description) = app.host.describe(channel).await {
-            items.push(json!({
-                "id": description.id,
-                "display_name": description.display_name,
-                "config_schema": description.config_schema,
-                "capabilities": description.capabilities,
-                "available": app.host.available(channel),
-            }));
-        }
+#[derive(Serialize)]
+struct ChannelView {
+    #[serde(flatten)]
+    description: ChannelDescription,
+    #[serde(flatten)]
+    runtime: RuntimeState,
+    can_manage: bool,
+}
+
+async fn channels(
+    State(app): State<Arc<App>>,
+    identity: Identity,
+) -> ApiResult<Json<Page<ChannelView>>> {
+    let settings = app.store.channel_settings().await?;
+    let can_manage = identity.admin_global().is_ok();
+    let mut items = Vec::with_capacity(app.host.ids().len());
+    for &id in app.host.ids() {
+        let description = app.host.describe(id).await.map_err(ApiError::channel)?;
+        items.push(ChannelView {
+            description,
+            runtime: RuntimeState {
+                enabled: settings.get(id).copied().unwrap_or(true),
+                available: app.host.available(id),
+            },
+            can_manage,
+        });
     }
     Ok(Json(Page {
         items,
@@ -149,15 +171,20 @@ async fn channels(State(app): State<Arc<App>>, _: Identity) -> ApiResult<Json<Pa
 
 async fn channel(
     State(app): State<Arc<App>>,
-    _: Identity,
+    identity: Identity,
     ApiPath(id): ApiPath<String>,
-) -> ApiResult<Json<ChannelDescription>> {
+) -> ApiResult<Json<ChannelView>> {
     if !app.host.ids().contains(&id.as_str()) {
         return Err(DataError::Missing.into());
     }
-    Ok(Json(
-        app.host.describe(&id).await.map_err(ApiError::channel)?,
-    ))
+    Ok(Json(ChannelView {
+        description: app.host.describe(&id).await.map_err(ApiError::channel)?,
+        runtime: RuntimeState {
+            enabled: app.store.channel_enabled(&id).await?,
+            available: app.host.available(&id),
+        },
+        can_manage: identity.admin_global().is_ok(),
+    }))
 }
 
 #[derive(Deserialize)]
@@ -167,25 +194,30 @@ struct ChannelChange {
     reload: bool,
 }
 
+#[derive(Serialize)]
+struct ChannelRuntimeView {
+    id: String,
+    #[serde(flatten)]
+    runtime: RuntimeState,
+}
+
 async fn change_channel(
     State(app): State<Arc<App>>,
     identity: Identity,
     ApiPath(id): ApiPath<String>,
     ApiJson(change): ApiJson<ChannelChange>,
-) -> ApiResult<Json<Value>> {
+) -> ApiResult<Json<ChannelRuntimeView>> {
     identity.admin_global()?;
     if !app.host.ids().contains(&id.as_str()) {
         return Err(DataError::Missing.into());
     }
-    match (change.enabled, change.reload) {
-        (Some(enabled), false) => app.host.set_channel(&id, enabled).await,
-        (None, true) => app.host.reload_channel(&id).await,
+    let change = match (change.enabled, change.reload) {
+        (Some(enabled), false) => Change::SetEnabled(enabled),
+        (None, true) => Change::Reload,
         _ => return Err(ApiError::bad("Supply enabled or reload=true")),
-    }
-    .map_err(ApiError::channel)?;
-    Ok(Json(
-        json!({"id": id, "available": app.host.available(&id)}),
-    ))
+    };
+    let runtime = app.channel_runtime.change(&id, change).await?;
+    Ok(Json(ChannelRuntimeView { id, runtime }))
 }
 
 #[derive(Deserialize)]
@@ -230,7 +262,11 @@ async fn accounts(
     ApiQuery(page): ApiQuery<Pagination>,
 ) -> ApiResult<Json<Page<Account>>> {
     identity.admin_global()?;
-    Ok(Json(app.store.accounts(page.after(), page.limit()).await?))
+    Ok(Json(
+        app.store
+            .accounts(page.after(), page.limit(), page.channel.as_deref())
+            .await?,
+    ))
 }
 
 async fn account(

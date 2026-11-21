@@ -1,7 +1,8 @@
-import { useT } from "../preferences";
+import { useLanguage, useT } from "../preferences";
 import { EuiFieldNumber, EuiFieldPassword, EuiFieldText, EuiFormRow, EuiSelect } from "@elastic/eui";
 import type { Channel, JsonObject } from "../api";
 import { split } from "./Common";
+import { channelConfigOptionName } from "../locale";
 
 interface Property {
   type?: string;
@@ -31,6 +32,7 @@ export function ChannelFields({ channel, value, update }: {
   channel: Channel; value: JsonObject; update: (value: JsonObject) => void;
 }) {
   const t = useT();
+  const language = useLanguage();
   const schema = channel.config_schema;
   const fields = (typeof schema.properties === "object" && schema.properties !== null ? schema.properties : {}) as Record<string, Property>;
   const required = new Set(Array.isArray(schema.required) ? schema.required : []);
@@ -55,8 +57,10 @@ export function ChannelFields({ channel, value, update }: {
     const isRequired = required.has(key);
     let control;
     if (field.enum) {
+      const labelFor = (option: string) => channelConfigOptionName(language, option);
       control = <EuiSelect fullWidth required={isRequired} value={String(entry)} onChange={(event) => change(key, event.target.value)}
-        options={[{ value: "", text: placeholder ? t("默认 · {value}", { value: placeholder }) : t("请选择") }, ...field.enum.map((value) => ({ value, text: value }))]} />;
+        options={[{ value: "", text: placeholder ? t("默认 · {value}", { value: labelFor(placeholder) }) : t("请选择") },
+          ...field.enum.map((value) => ({ value, text: labelFor(value) }))]} />;
     } else if (field.type === "boolean") {
       control = <EuiSelect fullWidth value={String(entry)} onChange={(event) => change(key, event.target.value === "" ? "" : event.target.value === "true")}
         options={[{ value: "", text: t("默认") }, { value: "true", text: t("是") }, { value: "false", text: t("否") }]} />;

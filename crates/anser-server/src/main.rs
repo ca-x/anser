@@ -1,8 +1,10 @@
 mod api;
 mod auth;
+mod channel_runtime;
 mod cli;
 mod error;
 mod openapi;
+mod totp;
 mod web;
 
 use anser_queue::{Cipher, Enqueuer, Limits, Workers};
@@ -152,14 +154,20 @@ async fn serve(config: ServerConfig, host: Arc<ChannelHost>) -> anyhow::Result<(
         .await
         .map_err(|_| anyhow::anyhow!("could not initialize password authentication"))?;
     let cors = cors(&config.cors_origins)?;
+    channel_runtime::ChannelRuntime::restore(&store, &host).await?;
+    let listener = tokio::net::TcpListener::bind(config.bind).await?;
+    let (channel_runtime, channel_changes) =
+        channel_runtime::ChannelRuntime::start(store.clone(), host.clone());
     let (enqueuer, ingest) = Enqueuer::start(store.clone());
     let app = Arc::new(api::App {
         enqueuer,
         store: store.clone(),
         host: host.clone(),
+        channel_runtime,
         cipher: cipher.clone(),
         requests: auth::Rate::default(),
         login_requests: auth::Rate::default(),
+        totp_requests: auth::Rate::default(),
         dummy_password,
         public_url: config.public_url.filter(|value| !value.is_empty()),
         requests_per_minute: config.requests_per_minute,
@@ -176,7 +184,6 @@ async fn serve(config: ServerConfig, host: Arc<ChannelHost>) -> anyhow::Result<(
         .layer(axum::middleware::from_fn(no_store))
         .with_state(app)
         .merge(web::router());
-    let listener = tokio::net::TcpListener::bind(config.bind).await?;
     eprintln!("Anser listening on {}", listener.local_addr()?);
     let workers = Workers::start(
         store,
@@ -197,8 +204,10 @@ async fn serve(config: ServerConfig, host: Arc<ChannelHost>) -> anyhow::Result<(
     .with_graceful_shutdown(shutdown_signal())
     .await;
     let ingest_result = ingest.await;
+    let channel_result = channel_changes.await;
     workers.stop().await;
     ingest_result?;
+    channel_result?;
     result?;
     Ok(())
 }

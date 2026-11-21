@@ -2,7 +2,7 @@ import { useLanguage, useT } from "../preferences";
 import { useId, useState } from "react";
 import {
   EuiBadge, EuiBasicTable, EuiButton, EuiButtonEmpty, EuiCallOut, EuiCheckboxGroup, EuiCopy, EuiFieldPassword,
-  EuiFieldText, EuiFormRow, EuiSwitch, EuiText,
+  EuiFieldText, EuiFormRow, EuiIcon, EuiSwitch, EuiText,
 } from "@elastic/eui";
 import { QRCodeCanvas } from "qrcode.react";
 import { Api, segment, type Account, type ApiKey, type Channel, type IssuedKey, type MessageDetail, type Page, type PairCode, type Policy, type User } from "../api";
@@ -17,19 +17,19 @@ export function Dashboard({ api, navigate }: { api: Api; navigate: (path: string
   const stats = useResource<Record<string, number>>(api, "/statistics");
   const latest = useResource<Page<MessageDetail>>(api, "/messages?limit=8");
   const numbers = [
-    ["queue_depth", t("队列中"), t("等待分发的路由"), "waiting"],
-    ["delivery_success", t("已送达"), t("成功的渠道投递"), "success"],
-    ["delivery_dead", t("死信"), t("超出重试有效期"), "danger"],
-    ["retries", t("重试"), t("已记录的重试次数"), "neutral"],
+    ["queue_depth", t("队列中"), t("等待分发的路由"), "waiting", "clock"],
+    ["delivery_success", t("已送达"), t("成功的渠道投递"), "success", "checkInCircleFilled"],
+    ["delivery_dead", t("死信"), t("超出重试有效期"), "danger", "warning"],
+    ["retries", t("重试"), t("已记录的重试次数"), "neutral", "refresh"],
   ] as const;
 
   return <>
     <PageTitle title={t("投递总览")} description={t("查看通知队列、送达结果和最近的投递。")}
       action={<EuiButton fill iconType="plusCircle" onClick={() => navigate("/admin/send")}>{t("发送通知")}</EuiButton>} />
     <Failure message={stats.error} retry={stats.reload} />
-    <dl className="metrics" aria-label={t("队列与送达统计")}>{numbers.map(([key, label, detail, kind]) => <div key={key} className={`metric metric-${kind}`}>
-      <dt>{t(label)}</dt>
-      <dd><strong>{stats.data ? new Intl.NumberFormat(language).format(stats.data[key] ?? 0) : "—"}</strong><small>{t(detail)}</small></dd>
+    <dl className="metrics" aria-label={t("队列与送达统计")}>{numbers.map(([key, label, detail, kind, icon]) => <div key={key} className={`metric metric-${kind}`}>
+      <dt><EuiIcon type={icon} aria-hidden="true" />{label}</dt>
+      <dd><strong>{stats.data ? new Intl.NumberFormat(language).format(stats.data[key] ?? 0) : "—"}</strong><small>{detail}</small></dd>
     </div>)}</dl>
     <section className="stack">
       <div className="section-header"><h2>{t("最近投递")}</h2><EuiButtonEmpty size="s" onClick={() => navigate("/admin/messages")}>{t("全部记录")}</EuiButtonEmpty></div>
@@ -86,7 +86,7 @@ export function Users({ api }: { api: Api }) {
       action={<EuiButton fill iconType="plusCircle" onClick={() => setEditing("new")}>{t("新增用户")}</EuiButton>} />
     <Failure message={users.error} retry={users.reload} />
     {users.loading ? <Progress /> : users.items.length ? <div className="data-surface">
-      <EuiBasicTable<User> rowHeader="username" tableCaption={t("Anser 用户")} items={users.items} itemId="id" columns={[
+      <EuiBasicTable<User> rowHeader="username" tableCaption={t("雁字用户")} items={users.items} itemId="id" columns={[
         { field: "username", name: t("用户名"),
           render: (name, item) => <EuiButtonEmpty size="xs" flush="left" onClick={() => setEditing(item)}>{name}</EuiButtonEmpty> },
         { field: "admin", name: t("权限"), render: (value: boolean) => value ? t("管理员") : t("普通用户") },
@@ -140,8 +140,8 @@ export function Keys({ api }: { api: Api }) {
   const [confirming, setConfirming] = useState<{ key: ApiKey; operation: "rotate" | "disable" }>();
   const task = useMutation();
   return <>
-    <PageTitle title="API Keys" description={t("为发送、订阅和自动化任务分配凭据。")}
-      action={<EuiButton fill iconType="plusCircle" onClick={() => setCreating(true)}>{t("创建 Key")}</EuiButton>} />
+    <PageTitle title={t("API 密钥")} description={t("为发送、订阅和自动化任务分配凭据。")}
+      action={<EuiButton fill iconType="plusCircle" onClick={() => setCreating(true)}>{t("创建密钥")}</EuiButton>} />
     <Failure message={list.error} retry={list.reload} />
     {list.loading ? <Progress /> : list.items.length ? <div className="data-surface">
       <EuiBasicTable<ApiKey> rowHeader="name" tableCaption={t("API 凭据")} items={list.items} itemId="id" columns={[
@@ -157,9 +157,9 @@ export function Keys({ api }: { api: Api }) {
         </div> },
       ]} />
       <More next={list.next} busy={list.busy} load={() => void list.loadMore()} />
-    </div> : <Empty title={t("暂无 API Key")} description={t("创建一个具有所需作用域的 Key。")} />}
+    </div> : <Empty title={t("暂无 API 密钥")} description={t("创建一个具有所需作用域的密钥。")} />}
     {creating && <KeyEditor api={api} close={() => setCreating(false)} done={(key) => { setCreating(false); setIssued(key); list.reload(); }} />}
-    {confirming && <Confirm title={confirming.operation === "rotate" ? t("轮换 API Key？") : t("停用 API Key？")}
+    {confirming && <Confirm title={confirming.operation === "rotate" ? t("轮换 API 密钥？") : t("停用 API 密钥？")}
       label={confirming.operation === "rotate" ? t("确认轮换") : t("确认停用")} busy={task.busy}
       close={() => setConfirming(undefined)} confirm={() => void task.run(async () => {
         const path = `/api-keys/${segment(confirming.key.id)}`;
@@ -169,13 +169,13 @@ export function Keys({ api }: { api: Api }) {
       })}>
       <p>{t("「{name}」的旧凭据会立即失效。", { name: confirming.key.name })}</p><Failure message={task.error} />
     </Confirm>}
-    {issued && <Drawer title={t("保存新的 API Key")} close={() => setIssued(undefined)} size="s"
+    {issued && <Drawer title={t("保存新的 API 密钥")} close={() => setIssued(undefined)} size="s"
       footer={<EuiButton onClick={() => setIssued(undefined)}>{t("完成")}</EuiButton>}>
       <div className="stack">
-        <EuiCallOut color="warning" iconType="warning" title={t("完整 Key 只显示这一次，请复制到安全的凭据存储位置。")} />
+        <EuiCallOut color="warning" iconType="warning" title={t("完整密钥只显示这一次，请复制到安全的凭据存储位置。")} />
         <code className="new-token">{issued.token}</code>
         <EuiCopy textToCopy={issued.token} afterMessage={t("已复制")}>
-          {(copy: () => void) => <EuiButtonEmpty iconType="copy" onClick={copy}>{t("复制 Key")}</EuiButtonEmpty>}
+          {(copy: () => void) => <EuiButtonEmpty iconType="copy" onClick={copy}>{t("复制密钥")}</EuiButtonEmpty>}
         </EuiCopy>
       </div>
     </Drawer>}
@@ -190,8 +190,8 @@ function KeyEditor({ api, close, done }: { api: Api; close: () => void; done: (k
   const [expiry, setExpiry] = useState("");
   const id = useId();
   const task = useMutation();
-  return <Drawer title={t("创建 API Key")} close={close} size="s"
-    footer={<EuiButton type="submit" form={id} fill isLoading={task.busy}>{t("生成 Key")}</EuiButton>}>
+  return <Drawer title={t("创建 API 密钥")} close={close} size="s"
+    footer={<EuiButton type="submit" form={id} fill isLoading={task.busy}>{t("生成密钥")}</EuiButton>}>
     <form className="stack" id={id} onSubmit={(event) => {
       event.preventDefault();
       void task.run(async () => {
@@ -205,7 +205,7 @@ function KeyEditor({ api, close, done }: { api: Api; close: () => void; done: (k
       });
     }}>
       <Failure message={task.error} />
-      <EuiFormRow label={t("Key 名称")} fullWidth><EuiFieldText fullWidth required value={name} onChange={(event) => setName(event.target.value)} /></EuiFormRow>
+      <EuiFormRow label={t("密钥名称")} fullWidth><EuiFieldText fullWidth required value={name} onChange={(event) => setName(event.target.value)} /></EuiFormRow>
       <EuiFormRow label={t("作用域")} fullWidth><EuiCheckboxGroup
         options={[{ id: "send", label: t("发送") }, { id: "subscribe", label: t("订阅") }, { id: "admin", label: t("管理") }]} idToSelectedMap={scopes}
         onChange={(scope) => setScopes((value) => ({ ...value, [scope]: !value[scope] }))} /></EuiFormRow>

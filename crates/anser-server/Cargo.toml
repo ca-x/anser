@@ -31,7 +31,10 @@ anser-plugin-api.workspace = true
 anser-queue = { path = "../anser-queue" }
 anyhow.workspace = true
 base64.workspace = true
+data-encoding = "2.11"
+hmac = { version = "0.13", features = ["zeroize"] }
 rand.workspace = true
+sha1 = { version = "0.11", default-features = false, features = ["zeroize"] }
 sha2 = "0.10"
 subtle = "2"
 serde.workspace = true

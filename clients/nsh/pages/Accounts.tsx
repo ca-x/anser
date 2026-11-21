@@ -1,6 +1,7 @@
 import { t } from "nsh/i18n";
-import { signal, Text, View } from "nsh";
+import { effect, signal, Text, View } from "nsh";
 import { ApiError, type AnserApi } from "../api";
+import { channelName } from "../channelNames";
 import type { Account, Channel, Format, JsonObject } from "../contracts";
 import { integer, tagsFrom } from "../forms";
 import {
@@ -22,12 +23,58 @@ import { operation, paged } from "../state";
 export function Accounts(props: {
   api: AnserApi;
   channels: Channel[];
+  revision: number;
+  onPlugins?: () => void;
   onOpen: (account: Account) => void;
   onCreate: () => void;
 }) {
-  const list = paged(props.api.accounts.bind(props.api));
   return (
     <WorkspacePage title={t("accounts.channel_accounts")}>
+      <If when={props.onPlugins}>
+        <Action
+          label={t("plugins.title")}
+          onPress={() => props.onPlugins?.()}
+          class="self-start"
+        />
+      </If>
+      <AccountList
+        api={props.api}
+        channels={props.channels}
+        revision={props.revision}
+        onOpen={props.onOpen}
+        onCreate={props.onCreate}
+      />
+    </WorkspacePage>
+  );
+}
+
+export function AccountList(props: {
+  api: AnserApi;
+  channels: Channel[];
+  channel?: Channel;
+  revision: number;
+  onOpen: (account: Account) => void;
+  onCreate: () => void;
+}) {
+  const list = paged((cursor, abort) =>
+    props.api.accounts(cursor, abort, props.channel?.id),
+  );
+  const items = () =>
+    list
+      .items()
+      .filter(
+        (account) => !props.channel || account.channel === props.channel.id,
+      );
+  let revision = props.revision;
+  effect(() => {
+    const next = props.revision;
+    if (next !== revision) {
+      revision = next;
+      void list.reload();
+    }
+  });
+  return (
+    <>
       <View class="flex-row flex-wrap justify-between gap-2">
         <Action
           label={t("common.refresh")}
@@ -39,21 +86,34 @@ export function Accounts(props: {
           label={t("accounts.add_account")}
           kind="primary"
           onPress={props.onCreate}
+          disabled={props.channel?.available === false}
         />
       </View>
       <ReadState
         loading={list.loading()}
         problem={list.problem()}
-        empty={!list.items().length}
-        emptyLabel={t("accounts.no_channel_accounts_add_one_to")}
+        empty={!items().length && !list.next()}
+        emptyLabel={t(
+          props.channel
+            ? "plugins.no_accounts"
+            : "accounts.no_channel_accounts_add_one_to",
+        )}
       />
-      <Each of={list.items()} key={(account) => account.id}>
+      <Each of={items()} key={(account) => account.id}>
         {(account) => (
           <RecordRow
             title={account().name}
             subtitle={[
-              props.channels.find((channel) => channel.id === account().channel)
-                ?.display_name ?? account().channel,
+              ...(props.channel
+                ? []
+                : [
+                    channelName(
+                      account().channel,
+                      props.channels.find(
+                        (channel) => channel.id === account().channel,
+                      )?.display_name,
+                    ),
+                  ]),
               ...(account().tags ?? []),
             ].join(" / ")}
             status={
@@ -78,7 +138,7 @@ export function Accounts(props: {
           disabled={list.loading()}
         />
       </If>
-    </WorkspacePage>
+    </>
   );
 }
 
@@ -86,13 +146,14 @@ export function AccountEditor(props: {
   api: AnserApi;
   channels: Channel[];
   account?: Account;
+  presetChannel?: string;
   onBack: () => void;
   onSaved: (account: Account) => void;
   onDeleted: () => void;
 }) {
   const original = props.account;
   const name = signal(original?.name ?? "");
-  const channelId = signal(original?.channel ?? "");
+  const channelId = signal(original?.channel ?? props.presetChannel ?? "");
   const channel = () =>
     props.channels.find((entry) => entry.id === channelId());
   const tags = signal((original?.tags ?? []).join(", "));
@@ -215,9 +276,9 @@ export function AccountEditor(props: {
           value={channelId() || null}
           items={props.channels.map((entry) => ({
             value: entry.id,
-            title: entry.display_name,
+            title: channelName(entry.id, entry.display_name),
           }))}
-          disabled={Boolean(original)}
+          disabled={Boolean(original || props.presetChannel)}
           onChange={(value) => {
             channelId.set(value ?? "");
             config.clear();

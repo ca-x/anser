@@ -1,4 +1,4 @@
-import { useT } from "../preferences";
+import { useChannelName, useT } from "../preferences";
 import { useEffect, useId, useRef, useState } from "react";
 import {
   EuiAccordion, EuiBasicTable, EuiButton, EuiButtonEmpty, EuiCallOut, EuiFieldPassword, EuiFieldText, EuiFormRow,
@@ -78,16 +78,17 @@ export function MessageView({ api, id, navigate }: { api: Api; id: string; navig
 }
 
 function Delivery({ delivery }: { delivery: DeliveryRecord }) {
+  const channelName = useChannelName();
   const t = useT();
   const date = useDate();
   const id = useId();
   return <article className="delivery">
     <EuiAccordion id={id} initialIsOpen={delivery.status !== "success"} buttonContent={<span className="delivery-label">
-      <strong>{delivery.channel}</strong><code>{delivery.account_id}</code>
+      <strong>{channelName(delivery.channel)}</strong><code>{delivery.account_id}</code>
     </span>} extraAction={<Status value={delivery.status} />}>
       <div className="stack inset">
         {delivery.next_retry_at && <EuiText size="s" color="subdued"><p>{t("下次重试 {time}", { time: date(delivery.next_retry_at) })}</p></EuiText>}
-        {delivery.attempts?.length ? <EuiBasicTable tableCaption={t("{channel} 发送尝试", { channel: delivery.channel })} items={delivery.attempts} columns={[
+        {delivery.attempts?.length ? <EuiBasicTable tableCaption={t("{channel} 发送尝试", { channel: channelName(delivery.channel) })} items={delivery.attempts} columns={[
           { field: "n", name: t("次数"), width: "60px" }, { field: "started_at", name: t("开始"), render: date },
           { field: "latency", name: t("耗时"), render: (value: number | null) => value == null ? "—" : `${value} ms` },
           { name: t("结果"), render: (attempt: Attempt) => attempt.error_code ? <span><code>{attempt.error_code}</code> {attempt.error_msg}</span>
@@ -99,6 +100,7 @@ function Delivery({ delivery }: { delivery: DeliveryRecord }) {
 }
 
 export function Send({ api, navigate }: { api: Api; navigate: Navigate }) {
+  const channelName = useChannelName();
   const t = useT();
   const topics = usePage<Topic>(api, "/topics");
   const channels = useResource<Page<Channel>>(api, "/channels");
@@ -145,7 +147,7 @@ export function Send({ api, navigate }: { api: Api; navigate: Navigate }) {
       </EuiFormRow>}
       <div className="form-grid">
         <EuiFormRow label={t("显式渠道")} fullWidth><EuiSelect fullWidth value={channel} onChange={(event) => { setChannel(event.target.value); setAccount(""); }}
-          options={[{ value: "", text: t("跟随策略") }, ...(channels.data?.items ?? []).map(({ id, display_name }) => ({ value: id, text: t(display_name) }))]} /></EuiFormRow>
+          options={[{ value: "", text: t("跟随策略") }, ...(channels.data?.items ?? []).map(({ id, display_name }) => ({ value: id, text: channelName(id, display_name) }))]} /></EuiFormRow>
         <EuiFormRow label={t("显式账号")} fullWidth><EuiSelect fullWidth value={account} onChange={(event) => setAccount(event.target.value)}
           options={[{ value: "", text: t("跟随策略") }, ...accounts.items.filter((entry) => entry.enabled && (!channel || entry.channel === channel))
             .map(({ id, name }) => ({ value: id, text: name }))]} /></EuiFormRow>

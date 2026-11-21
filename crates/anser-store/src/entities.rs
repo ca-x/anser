@@ -89,3 +89,20 @@ pub(crate) mod topic {
         .eq(prefix)
     }
 }
+
+pub(crate) mod channel_setting {
+    use sea_orm::entity::prelude::*;
+
+    #[derive(Clone, Debug, PartialEq, DeriveEntityModel)]
+    #[sea_orm(table_name = "channel_settings")]
+    pub struct Model {
+        #[sea_orm(primary_key, auto_increment = false)]
+        pub channel: String,
+        pub enabled: bool,
+    }
+
+    #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+    pub enum Relation {}
+
+    impl ActiveModelBehavior for ActiveModel {}
+}

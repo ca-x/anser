@@ -6,6 +6,7 @@ use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 use serde::Serialize;
 
 use crate::entities::{topic, user};
+use crate::totp::{FactorProof, consume_factor};
 use crate::{DataError, Result, Store, affected, new_id, now_ms};
 
 #[derive(Clone, Serialize, sqlx::FromRow, sea_orm::FromQueryResult)]
@@ -139,9 +140,11 @@ impl Store {
         user_id: &str,
         expiry: i64,
         expected_password: &str,
+        factor: Option<FactorProof<'_>>,
     ) -> Result<User> {
         let mut tx = self.0.begin_with("BEGIN IMMEDIATE").await?;
         let user = session(&mut tx, id, hash, user_id, expiry, Some(expected_password)).await?;
+        consume_factor(&mut tx, user_id, factor).await?;
         tx.commit().await?;
         Ok(user)
     }

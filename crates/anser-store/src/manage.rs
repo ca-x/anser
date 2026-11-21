@@ -196,9 +196,17 @@ impl Store {
             .ok_or(DataError::Missing)
     }
 
-    pub async fn accounts(&self, after: &str, limit: u32) -> Result<Page<Account>> {
-        let mut values = management_accounts()
-            .filter(account::Column::Id.gt(after))
+    pub async fn accounts(
+        &self,
+        after: &str,
+        limit: u32,
+        channel: Option<&str>,
+    ) -> Result<Page<Account>> {
+        let mut query = management_accounts().filter(account::Column::Id.gt(after));
+        if let Some(channel) = channel {
+            query = query.filter(account::Column::Channel.eq(channel));
+        }
+        let mut values = query
             .order_by_asc(account::Column::Id)
             .limit(u64::from(limit) + 1)
             .into_model::<StoredAccount>()
@@ -492,8 +500,36 @@ pub(crate) fn page<T>(values: &mut Vec<T>, limit: u32, key: impl Fn(&T) -> &str)
 
 impl Store {
     pub async fn has_credentials(&self) -> Result<bool> {
-        let existing: i64 = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM accounts) OR EXISTS(SELECT 1 FROM deliveries WHERE encrypted_target IS NOT NULL)")
-            .fetch_one(&self.0).await?;
-        Ok(existing != 0)
+        Ok(sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM accounts) OR EXISTS(SELECT 1 FROM deliveries WHERE encrypted_target IS NOT NULL) OR EXISTS(SELECT 1 FROM user_totp WHERE setup_expires_at IS NULL OR setup_expires_at>?)")
+            .bind(now_ms()).fetch_one(&self.0).await?)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn channel_filter_is_applied_before_pagination() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(&dir.path().join("anser.sqlite3"))
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO accounts (id, space_id, channel, name, encrypted_config) VALUES
+            ('a', 'default', 'ntfy', 'One', x'01'),
+            ('b', 'default', 'email', 'Two', x'01'),
+            ('c', 'default', 'bark', 'Three', x'01'),
+            ('d', 'default', 'ntfy', 'Four', x'01')",
+        )
+        .execute(&store.0)
+        .await
+        .unwrap();
+        let first = store.accounts("", 1, Some("ntfy")).await.unwrap();
+        assert_eq!(first.items[0].id, "a");
+        let cursor = first.next_cursor.unwrap();
+        let second = store.accounts(&cursor, 1, Some("ntfy")).await.unwrap();
+        assert_eq!(second.items[0].id, "d");
+        assert!(second.next_cursor.is_none());
     }
 }

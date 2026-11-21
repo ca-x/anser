@@ -1,5 +1,6 @@
 import { t } from "nsh/i18n";
 import { signal, View } from "nsh";
+import { channelName } from "../channelNames";
 import type {
   Account,
   Channel,
@@ -270,8 +271,13 @@ export function Targets(props: {
               target(),
               props.accounts.find((item) => item.id === target().account_id)
                 ?.name,
-              props.channels.find((item) => item.id === target().channel)
-                ?.display_name,
+              target().channel
+                ? channelName(
+                    target().channel!,
+                    props.channels.find((item) => item.id === target().channel)
+                      ?.display_name,
+                  )
+                : undefined,
             )}
             subtitle={[
               target().weight == null
@@ -337,7 +343,7 @@ export function Targets(props: {
               { value: "", title: t("routing.any_channel") },
               ...props.channels.map((entry) => ({
                 value: entry.id,
-                title: entry.display_name,
+                title: channelName(entry.id, entry.display_name),
               })),
             ]}
             onChange={(value) => {

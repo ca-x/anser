@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { EuiButtonIcon, EuiContext, EuiFormRow, EuiPopover, EuiProvider, EuiSelect } from "@elastic/eui";
-import { chooseLanguage, chooseTheme, resolveTheme, translate, type Language, type ThemePreference } from "./locale";
+import { channelDisplayName, chooseLanguage, chooseTheme, resolveTheme, translate, type Language, type ThemePreference } from "./locale";
 import { consoleTheme } from "./theme";
 
 const languageKey = "anser.ui.language";
@@ -52,7 +52,7 @@ export function Preferences({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     document.documentElement.lang = language;
-    document.title = translate(language, "雁字 Anser 控制台");
+    document.title = translate(language, "雁字控制台");
   }, [language]);
   useEffect(() => { document.documentElement.dataset.theme = color; }, [color]);
 
@@ -78,6 +78,11 @@ export function useT() {
   return (key: string, values?: Record<string, string | number>) => translate(language, key, values);
 }
 
+export function useChannelName() {
+  const language = useLanguage();
+  return (id: string, fallback?: string) => channelDisplayName(language, id, fallback);
+}
+
 export function PreferenceMenu() {
   const [open, setOpen] = useState(false);
   const { language, theme, setLanguage, setTheme } = useContext(PreferencesContext);
@@ -91,7 +96,7 @@ export function PreferenceMenu() {
     <div className="preference-panel stack">
       <EuiFormRow label={t("语言")} fullWidth>
         <EuiSelect fullWidth value={language} onChange={(event) => setLanguage(chooseLanguage(event.target.value, language))}
-          options={[{ value: "zh-CN", text: "简体中文" }, { value: "en", text: "English" }]} />
+          options={[{ value: "zh-CN", text: t("简体中文") }, { value: "en", text: t("英文") }]} />
       </EuiFormRow>
       <EuiFormRow label={t("主题外观")} fullWidth>
         <EuiSelect fullWidth value={theme} onChange={(event) => setTheme(chooseTheme(event.target.value))}

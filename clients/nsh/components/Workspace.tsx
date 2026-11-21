@@ -79,6 +79,7 @@ export function RecordRow(props: {
   subtitle?: string;
   status?: JSX.Element;
   onPress?: () => void;
+  action?: { label: string; accessibilityLabel: string };
   class?: string;
 }) {
   return (
@@ -96,7 +97,8 @@ export function RecordRow(props: {
       {props.status}
       <If when={props.onPress}>
         <Action
-          label={t("workspace.view")}
+          label={props.action?.label ?? t("workspace.view")}
+          accessibilityLabel={props.action?.accessibilityLabel}
           onPress={() => props.onPress?.()}
           kind="quiet"
         />

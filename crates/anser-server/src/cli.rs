@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-use clap::{Args, Subcommand};
+use clap::{Args, Subcommand, ValueEnum};
 use reqwest::{Method, Url};
 use serde_json::Value;
 use zeroize::Zeroizing;
@@ -16,8 +16,13 @@ pub struct Remote {
 
 #[derive(Subcommand)]
 enum Resource {
-    /// Inspect loaded channels.
-    Channels { channel: Option<String> },
+    /// Inspect or manage channel plugins.
+    Channels {
+        channel: Option<String>,
+        /// Change the lifecycle of the selected plugin (requires an admin API key).
+        #[arg(long, requires = "channel")]
+        action: Option<ChannelAction>,
+    },
     /// Manage channel accounts.
     Accounts {
         #[command(subcommand)]
@@ -42,6 +47,23 @@ enum Resource {
     Messages { id: Option<String> },
     /// Replay the message using current route and account settings.
     Replay { id: String },
+}
+
+#[derive(Clone, Copy, ValueEnum)]
+enum ChannelAction {
+    Enable,
+    Disable,
+    Reload,
+}
+
+impl ChannelAction {
+    fn request(self) -> Value {
+        match self {
+            Self::Enable => serde_json::json!({"enabled": true}),
+            Self::Disable => serde_json::json!({"enabled": false}),
+            Self::Reload => serde_json::json!({"reload": true}),
+        }
+    }
 }
 
 #[derive(Subcommand)]
@@ -94,10 +116,13 @@ pub async fn run(remote: Remote) -> anyhow::Result<()> {
         .timeout(Duration::from_secs(35))
         .build()?;
     let request = match remote.resource {
-        Resource::Channels { channel } => {
-            let segments = channel.into_iter().collect::<Vec<_>>();
-            command(Method::GET, "channels", segments)
-        }
+        Resource::Channels { channel, action } => match action {
+            Some(action) => {
+                let id = channel.ok_or_else(|| anyhow::anyhow!("a channel ID is required"))?;
+                command(Method::PUT, "channels", [id, "runtime".into()]).json(action.request())
+            }
+            None => command(Method::GET, "channels", channel),
+        },
         Resource::Accounts { action } => match action {
             AccountAction::Manage(action) => resource("accounts", action).await?,
             AccountAction::Test { id, file } => {

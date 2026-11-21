@@ -1,6 +1,7 @@
 import { t } from "nsh/i18n";
 import { signal, View } from "nsh";
 import { ApiError } from "../api";
+import { builtInChannel } from "../channelNames";
 import type { Channel, JsonObject } from "../contracts";
 import { parseObject } from "../forms";
 import { Choice, Field, Hint, Panel, Toggle } from "./Controls";
@@ -12,8 +13,30 @@ type Property = {
   format?: string;
   writeOnly?: boolean;
   enum?: unknown[];
+  oneOf?: { type?: string }[];
   default?: unknown;
 };
+
+function channelText(
+  isBuiltIn: boolean,
+  key: string,
+  fallback: string,
+): string {
+  if (!isBuiltIn) return fallback;
+  const translation = t(key);
+  return translation.endsWith(`.${key}`) ? fallback : translation;
+}
+
+// A free-form string can represent either branch of the Telegram chat ID schema.
+function fieldType(property: Property) {
+  return (
+    property.type ??
+    (property.oneOf?.some(({ type }) => type === "string") &&
+    property.oneOf.every(({ type }) => type === "string" || type === "integer")
+      ? "string"
+      : undefined)
+  );
+}
 
 function fields(channel?: Channel) {
   const schema = channel?.config_schema;
@@ -24,14 +47,40 @@ function fields(channel?: Channel) {
     Array.isArray(properties)
   )
     return [];
+  const id = channel?.id ?? "";
+  const isBuiltIn = builtInChannel(id);
   const required = Array.isArray(schema.required) ? schema.required : [];
   return Object.entries(properties)
     .filter(([, prop]) => typeof prop === "object" && prop !== null)
-    .map(([name, prop]) => ({
-      name,
-      schema: prop as Property,
-      required: required.includes(name),
-    }));
+    .map(([name, prop]) => {
+      const schema = prop as Property;
+      return {
+        name,
+        schema,
+        type: fieldType(schema),
+        required: required.includes(name),
+        label: channelText(
+          isBuiltIn,
+          `config_field.${name}`,
+          schema.title ?? name,
+        ),
+        hint: channelText(
+          isBuiltIn,
+          `config_hint.${id}.${name}`,
+          schema.description ?? "",
+        ),
+        options: (Array.isArray(schema.enum) ? schema.enum : [])
+          .filter((option): option is string => typeof option === "string")
+          .map((value) => ({
+            value,
+            title: channelText(
+              isBuiltIn,
+              `config_option.${name}.${value}`,
+              value,
+            ),
+          })),
+      };
+    });
 }
 
 function secretField(name: string, property: Property) {
@@ -62,48 +111,50 @@ export function channelConfigDraft(channel: () => Channel | undefined) {
     const result: JsonObject = {};
     const entered = values();
     for (const field of definition) {
-      const { name, schema, required } = field;
+      const { name, schema, required, type, label, options } = field;
       const input = entered[name];
       if (input === undefined || !input.trim()) {
         if (required && schema.default === undefined) {
-          if (schema.type === "boolean") result[name] = false;
+          if (type === "boolean") result[name] = false;
           else
             throw new ApiError(
               "missing_config",
               t("channel_config.field_required", {
-                field: schema.title ?? name,
+                field: label,
               }),
             );
         }
         continue;
       }
-      if (schema.type === "array" || schema.type === "object" || !schema.type) {
+      if (options.some(({ value }) => value === input)) {
+        result[name] = input;
+      } else if (type === "array" || type === "object" || !type) {
         try {
           result[name] = JSON.parse(input);
         } catch {
           throw new ApiError(
             "invalid_json",
             t("channel_config.invalid_field_json", {
-              field: schema.title ?? name,
+              field: label,
             }),
           );
         }
-      } else if (schema.type === "integer" || schema.type === "number") {
+      } else if (type === "integer" || type === "number") {
         const number = Number(input);
         if (
           !Number.isFinite(number) ||
-          (schema.type === "integer" && !Number.isSafeInteger(number))
+          (type === "integer" && !Number.isSafeInteger(number))
         ) {
           throw new ApiError(
             "invalid_number",
             t("channel_config.invalid_field_number", {
-              field: schema.title ?? name,
+              field: label,
             }),
           );
         }
         result[name] = number;
       } else {
-        result[name] = schema.type === "boolean" ? input === "true" : input;
+        result[name] = type === "boolean" ? input === "true" : input;
       }
     }
     return result;
@@ -134,54 +185,58 @@ export function ChannelConfig(props: {
             <Each of={props.draft.definitions()} key={(field) => field.name}>
               {(field) => {
                 const property = () => field().schema;
+                const masked = () => secretField(field().name, property());
                 const label = () =>
                   field().required
                     ? t("channel_config.required_field", {
-                        name: property().title ?? field().name,
+                        name: field().label,
                       })
-                    : (property().title ?? field().name);
-                const enums = () =>
-                  property().enum?.filter(
-                    (value): value is string => typeof value === "string",
-                  ) ?? [];
+                    : field().label;
                 return (
                   <If
-                    when={property().type === "boolean"}
+                    when={field().type === "boolean"}
                     else={
                       <If
-                        when={enums().length > 0}
+                        when={field().options.length > 0}
                         else={
                           <Field
                             label={label()}
-                            hint={property().description}
+                            hint={field().hint}
                             value={props.draft.values()[field().name] ?? ""}
                             onChange={(value) => write(field().name, value)}
-                            masked={
-                              secretField(field().name, property()) &&
-                              property().type === "string"
+                            masked={masked()}
+                            multiline={
+                              !masked() &&
+                              ["array", "object"].includes(field().type ?? "")
                             }
-                            multiline={["array", "object"].includes(
-                              property().type ?? "",
-                            )}
                             placeholder={
-                              property().type === "array"
+                              field().type === "array"
                                 ? "[]"
-                                : property().type === "object"
+                                : field().type === "object"
                                   ? "{}"
                                   : undefined
                             }
                           />
                         }
                       >
-                        <Choice
-                          label={label()}
-                          value={props.draft.values()[field().name] ?? null}
-                          items={enums().map((value) => ({
-                            value,
-                            title: value,
-                          }))}
-                          onChange={(value) => write(field().name, value ?? "")}
-                        />
+                        <View class="gap-1">
+                          <Choice
+                            label={label()}
+                            value={
+                              props.draft.values()[field().name] ??
+                              (typeof property().default === "string"
+                                ? String(property().default)
+                                : null)
+                            }
+                            items={field().options}
+                            onChange={(value) =>
+                              write(field().name, value ?? "")
+                            }
+                          />
+                          <If when={field().hint}>
+                            <Hint>{field().hint}</Hint>
+                          </If>
+                        </View>
                       </If>
                     }
                   >
@@ -194,8 +249,8 @@ export function ChannelConfig(props: {
                         }
                         onChange={(value) => write(field().name, String(value))}
                       />
-                      <If when={property().description}>
-                        <Hint>{property().description}</Hint>
+                      <If when={field().hint}>
+                        <Hint>{field().hint}</Hint>
                       </If>
                     </View>
                   </If>

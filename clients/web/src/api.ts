@@ -6,6 +6,9 @@ export type Criteria = "any" | "all";
 export interface Page<T> { items: T[]; next_cursor?: string | null }
 export interface User { id: string; username: string; enabled: boolean; admin: boolean; created_at?: number }
 export interface SignIn { token: string; user: User }
+export interface TotpStatus { enabled: boolean }
+export interface TotpSetup { secret: string; uri: string; expires_at: number }
+export interface TotpConfirmation { enabled: true; recovery_codes: string[] }
 export interface PairCode { url: string; expires_at: number }
 export interface ApiKey {
   id: string;
@@ -20,9 +23,16 @@ export interface IssuedKey { token: string; key: ApiKey }
 export interface Channel {
   id: string;
   display_name: string;
+  enabled?: boolean;
   available?: boolean;
+  can_manage?: boolean;
   config_schema: JsonObject;
   capabilities: { formats: Format[]; attachments: boolean; user_target: boolean };
+}
+export interface ChannelRuntime {
+  id: string;
+  enabled?: boolean;
+  available: boolean;
 }
 export interface Account {
   id: string;
@@ -112,14 +122,23 @@ export interface MessageDetail { id: string; topic?: string | null; status: stri
 export const segment = encodeURIComponent;
 
 export class ApiError extends Error {
-  constructor(readonly status: number, message: string) { super(message); }
+  readonly status: number;
+  readonly code?: string;
+
+  constructor(status: number, message: string, code?: string) {
+    super(message);
+    this.status = status;
+    this.code = code;
+  }
 }
 
 export class Api {
   #token: string | undefined;
+  readonly unauthorized?: () => void;
 
-  constructor(token?: string, readonly unauthorized?: () => void) {
+  constructor(token?: string, unauthorized?: () => void) {
     this.#token = token;
+    this.unauthorized = unauthorized;
   }
 
   read<T>(path: string, signal?: AbortSignal) { return this.request<T>(path, { signal }); }
@@ -150,21 +169,27 @@ export class Api {
       response = await fetch(`/v1${path}`, { ...init, headers, signal, redirect: "error", cache: "no-store" });
     } catch (error) {
       if (init.signal?.aborted) throw error;
-      throw new ApiError(0, timer.aborted ? "请求超时，请稍后重试。" : "无法连接 Anser 服务，请检查网络。");
+      throw new ApiError(0, timer.aborted ? "请求超时，请稍后重试。" : "无法连接雁字服务，请检查网络。");
     }
-    if (response.status === 401) this.unauthorized?.();
     if (response.status === 204) return undefined as T;
     const payload: unknown = await response.json().catch(() => undefined);
     if (!response.ok) {
-      const reason = payload && typeof payload === "object" && "message" in payload && typeof payload.message === "string"
-        ? payload.message : `HTTP ${response.status}`;
-      throw new ApiError(response.status, reason);
+      const error = payload && typeof payload === "object" ? payload as Record<string, unknown> : undefined;
+      const code = typeof error?.code === "string" ? error.code : undefined;
+      if (response.status === 401 && code !== "invalid_totp" && code !== "totp_required") this.unauthorized?.();
+      const reason = typeof error?.message === "string" ? error.message : `HTTP ${response.status}`;
+      throw new ApiError(response.status, reason, code);
     }
-    if (payload === undefined) throw new ApiError(response.status, "服务器未返回 Anser JSON 数据。");
+    if (payload === undefined) throw new ApiError(response.status, "服务器未返回雁字 JSON 数据。");
     return payload as T;
   }
 }
 
 export function errorMessage(error: unknown) {
+  if (error instanceof ApiError && error.code === "invalid_totp") return "验证码无效或已使用，请输入新代码。";
+  if (error instanceof ApiError && error.code === "invalid_password") return "当前密码不正确。";
+  if (error instanceof ApiError && error.code === "totp_setup_expired") return "设置已过期，请输入当前密码重新开始。";
+  if (error instanceof ApiError && error.code === "totp_already_enabled") return "双重验证已启用。";
+  if (error instanceof ApiError && error.code === "totp_not_enabled") return "双重验证已停用。";
   return error instanceof Error ? error.message : "请求未完成。";
 }

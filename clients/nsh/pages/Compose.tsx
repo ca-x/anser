@@ -143,7 +143,7 @@ export function Compose(props: {
       <Problem message={delivery.problem()} />
       <Section title={t("compose.recipients")}>
         <Choice
-          label="Topic"
+          label={t("common.topic")}
           value={topic()}
           items={[
             { value: "", title: t("common.direct_delivery") },

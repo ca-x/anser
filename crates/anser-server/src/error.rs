@@ -98,6 +98,7 @@ impl From<anser_store::DataError> for ApiError {
                 "Delivery queue is full",
             ),
             Forbidden => Self::forbidden(),
+            InvalidFactor => Self::auth(),
             Sql(_) | Json(_) | Batch => {
                 // Never print database bind values or provider error bodies.
                 tracing::error!(%error, "storage request failed");

@@ -23,6 +23,7 @@ use zeroize::Zeroizing;
 
 use crate::api::{App, Pagination};
 use crate::error::{ApiError, ApiJson, ApiPath, ApiQuery, ApiResult};
+use crate::totp;
 
 static PASSWORD_WORK: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(4);
 
@@ -76,6 +77,13 @@ impl Identity {
 
     pub fn user(&self) -> ApiResult<&User> {
         self.user.as_ref().ok_or_else(ApiError::forbidden)
+    }
+
+    pub fn session_user(&self) -> ApiResult<&User> {
+        if !self.session {
+            return Err(ApiError::forbidden());
+        }
+        self.user()
     }
 
     pub fn message_owner(&self) -> Option<&str> {
@@ -233,6 +241,7 @@ impl Rate {
 pub struct Credentials {
     username: String,
     password: String,
+    code: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -252,6 +261,7 @@ pub async fn login(
         .map(|peer| peer.0.ip());
     check_login_rate(&app, peer)?;
     let ApiJson(input) = ApiJson::<Credentials>::from_request(request, &app).await?;
+    let code = input.code.map(Zeroizing::new);
     let user = match app.store.user_named(&input.username).await {
         Ok(user) => Some(user),
         Err(anser_store::DataError::Missing) => None,
@@ -267,6 +277,22 @@ pub async fn login(
     let user = user
         .filter(|user| user.enabled)
         .ok_or_else(ApiError::auth)?;
+    let factor = app.store.active_totp(&user.id).await?;
+    let proof = if let Some(factor) = &factor {
+        let code = code
+            .as_ref()
+            .filter(|code| !code.trim().is_empty())
+            .ok_or_else(totp::required)?;
+        if !app.totp_requests.hit(&format!("login:{}", user.id), 12) {
+            return Err(ApiError::limited());
+        }
+        Some(
+            totp::verify_factor(&app, &user.id, factor, code)?
+                .ok_or_else(|| totp::invalid_totp(StatusCode::UNAUTHORIZED))?,
+        )
+    } else {
+        None
+    };
     let (id, token) = new_token(None);
     let user = app
         .store
@@ -276,10 +302,13 @@ pub async fn login(
             &user.id,
             now_ms() + SESSION_TTL,
             &hash,
+            proof,
         )
         .await
         .map_err(|error| match error {
             anser_store::DataError::Missing => ApiError::auth(),
+            anser_store::DataError::InvalidFactor if factor.is_none() => totp::required(),
+            anser_store::DataError::InvalidFactor => totp::invalid_totp(StatusCode::UNAUTHORIZED),
             _ => error.into(),
         })?;
     Ok(Json(Session { token, user }))
@@ -610,7 +639,7 @@ fn hash(token: &str) -> [u8; 32] {
     Sha256::digest(token.as_bytes()).into()
 }
 
-fn serialize_secret<S: serde::Serializer>(
+pub(crate) fn serialize_secret<S: serde::Serializer>(
     value: &Zeroizing<String>,
     serializer: S,
 ) -> Result<S::Ok, S::Error> {

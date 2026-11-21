@@ -24,12 +24,14 @@ export function Action(props: {
   disabled?: boolean;
   class?: string;
   testID?: string;
+  accessibilityLabel?: string;
 }) {
   return (
     <Button
       onPress={props.onPress}
       disabled={props.disabled}
       testID={props.testID}
+      accessibilityLabel={props.accessibilityLabel}
       class={`min-h-11 items-center justify-center rounded-md px-3 py-2 focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 ${buttonSurfaces[props.kind ?? "secondary"]} ${props.class ?? ""}`}
     >
       <Text

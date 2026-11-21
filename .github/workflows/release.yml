@@ -100,7 +100,7 @@ jobs:
           binary="target/$TARGET/release/anser$EXTENSION"
           "$binary" --version
           mkdir -p "dist/$package/assets"
-          cp "$binary" README.md LICENSE "dist/$package/"
+          cp "$binary" README.md README.en.md LICENSE "dist/$package/"
           cp assets/logo.png "dist/$package/assets/"
           cp -R docs examples "dist/$package/"
           cp .env.example "dist/$package/"

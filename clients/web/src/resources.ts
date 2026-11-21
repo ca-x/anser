@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Api, errorMessage, segment, type Page } from "./api";
 
-export function useResource<T>(api: Api, path: string) {
+export function useResource<T>(api: Api, path: string | undefined) {
   const [result, setResult] = useState<{ path?: string; data?: T; error?: string }>({});
   const [version, setVersion] = useState(0);
   const reload = useCallback(() => setVersion((value) => value + 1), []);
   useEffect(() => {
+    if (path === undefined) return;
     const controller = new AbortController();
     setResult((current) => current.path === path ? { ...current, error: undefined } : { path });
     void api.read<T>(path, controller.signal).then(

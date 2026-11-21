@@ -227,3 +227,74 @@ async fn reads_inbox_items_and_encodes_cursor() {
             .starts_with("GET /v1/inbox?cursor=opaque%2F%3F&limit=4 ")
     );
 }
+
+#[tokio::test]
+async fn totp_methods_send_codes_only_to_their_intended_endpoints() {
+    let (base, requests) = mock::serve_sequence(&[
+        ("200 OK", "", SESSION),
+        ("200 OK", "", r#"{"enabled":false}"#),
+        (
+            "200 OK",
+            "",
+            r#"{"secret":"fixture","uri":"otpauth://totp/Anser:alice","expires_at":123}"#,
+        ),
+        (
+            "200 OK",
+            "",
+            r#"{"enabled":true,"recovery_codes":["recovery-fixture"]}"#,
+        ),
+        ("200 OK", "", r#"{"enabled":false}"#),
+    ])
+    .await;
+    let client = fixture_client(base.as_str());
+    assert_eq!(
+        client
+            .login_with_code("alice", "fixture-pass", "123456")
+            .await
+            .unwrap()
+            .token,
+        "session-fixture"
+    );
+    assert!(!client.totp_status().await.unwrap().enabled);
+    assert_eq!(
+        client.setup_totp("fixture-pass").await.unwrap().expires_at,
+        123
+    );
+    assert_eq!(
+        client.confirm_totp("123456").await.unwrap().recovery_codes,
+        ["recovery-fixture"]
+    );
+    assert!(
+        !client
+            .disable_totp("fixture-pass", "recovery-fixture")
+            .await
+            .unwrap()
+            .enabled
+    );
+
+    let requests = requests.await.unwrap();
+    assert!(requests[0].headers.starts_with("POST /v1/auth/login "));
+    assert_eq!(header(&requests[0], "authorization"), None);
+    let login: Value = serde_json::from_slice(&requests[0].body).unwrap();
+    assert_eq!(
+        login,
+        json!({"username":"alice", "password":"fixture-pass", "code":"123456"})
+    );
+    for (request, endpoint) in requests[1..].iter().zip([
+        "GET /v1/auth/totp ",
+        "POST /v1/auth/totp/setup ",
+        "POST /v1/auth/totp/confirm ",
+        "POST /v1/auth/totp/disable ",
+    ]) {
+        assert!(request.headers.starts_with(endpoint));
+        assert_eq!(
+            header(request, "authorization"),
+            Some("Bearer fixture-api-key")
+        );
+    }
+    let disable: Value = serde_json::from_slice(&requests[4].body).unwrap();
+    assert_eq!(
+        disable,
+        json!({"password":"fixture-pass", "code":"recovery-fixture"})
+    );
+}

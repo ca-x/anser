@@ -485,6 +485,10 @@ impl Store {
             .bind(now)
             .execute(&mut *tx)
             .await?;
+        sqlx::query("DELETE FROM user_totp WHERE setup_expires_at<=?")
+            .bind(now)
+            .execute(&mut *tx)
+            .await?;
         sqlx::query("DELETE FROM inbox WHERE created_at<?")
             .bind(now.saturating_sub(inbox_retention_ms))
             .execute(&mut *tx)
@@ -567,7 +571,7 @@ async fn enqueue_one(tx: &mut SqliteConnection, input: Submission) -> Result<Rec
         )
     };
     let mut candidates: Vec<CandidateRow> = sqlx::query_as(
-            "SELECT id,channel,tags,weight,priority FROM accounts WHERE space_id='default' AND enabled=1 AND circuit_until<=? ORDER BY created_at,id",
+            "SELECT id,channel,tags,weight,priority FROM accounts WHERE space_id='default' AND enabled=1 AND circuit_until<=? AND NOT EXISTS(SELECT 1 FROM channel_settings WHERE channel=accounts.channel AND enabled=0) ORDER BY created_at,id",
         ).bind(now).fetch_all(&mut *tx).await?;
     candidates.retain(|row| input.available_channels.contains(&row.channel.as_str()));
     if let Some(strategy) = &request.strategy {

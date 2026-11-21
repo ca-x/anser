@@ -1,28 +1,34 @@
-<p align="center"><img src="assets/logo.png" width="156" height="156" alt="雁字 Anser Logo"></p>
+<p align="center"><img src="assets/logo.png" width="156" height="156" alt="雁字标志"></p>
 
-# 雁字 Anser
+# 雁字
 
-雁字是自托管通知聚合与分发应用。用统一 API 将消息投递到 Topic、渠道账号或 Anser 原生客户端。服务端自带 Elastic UI 管理台，NSH 客户端独立安装，用原生组件处理连接、通知、发送和投递记录。
+[English](README.en.md)
+
+雁字是自托管通知聚合与分发应用。用统一 API 将消息投递到主题、渠道账号或雁字原生客户端。服务端自带 Elastic UI 管理台，NSH 客户端独立安装，用原生组件处理连接、通知、发送和投递记录。
 
 服务端二进制、Docker 镜像归档与 NSH 客户端分别打包，可在 [GitHub Releases](https://github.com/ca-x/anser/releases/latest) 下载并用 `SHA256SUMS` 校验。
 
-Web 登录页和管理台的齿轮菜单，以及 NSH 客户端的设置页，均可切换简体中文、English 和浅色、深色或跟随系统的主题。偏好保存在当前浏览器或客户端设备。
+网页端登录页和管理台的齿轮菜单，以及 NSH 客户端的设置页，均可切换简体中文或英文，以及浅色、深色或跟随系统的主题。偏好保存在当前浏览器或客户端设备。
 
 ## 界面截图
 
 ### 服务端管理台
 
-投递总览为简体中文浅色主题，渠道账号页为 English 深色主题。截图使用演示数据。
+以下截图使用简体中文和演示数据。
 
-![Anser 服务端的投递总览](docs/screenshots/server-overview.png)
+![投递总览](docs/screenshots/zh-CN/server-overview.png)
 
-![Anser 服务端的渠道账号与九个渠道的运行状态](docs/screenshots/server-channels.png)
+![渠道插件的运行和账号设置](docs/screenshots/zh-CN/server-plugin.png)
+
+![账户安全设置](docs/screenshots/zh-CN/server-security.png)
 
 ### NSH 原生客户端
 
-Linux 客户端的通知发送页，使用 English 深色主题。
+Linux 客户端的通知发送页与插件设置。
 
-![Anser Linux 原生客户端的通知发送页](docs/screenshots/nsh-linux-compose.png)
+![原生客户端发送通知](docs/screenshots/zh-CN/nsh-compose.png)
+
+![原生客户端的插件设置](docs/screenshots/zh-CN/nsh-plugin.png)
 
 ## 启动服务端
 
@@ -30,7 +36,8 @@ Docker Compose 可从源码构建服务端和内置前端。首次启动通过�
 
 ```sh
 export ANSER_BOOTSTRAP_USERNAME=admin
-read -rsp 'Anser 管理员密码：' ANSER_BOOTSTRAP_PASSWORD; echo
+read -rsp '雁字管理员密码：' ANSER_BOOTSTRAP_PASSWORD
+echo
 export ANSER_BOOTSTRAP_PASSWORD
 docker compose up --build -d
 unset ANSER_BOOTSTRAP_PASSWORD
@@ -53,7 +60,9 @@ ANSER_REQUIRE_WEB=1 cargo build --locked --release -p anser-server
 
 ## 使用客户端
 
-连接页输入服务端地址和用户账号。在服务端管理台可生成两分钟内有效的一次性二维码，使用手机系统扫码打开 Anser 并确认登录。已经订阅同一 Topic 的用户各自获得一条原生通知。已登录用户也可按用户名发送原生通知。
+连接页输入服务端地址和用户账号。在服务端管理台可生成两分钟内有效的一次性二维码，使用手机系统扫码打开雁字并确认登录。已经订阅同一主题的用户各自收到一条通知。已登录用户也可按用户名直接发送通知。
+
+用户可在账号安全设置中自行开启双重验证。绑定验证器后，密码登录还需输入动态验证码或一次性恢复码。恢复码只在绑定成功时展示，请保存到安全的位置。
 
 - [NSH 客户端构建、打包与通知支持](clients/nsh/README.md)
 - [Web 管理台开发](clients/web)
@@ -62,9 +71,10 @@ ANSER_REQUIRE_WEB=1 cargo build --locked --release -p anser-server
 ## API 与渠道
 
 - API 文档由服务端提供在 `/v1/openapi.json`。健康检查在 `/healthz`。
+- 管理员可在管理台和 NSH 客户端打开各渠道插件的设置页，启用、禁用或重载插件，并用该插件专属的表单配置账号。禁用状态重启后仍然生效，该插件的账号会从新投递的候选集中跳过。
 - `POST /v1/send` 或 `POST /v1/topics/{name}/publish` 持久化入队，支持 `Idempotency-Key` 和 `?wait=true`。API Key 使用 `Authorization: Bearer ...`。
 - `GET /v1/messages/{id}` 查看路由投递和历史尝试。管理台可配置广播、有序故障转移、按权重选择、加权首选再故障转移、限流和退避。
-- [Rust SDK](crates/anser-sdk) 支持类型化发送、Topic 订阅、查询、登录及收件箱。CLI 用 `anser api --help` 查看账号、Topic 和发送命令。
+- [Rust SDK](crates/anser-sdk) 支持类型化发送、主题订阅、查询、登录及收件箱。CLI 用 `anser api --help` 查看管理命令，例如 `anser api channels ntfy --action disable`。
 - 支持 [ntfy](anser-plugins/ntfy)、[Server酱](anser-plugins/serverchan)、[Bark](anser-plugins/bark)、[SMTP 邮件](anser-plugins/email)、[懒猫通知](docs/lazycat.md)、[微信公众号](anser-plugins/wechat-mp)、[企业微信应用](anser-plugins/wecom)、[飞书](anser-plugins/feishu)和 [Telegram](anser-plugins/telegram)。PushPlus 和 gorush 用作设计参考。
 
 ## 配置

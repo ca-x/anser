@@ -1,16 +1,18 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   EuiAvatar, EuiButton, EuiButtonEmpty, EuiFieldPassword, EuiFieldText, EuiFormRow,
   EuiIcon,
 } from "@elastic/eui";
-import { Api, errorMessage, type SignIn, type User } from "./api";
+import { Api, ApiError, errorMessage, type SignIn, type User } from "./api";
 import { Failure, Progress } from "./components/Common";
-import { PreferenceMenu, Preferences, useLanguage, useT } from "./preferences";
+import { PreferenceMenu, Preferences, useT } from "./preferences";
 import logo from "./assets/logo.png";
 import "./styles.css";
 
 const Accounts = lazy(() => import("./pages/Accounts").then(({ Accounts }) => ({ default: Accounts })));
+const Channels = lazy(() => import("./pages/Channels").then(({ Channels }) => ({ default: Channels })));
+const ChannelSettings = lazy(() => import("./pages/Channels").then(({ ChannelSettings }) => ({ default: ChannelSettings })));
 const Topics = lazy(() => import("./pages/Topics").then(({ Topics }) => ({ default: Topics })));
 const Dashboard = lazy(() => import("./pages/Admin").then(({ Dashboard }) => ({ default: Dashboard })));
 const DefaultRoute = lazy(() => import("./pages/Admin").then(({ DefaultRoute }) => ({ default: DefaultRoute })));
@@ -20,6 +22,7 @@ const Users = lazy(() => import("./pages/Admin").then(({ Users }) => ({ default:
 const Messages = lazy(() => import("./pages/Delivery").then(({ Messages }) => ({ default: Messages })));
 const MessageView = lazy(() => import("./pages/Delivery").then(({ MessageView }) => ({ default: MessageView })));
 const Send = lazy(() => import("./pages/Delivery").then(({ Send }) => ({ default: Send })));
+const Security = lazy(() => import("./pages/Security").then(({ Security }) => ({ default: Security })));
 
 const sessionKey = "anser.auth.session";
 const guest = new Api();
@@ -28,11 +31,13 @@ const pages = [
   { path: "/admin/send", label: "发送通知", icon: "play" },
   { path: "/admin/messages", label: "投递记录", icon: "listBullet" },
   { path: "/admin/accounts", label: "渠道账号", icon: "database" },
+  { path: "/admin/channels", label: "渠道插件", icon: "plugs" },
   { path: "/admin/topics", label: "主题与订阅", icon: "tag" },
   { path: "/admin/routing", label: "默认路由", icon: "branch" },
   { path: "/admin/users", label: "用户", icon: "users" },
-  { path: "/admin/api-keys", label: "API Keys", icon: "key" },
+  { path: "/admin/api-keys", label: "API 密钥", icon: "key" },
   { path: "/admin/pair", label: "配对客户端", icon: "link" },
+  { path: "/admin/security", label: "账号安全", icon: "shield" },
 ] as const;
 
 function pathName() {
@@ -58,7 +63,7 @@ function App() {
   const [user, setUser] = useState<User>();
   const [ready, setReady] = useState(false);
   const [path, setPath] = useState(pathName);
-  const language = useLanguage();
+  const initialPath = useRef(path);
   const [menuOpen, setMenuOpen] = useState(false);
 
   useEffect(() => {
@@ -125,7 +130,9 @@ function App() {
   function onLogin(result: SignIn) {
     writeSession(result.token);
     setToken(result.token); setUser(result.user); setReady(true);
-    navigate("/admin", true);
+    const target = initialPath.current;
+    initialPath.current = "/admin";
+    navigate(target.startsWith("/admin/") ? target : "/admin", true);
   }
 
   let main;
@@ -137,7 +144,7 @@ function App() {
       <EuiButtonEmpty className="nav-trigger" size="s" iconType="menu" aria-expanded={menuOpen} aria-controls="main-navigation"
         onClick={() => setMenuOpen((open) => !open)}>{t("菜单")}</EuiButtonEmpty>
       <a href="/admin" className="wordmark" onClick={(event) => { event.preventDefault(); navigate("/admin"); }}>
-        <img src={logo} alt="" width="44" height="44" /><strong>{t("雁字")}</strong>{language === "zh-CN" && <span>Anser</span>}
+        <img src={logo} alt="" width="44" height="44" /><strong>{t("雁字")}</strong>
       </a>
       <div className="profile">
         <EuiAvatar size="s" name={user.username} />
@@ -147,7 +154,7 @@ function App() {
       </div>
     </header>
     <nav className={`sidebar${menuOpen ? " sidebar-open" : ""}`} id="main-navigation" aria-label={t("控制台")}>
-      {[pages.slice(0, 3), pages.slice(3, 6), pages.slice(6)].map((group, index) => <ul className="nav-group" key={index}>{group.map((item) => {
+      {[pages.slice(0, 3), pages.slice(3, 7), pages.slice(7)].map((group, index) => <ul className="nav-group" key={index}>{group.map((item) => {
         const selected = path === item.path || (item.path !== "/admin" && path.startsWith(`${item.path}/`));
         return <li key={item.path}><a href={item.path} aria-current={selected ? "page" : undefined}
           onClick={(event) => { if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return; event.preventDefault(); navigate(item.path); }}>
@@ -165,37 +172,64 @@ function Login({ onLogin }: { onLogin: (result: SignIn) => void }) {
   const t = useT();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [challenge, setChallenge] = useState(false);
+  const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<string>();
+  function resetChallenge() {
+    setChallenge(false);
+    setPassword("");
+    setCode("");
+  }
   return <main className="login">
     <div className="login-preferences"><PreferenceMenu /></div>
     <div className="login-panel">
-      <img className="login-logo" src={logo} alt={t("雁字 Logo")} width="108" height="108" />
-      <h1>{t("雁字 Anser")}</h1>
-      <p className="login-caption">{t("管理员登录")}</p>
+      <img className="login-logo" src={logo} alt={t("雁字标志")} width="108" height="108" />
+      <h1>{t("雁字")}</h1>
+      <p className="login-caption">{t(challenge ? "双重验证" : "管理员登录")}</p>
       <form className="stack" onSubmit={async (event) => {
         event.preventDefault();
         if (busy) return;
         setFailure(undefined); setBusy(true);
         try {
-          const result = await guest.write<SignIn>("/auth/login", "POST", { username: username.trim(), password });
+          const result = await guest.write<SignIn>("/auth/login", "POST", {
+            username: username.trim(), password, code: challenge ? code.trim() : undefined,
+          });
+          resetChallenge();
           if (!result.user.admin || !result.user.enabled) {
             void new Api(result.token).write("/auth/logout", "POST").catch(() => undefined);
-            setPassword("");
             setFailure("此账号无法访问管理控制台。请使用启用的管理员账号。");
             return;
           }
-          setPassword("");
           onLogin(result);
-        } catch (error) { setFailure(errorMessage(error)); }
+        } catch (error) {
+          if (error instanceof ApiError && error.code === "totp_required") {
+            setChallenge(true);
+            setCode("");
+            return;
+          }
+          if (challenge && error instanceof ApiError && error.status === 401) {
+            if (error.code === "invalid_totp") setCode("");
+            else resetChallenge();
+          }
+          setFailure(errorMessage(error));
+        }
         finally { setBusy(false); }
       }}>
         <Failure message={failure} />
-        <EuiFormRow label={t("用户名")} fullWidth><EuiFieldText autoComplete="username" required fullWidth
-          value={username} onChange={(event) => setUsername(event.target.value)} /></EuiFormRow>
-        <EuiFormRow label={t("密码")} fullWidth><EuiFieldPassword required fullWidth type="password" autoComplete="current-password"
-          value={password} onChange={(event) => setPassword(event.target.value)} /></EuiFormRow>
-        <EuiButton fill fullWidth type="submit" isLoading={busy}>{t("登录")}</EuiButton>
+        {challenge
+          ? <EuiFormRow label={t("验证码或恢复代码")} helpText={t("使用验证器应用中的验证码，或输入一条恢复代码。")} fullWidth>
+            <EuiFieldText autoComplete="one-time-code" autoCapitalize="none" spellCheck={false} autoFocus
+              readOnly={busy} required fullWidth value={code} onChange={(event) => setCode(event.target.value)} />
+          </EuiFormRow>
+          : <>
+            <EuiFormRow label={t("用户名")} fullWidth><EuiFieldText autoComplete="username" readOnly={busy} required fullWidth
+              value={username} onChange={(event) => setUsername(event.target.value)} /></EuiFormRow>
+            <EuiFormRow label={t("密码")} fullWidth><EuiFieldPassword required fullWidth type="password" autoComplete="current-password"
+              readOnly={busy} value={password} onChange={(event) => setPassword(event.target.value)} /></EuiFormRow>
+          </>}
+        <EuiButton fill fullWidth type="submit" isLoading={busy}>{t(challenge ? "验证并登录" : "登录")}</EuiButton>
+        {challenge && <EuiButtonEmpty disabled={busy} onClick={() => { resetChallenge(); setFailure(undefined); }}>{t("返回登录")}</EuiButtonEmpty>}
       </form>
     </div>
   </main>;
@@ -208,15 +242,19 @@ function decodeSegment(value: string) {
 function Workspace({ path, api, navigate }: { path: string; api: Api; navigate: (path: string) => void }) {
   const detail = /^\/admin\/messages\/([^/]+)$/.exec(path);
   if (detail) return <MessageView api={api} id={decodeSegment(detail[1])} navigate={navigate} />;
+  const channel = /^\/admin\/channels\/([^/]+)$/.exec(path);
+  if (channel) return <ChannelSettings api={api} id={decodeSegment(channel[1])} navigate={navigate} />;
   switch (path) {
     case "/admin/send": return <Send api={api} navigate={navigate} />;
     case "/admin/messages": return <Messages api={api} navigate={navigate} />;
     case "/admin/accounts": return <Accounts api={api} />;
+    case "/admin/channels": return <Channels api={api} navigate={navigate} />;
     case "/admin/topics": return <Topics api={api} />;
     case "/admin/routing": return <DefaultRoute api={api} />;
     case "/admin/users": return <Users api={api} />;
     case "/admin/api-keys": return <Keys api={api} />;
     case "/admin/pair": return <Pair api={api} />;
+    case "/admin/security": return <Security api={api} />;
     default: return <Dashboard api={api} navigate={navigate} />;
   }
 }

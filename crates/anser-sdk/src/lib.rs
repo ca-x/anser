@@ -290,16 +290,69 @@ impl Client {
     }
 
     pub async fn login(&self, username: &str, password: &str) -> Result<Session, Error> {
+        self.login_credentials(username, password, None).await
+    }
+
+    /// Signs in using an authenticator code or an unused recovery code.
+    pub async fn login_with_code(
+        &self,
+        username: &str,
+        password: &str,
+        code: &str,
+    ) -> Result<Session, Error> {
+        self.login_credentials(username, password, Some(code)).await
+    }
+
+    async fn login_credentials(
+        &self,
+        username: &str,
+        password: &str,
+        code: Option<&str>,
+    ) -> Result<Session, Error> {
         let request = self
             .request(Method::POST, &["auth", "login"], false)?
-            .json(&LoginWire { username, password });
+            .json(&LoginWire {
+                username,
+                password,
+                code,
+            });
+        self.execute(request, false).await
+    }
+
+    /// Returns the current session user's two-factor authentication status.
+    pub async fn totp_status(&self) -> Result<TotpStatus, Error> {
+        let request = self.request(Method::GET, &["auth", "totp"], true)?;
+        self.execute(request, true).await
+    }
+
+    /// Starts a new TOTP setup bound to the current session.
+    pub async fn setup_totp(&self, password: &str) -> Result<TotpSetup, Error> {
+        let request = self
+            .request(Method::POST, &["auth", "totp", "setup"], true)?
+            .json(&PasswordWire { password });
+        self.execute(request, false).await
+    }
+
+    /// Enables TOTP and returns the only copy of the new recovery codes.
+    pub async fn confirm_totp(&self, code: &str) -> Result<TotpConfirmation, Error> {
+        let request = self
+            .request(Method::POST, &["auth", "totp", "confirm"], true)?
+            .json(&CodeWire { code });
+        self.execute(request, false).await
+    }
+
+    /// Disables TOTP with the current password and an authenticator or recovery code.
+    pub async fn disable_totp(&self, password: &str, code: &str) -> Result<TotpStatus, Error> {
+        let request = self
+            .request(Method::POST, &["auth", "totp", "disable"], true)?
+            .json(&TotpDisableWire { password, code });
         self.execute(request, false).await
     }
 
     pub async fn exchange_pair_code(&self, code: &str) -> Result<Session, Error> {
         let request = self
             .request(Method::POST, &["auth", "pair", "exchange"], false)?
-            .json(&PairWire { code });
+            .json(&CodeWire { code });
         // A one-time code may have been consumed by a request whose response was lost.
         self.execute(request, false).await
     }
@@ -372,6 +425,27 @@ pub struct Session {
     pub user: User,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize)]
+pub struct TotpStatus {
+    pub enabled: bool,
+}
+
+/// A short-lived setup containing the authenticator seed and provisioning URI.
+#[derive(Deserialize)]
+pub struct TotpSetup {
+    pub secret: String,
+    pub uri: String,
+    /// Setup expiration as Unix milliseconds.
+    pub expires_at: i64,
+}
+
+/// Store the recovery codes securely. The server returns them once.
+#[derive(Deserialize)]
+pub struct TotpConfirmation {
+    pub enabled: bool,
+    pub recovery_codes: Vec<String>,
+}
+
 #[derive(Clone, Debug, Deserialize)]
 pub struct User {
     pub id: String,
@@ -408,10 +482,23 @@ struct SubscriptionWire<'a> {
 struct LoginWire<'a> {
     username: &'a str,
     password: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    code: Option<&'a str>,
 }
 
 #[derive(Serialize)]
-struct PairWire<'a> {
+struct CodeWire<'a> {
+    code: &'a str,
+}
+
+#[derive(Serialize)]
+struct PasswordWire<'a> {
+    password: &'a str,
+}
+
+#[derive(Serialize)]
+struct TotpDisableWire<'a> {
+    password: &'a str,
     code: &'a str,
 }
 

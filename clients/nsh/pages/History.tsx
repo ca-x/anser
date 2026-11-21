@@ -1,5 +1,6 @@
 import { t } from "nsh/i18n";
 import { cleanup, effect, resource, signal, Text, View } from "nsh";
+import { channelName } from "../channelNames";
 import { messageFor, type AnserApi } from "../api";
 import type { Channel, Delivery } from "../contracts";
 import {
@@ -65,8 +66,10 @@ function DeliveryRecord(props: { delivery: Delivery; channels: Channel[] }) {
   const expanded = signal(false);
   const data = () => props.delivery;
   const channel = () =>
-    props.channels.find((entry) => entry.id === data().channel)?.display_name ??
-    data().channel;
+    channelName(
+      data().channel,
+      props.channels.find((entry) => entry.id === data().channel)?.display_name,
+    );
   return (
     <Panel>
       <View class="flex-row flex-wrap items-center justify-between gap-2">
