@@ -1,0 +1,98 @@
+import type { ReactNode } from "react";
+import {
+  EuiBadge, EuiButton, EuiButtonEmpty, EuiCallOut, EuiConfirmModal, EuiEmptyPrompt,
+  EuiFlyout, EuiFlyoutBody, EuiFlyoutFooter, EuiFlyoutHeader, EuiFormRow, EuiLoadingSpinner,
+  EuiText, EuiTextArea, EuiTitle,
+} from "@elastic/eui";
+import { useId } from "react";
+import type { JsonObject } from "../api";
+
+export function PageTitle({ title, action, description }: { title: string; action?: ReactNode; description?: string }) {
+  return <header className="page-title">
+    <div>
+      <h1>{title}</h1>
+      {description && <EuiText color="subdued" size="s"><p>{description}</p></EuiText>}
+    </div>
+    {action && <div className="page-actions">{action}</div>}
+  </header>;
+}
+
+export function Failure({ message, retry }: { message?: string; retry?: () => void }) {
+  return message ? <EuiCallOut announceOnMount color="danger" iconType="warning" title={message} size="s">
+    {retry && <EuiButtonEmpty size="xs" onClick={retry}>重新加载</EuiButtonEmpty>}
+  </EuiCallOut> : null;
+}
+
+export function Progress({ label = "正在加载" }: { label?: string }) {
+  return <div className="loading" role="status"><EuiLoadingSpinner size="m" /><span>{label}</span></div>;
+}
+
+export function Empty({ title, description, action }: { title: string; description?: string; action?: ReactNode }) {
+  return <EuiEmptyPrompt iconType="listBullet" title={<h2>{title}</h2>} body={description && <p>{description}</p>} actions={action} />;
+}
+
+export function More({ next, busy, load }: { next?: string | null; busy?: boolean; load: () => void }) {
+  return next ? <div className="list-footer"><EuiButton size="s" isLoading={busy} onClick={load}>加载更多</EuiButton></div> : null;
+}
+
+const states: Record<string, { label: string; color: "default" | "success" | "warning" | "danger" | "primary" }> = {
+  pending: { label: "待发送", color: "default" },
+  queued: { label: "已入队", color: "default" },
+  sending: { label: "发送中", color: "primary" },
+  waiting: { label: "等待重试", color: "warning" },
+  success: { label: "成功", color: "success" },
+  failed: { label: "失败", color: "danger" },
+  dead: { label: "死信", color: "danger" },
+  cancelled: { label: "已取消", color: "default" },
+  skipped: { label: "已跳过", color: "default" },
+};
+
+export function Status({ value }: { value: string }) {
+  const state = states[value];
+  return <EuiBadge color={state?.color ?? "default"}>{state?.label ?? value}</EuiBadge>;
+}
+
+export function date(value?: number | null) {
+  return value ? new Intl.DateTimeFormat("zh-CN", { dateStyle: "medium", timeStyle: "short" }).format(value) : "—";
+}
+
+export function Tags({ values }: { values?: string[] }) {
+  return values?.length ? <span className="tags">{values.map((value) => <EuiBadge key={value}>{value}</EuiBadge>)}</span> : <span className="muted">—</span>;
+}
+
+export function split(value: string) {
+  return [...new Set(value.split(/[,，\n]/).map((item) => item.trim()).filter(Boolean))];
+}
+
+export function object(value: string): JsonObject {
+  let parsed: unknown;
+  try { parsed = JSON.parse(value); } catch { throw new Error("JSON 格式无效。"); }
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("请输入 JSON 对象。");
+  return parsed as JsonObject;
+}
+
+export function JsonInput({ label, value, set, help }: { label: string; value: string; set: (value: string) => void; help?: string }) {
+  return <EuiFormRow label={label} helpText={help} fullWidth>
+    <EuiTextArea className="code-input" rows={4} spellCheck={false} value={value} onChange={(event) => set(event.target.value)} fullWidth />
+  </EuiFormRow>;
+}
+
+export function Drawer({ title, close, children, footer, size = "m" }: {
+  title: string; close: () => void; children: ReactNode; footer?: ReactNode; size?: "s" | "m" | "l";
+}) {
+  const id = useId();
+  return <EuiFlyout onClose={close} ownFocus size={size} aria-labelledby={id}>
+    <EuiFlyoutHeader hasBorder><EuiTitle size="m"><h2 id={id}>{title}</h2></EuiTitle></EuiFlyoutHeader>
+    <EuiFlyoutBody>{children}</EuiFlyoutBody>
+    {footer && <EuiFlyoutFooter><div className="drawer-footer">{footer}</div></EuiFlyoutFooter>}
+  </EuiFlyout>;
+}
+
+export function Confirm({ title, children, label, close, confirm, busy }: {
+  title: string; children: ReactNode; label: string; close: () => void; confirm: () => void; busy?: boolean;
+}) {
+  return <EuiConfirmModal
+    title={title} onCancel={close} onConfirm={confirm} cancelButtonText="取消"
+    confirmButtonText={label} buttonColor="danger" isLoading={busy} defaultFocusedButton="cancel"
+  >{children}</EuiConfirmModal>;
+}

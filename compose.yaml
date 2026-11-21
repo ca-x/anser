@@ -1,0 +1,15 @@
+services:
+  anser:
+    build: .
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      ANSER_BOOTSTRAP_USERNAME: ${ANSER_BOOTSTRAP_USERNAME:-}
+      ANSER_BOOTSTRAP_PASSWORD: ${ANSER_BOOTSTRAP_PASSWORD:-}
+      ANSER_PUBLIC_URL: ${ANSER_PUBLIC_URL:-}
+    volumes:
+      - anser-data:/data
+    restart: unless-stopped
+
+volumes:
+  anser-data:

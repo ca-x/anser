@@ -1,0 +1,6 @@
+{
+  "server_url": "https://ntfy.example.com/",
+  "topic": "status-alerts",
+  "token": "replace-with-ntfy-token",
+  "priority": 4
+}

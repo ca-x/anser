@@ -1,0 +1,5 @@
+{
+  "bot_token": "123456789:replace-with-bot-token",
+  "chat_id": -1001234567890,
+  "parse_mode": "html"
+}

@@ -1,0 +1,12 @@
+**
+!Cargo.toml
+!Cargo.lock
+!crates/
+!crates/**
+!anser-plugins/
+!anser-plugins/**
+!clients/
+!clients/web/
+!clients/web/**
+clients/web/node_modules
+clients/web/dist

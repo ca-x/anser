@@ -1,0 +1,8 @@
+{
+  "mode": "app",
+  "app_id": "cli_replace_with_app_id",
+  "app_secret": "replace-with-app-secret",
+  "receive_id": "oc_replace_with_chat_id",
+  "receive_id_type": "chat_id",
+  "region": "feishu"
+}

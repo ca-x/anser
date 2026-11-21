@@ -1,0 +1,7 @@
+{
+  "server_url": "https://api.day.app/",
+  "device_keys": ["replace-with-device-key"],
+  "group": "Anser",
+  "sound": "birdsong",
+  "level": "timeSensitive"
+}

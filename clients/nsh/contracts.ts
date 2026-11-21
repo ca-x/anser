@@ -1,0 +1,156 @@
+export type JsonObject = Record<string, unknown>;
+export type Format = "text" | "markdown" | "html";
+export type Mode = "broadcast" | "failover" | "weighted" | "weighted_failover";
+export type Criteria = "any" | "all";
+
+export interface Page<T> {
+  items: T[];
+  next_cursor?: string | null;
+}
+
+export interface Channel {
+  id: string;
+  display_name: string;
+  config_schema: JsonObject;
+  capabilities: {
+    formats?: Format[];
+    attachments?: boolean;
+    user_target?: boolean;
+  };
+}
+
+export interface Account {
+  id: string;
+  channel: string;
+  name: string;
+  tags?: string[];
+  weight?: number;
+  priority?: number;
+  enabled: boolean;
+  rate_limit?: number | null;
+}
+
+export interface Target {
+  channel?: string;
+  account_id?: string;
+  tag_selector?: string[];
+  weight?: number;
+  priority?: number;
+}
+
+export interface Retry {
+  max_attempts?: number;
+  backoff?: "fixed" | "exponential";
+  base_delay?: number;
+  max_delay?: number;
+  jitter?: boolean;
+  until_success?: boolean;
+  ttl?: number;
+}
+
+export interface Strategy {
+  mode?: Mode;
+  retry?: Retry;
+  success_criteria?: Criteria;
+}
+
+export interface Policy extends Strategy {
+  mode: Mode;
+  targets: Target[];
+}
+
+export interface Topic {
+  name: string;
+  description?: string | null;
+  enabled: boolean;
+  policy: Policy;
+  protected?: boolean;
+  default_tags?: string[];
+  retention?: number | null;
+}
+
+export interface Subscription {
+  id: string;
+  subscriber_ref: string;
+  account_id?: string | null;
+  filter?: string[];
+}
+
+export interface Attachment {
+  url: string;
+  name?: string;
+  content_type?: string;
+}
+
+export interface Message {
+  title: string;
+  body: string;
+  format: Format;
+  tags?: string[];
+  level?: string;
+  url?: string;
+  attachments?: Attachment[];
+  extras?: JsonObject;
+}
+
+export interface Publish extends Message {
+  channels?: Target[];
+  strategy?: Strategy;
+  expire_at?: number;
+  callback_url?: string;
+  topic_password?: string;
+}
+
+export interface Acceptance {
+  message_id: string;
+  status: string;
+}
+
+export interface Attempt {
+  n: number;
+  started_at?: number | null;
+  finished_at?: number | null;
+  error_code?: string | null;
+  error_msg?: string | null;
+  latency?: number | null;
+}
+
+export interface Delivery {
+  id: string;
+  account_id: string;
+  channel: string;
+  status: string;
+  next_retry_at?: number | null;
+  attempts?: Attempt[];
+}
+
+export interface HistoryEntry {
+  id: string;
+  status: string;
+  message: Message;
+  topic?: string | null;
+  created_at: number;
+  deliveries?: Delivery[];
+}
+
+export interface User {
+  id: string;
+  username: string;
+  admin: boolean;
+}
+
+export interface SignIn {
+  token: string;
+  user: User;
+}
+
+export interface InboxItem {
+  id: number;
+  from_username?: string | null;
+  topic?: string | null;
+  title: string;
+  body: string;
+  format: Format;
+  created_at: number;
+  read_at?: number | null;
+}

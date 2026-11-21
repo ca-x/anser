@@ -1,0 +1,5 @@
+{
+  "mode": "webhook",
+  "webhook": "https://open.feishu.cn/open-apis/bot/v2/hook/replace-with-hook-id",
+  "signing_secret": "replace-with-signing-secret"
+}

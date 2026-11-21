@@ -1,0 +1,8 @@
+{
+  "appid": "wx_replace_with_official_account_id",
+  "secret": "replace-with-official-account-secret",
+  "template_id": "replace-with-template-id",
+  "openid": "replace-with-subscriber-openid",
+  "title_field": "thing1",
+  "body_field": "thing2"
+}

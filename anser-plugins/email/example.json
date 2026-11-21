@@ -1,0 +1,9 @@
+{
+  "host": "smtp.example.com",
+  "port": 587,
+  "encryption": "starttls",
+  "username": "notifications@example.com",
+  "password": "replace-with-app-password",
+  "from": "Anser <notifications@example.com>",
+  "to": ["operator@example.com"]
+}

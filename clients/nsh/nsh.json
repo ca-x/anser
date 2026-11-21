@@ -1,0 +1,32 @@
+{
+  "name": "雁字",
+  "id": "io.github.cax.anser",
+  "version": "0.1.0",
+  "build": 1,
+  "icon": "assets/logo.png",
+  "theme": "theme.json",
+  "appearance": "system",
+  "schemes": ["anser"],
+  "window": {
+    "title": "雁字 Anser",
+    "defaultSize": { "width": 1120, "height": 760 },
+    "minSize": { "width": 420, "height": 540 }
+  },
+  "capabilities": {
+    "notifications": true,
+    "statusBar": true,
+    "network": {
+      "http": [
+        {
+          "host": "*",
+          "schemes": ["https"],
+          "methods": ["GET", "POST", "PUT", "DELETE"],
+          "pathPrefixes": ["/v1"]
+        },
+        { "host": "localhost", "scheme": "http", "pathPrefix": "/v1" },
+        { "host": "127.0.0.1", "scheme": "http", "pathPrefix": "/v1" },
+        { "host": "::1", "scheme": "http", "pathPrefix": "/v1" }
+      ]
+    }
+  }
+}

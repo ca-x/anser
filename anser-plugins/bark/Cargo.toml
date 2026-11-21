@@ -1,0 +1,22 @@
+[package]
+name = "anser-plugin-bark"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+aes = "=0.9.4"
+base64 = "0.22"
+cbc = { version = "=0.2.1", features = ["alloc", "zeroize"] }
+getrandom = "0.4"
+anser-channel-http = { path = "../http" }
+anser-core.workspace = true
+anser-plugin-api.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+anser-channel-http = { path = "../http", features = ["test-support"] }
+tokio.workspace = true

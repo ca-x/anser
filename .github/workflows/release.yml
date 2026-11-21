@@ -1,0 +1,245 @@
+name: Release containers and binaries
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+        with:
+          persist-credentials: false
+      - name: Verify release version
+        id: version
+        run: |
+          set -euo pipefail
+          version="$(python3 -c 'import tomllib; print(tomllib.load(open("Cargo.toml", "rb"))["workspace"]["package"]["version"])')"
+          python3 -c 'import json,sys; expected=sys.argv[1]; assert all(json.load(open(path))["version"] == expected for path in ("clients/web/package.json","clients/nsh/nsh.json"))' "$version"
+          [[ "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          if [[ "$GITHUB_REF_TYPE" == tag ]]; then
+            test "$GITHUB_REF_NAME" = "v$version"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  check:
+    needs: validate
+    uses: ./.github/workflows/ci.yml
+
+  web:
+    needs: check
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: clients/web/package-lock.json
+      - run: npm --prefix clients/web ci
+      - run: npm --prefix clients/web run build
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: embedded-web
+          path: clients/web/dist
+          if-no-files-found: error
+
+  binaries:
+    needs: web
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {runner: ubuntu-24.04, target: x86_64-unknown-linux-gnu, extension: ""}
+          - {runner: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu, extension: ""}
+          - {runner: macos-15-intel, target: x86_64-apple-darwin, extension: ""}
+          - {runner: macos-15, target: aarch64-apple-darwin, extension: ""}
+          - {runner: windows-2025, target: x86_64-pc-windows-msvc, extension: .exe}
+    steps:
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: embedded-web
+          path: clients/web/dist
+      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30
+        with:
+          toolchain: 1.94.0
+          targets: ${{ matrix.target }}
+      - name: Build and package
+        env:
+          TARGET: ${{ matrix.target }}
+          EXTENSION: ${{ matrix.extension }}
+          ANSER_REQUIRE_WEB: "1"
+        run: |
+          set -euo pipefail
+          cargo build --locked --release -p anser-server --target "$TARGET"
+          package="anser-$TARGET"
+          binary="target/$TARGET/release/anser$EXTENSION"
+          "$binary" --version
+          mkdir -p "dist/$package/assets"
+          cp "$binary" README.md LICENSE "dist/$package/"
+          cp assets/logo.png "dist/$package/assets/"
+          cp -R docs examples "dist/$package/"
+          cp .env.example "dist/$package/"
+          for doc in anser-plugins/*/README.md anser-plugins/*/example.json clients/*/README.md crates/anser-sdk/README.md; do
+            if [[ -f "$doc" ]]; then
+              mkdir -p "dist/$package/$(dirname "$doc")"
+              cp "$doc" "dist/$package/$doc"
+            fi
+          done
+          if [[ "$EXTENSION" == .exe ]]; then
+            (cd dist && 7z a -tzip "$package.zip" "$package")
+          else
+            tar -C dist -czf "dist/$package.tar.gz" "$package"
+          fi
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: anser-${{ matrix.target }}
+          path: dist/anser-*.*z*
+          if-no-files-found: error
+
+  images:
+    needs: check
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {runner: ubuntu-24.04, arch: amd64}
+          - {runner: ubuntu-24.04-arm, arch: arm64}
+    steps:
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
+      - uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
+        if: github.ref_type == 'tag'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Resolve image name
+        id: image
+        run: echo "name=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+      - name: Build image
+        id: build
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+        with:
+          context: .
+          platforms: linux/${{ matrix.arch }}
+          provenance: false
+          sbom: false
+          outputs: ${{ github.ref_type == 'tag' && format('type=image,name={0},push-by-digest=true,name-canonical=true,push=true', steps.image.outputs.name) || 'type=cacheonly' }}
+          labels: org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+          cache-from: type=gha,scope=${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.arch }}
+      - name: Save image digest
+        if: github.ref_type == 'tag'
+        env:
+          ARCH: ${{ matrix.arch }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          set -euo pipefail
+          [[ "$DIGEST" =~ ^sha256:[a-f0-9]{64}$ ]]
+          echo "$DIGEST" > "$ARCH.txt"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: github.ref_type == 'tag'
+        with:
+          name: digest-${{ matrix.arch }}
+          path: ${{ matrix.arch }}.txt
+          if-no-files-found: error
+
+  publish-image:
+    if: github.ref_type == 'tag'
+    needs: [validate, images, binaries, client]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
+      - uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: digest-*
+          merge-multiple: true
+          path: digests
+      - name: Publish and verify multi-platform manifest
+        env:
+          VERSION: ${{ needs.validate.outputs.version }}
+        run: |
+          set -euo pipefail
+          image="ghcr.io/${GITHUB_REPOSITORY,,}"
+          refs=()
+          for arch in amd64 arm64; do
+            digest="$(cat "digests/$arch.txt")"
+            [[ "$digest" =~ ^sha256:[a-f0-9]{64}$ ]]
+            refs+=("$image@$digest")
+          done
+          version_tag="$image:$VERSION"
+          docker buildx imagetools create --tag "$version_tag" "${refs[@]}"
+          docker buildx imagetools inspect --raw "$version_tag" \
+            | jq -e '[.manifests[].platform | select(.os == "linux") | .architecture] | sort == ["amd64","arm64"]'
+
+  client:
+    needs: validate
+    uses: ./.github/workflows/client.yml
+
+  publish-release:
+    if: github.ref_type == 'tag'
+    needs: [validate, publish-image, client]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: anser-*
+          path: dist
+          merge-multiple: true
+      - name: Generate checksums
+        working-directory: dist
+        run: |
+          set -euo pipefail
+          archives=(anser-*.tar.gz anser-*.zip)
+          test "${#archives[@]}" -eq 7
+          sha256sum "${archives[@]}" > SHA256SUMS
+          sha256sum --check SHA256SUMS
+      - uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2.5.0
+        with:
+          files: dist/*
+          fail_on_unmatched_files: true
+          generate_release_notes: true

@@ -1,0 +1,52 @@
+[package]
+name = "anser-server"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "anser"
+path = "src/main.rs"
+
+[features]
+wecom = ["anser-host/wecom"]
+wechat-mp = ["anser-host/wechat-mp"]
+telegram = ["anser-host/telegram"]
+serverchan = ["anser-host/serverchan"]
+ntfy = ["anser-host/ntfy"]
+feishu = ["anser-host/feishu"]
+email = ["anser-host/email"]
+bark = ["anser-host/bark"]
+default = ["bark", "email", "feishu", "lazycat", "ntfy", "serverchan", "telegram", "wechat-mp", "wecom"]
+lazycat = ["anser-host/lazycat"]
+
+[dependencies]
+anser-channel-http = { path = "../../anser-plugins/http" }
+argon2 = "0.5"
+reqwest.workspace = true
+rustls.workspace = true
+anser-plugin-api.workspace = true
+anser-queue = { path = "../anser-queue" }
+anyhow.workspace = true
+base64.workspace = true
+rand.workspace = true
+sha2 = "0.10"
+subtle = "2"
+serde.workspace = true
+tempfile = "3"
+tower-http = { version = "0.6", features = ["cors", "trace", "limit"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "env-filter", "json"] }
+zeroize = "1"
+anser-core.workspace = true
+anser-host.workspace = true
+anser-store.workspace = true
+axum = "0.8"
+clap = { version = "4.5", features = ["derive", "env"] }
+serde_json.workspace = true
+tokio = { workspace = true, features = ["fs", "net", "signal"] }
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }

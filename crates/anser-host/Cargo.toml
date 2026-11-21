@@ -1,0 +1,42 @@
+[package]
+name = "anser-host"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+wecom = ["dep:anser-plugin-wecom"]
+wechat-mp = ["dep:anser-plugin-wechat-mp"]
+telegram = ["dep:anser-plugin-telegram"]
+serverchan = ["dep:anser-plugin-serverchan"]
+ntfy = ["dep:anser-plugin-ntfy"]
+feishu = ["dep:anser-plugin-feishu"]
+email = ["dep:anser-plugin-email"]
+bark = ["dep:anser-plugin-bark"]
+lazycat = ["dep:anser-plugin-lazycat"]
+
+[dependencies]
+anser-plugin-wecom = { path = "../../anser-plugins/wecom", optional = true }
+anser-plugin-wechat-mp = { path = "../../anser-plugins/wechat-mp", optional = true }
+anser-plugin-telegram = { path = "../../anser-plugins/telegram", optional = true }
+anser-plugin-serverchan = { path = "../../anser-plugins/serverchan", optional = true }
+anser-plugin-ntfy = { path = "../../anser-plugins/ntfy", optional = true }
+anser-plugin-feishu = { path = "../../anser-plugins/feishu", optional = true }
+anser-plugin-email = { path = "../../anser-plugins/email", optional = true }
+anser-plugin-bark = { path = "../../anser-plugins/bark", optional = true }
+anser-core.workspace = true
+anser-plugin-api.workspace = true
+rutis.workspace = true
+rutis-bridge.workspace = true
+serde_json.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["sync"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["time"] }
+
+[target.'cfg(unix)'.dependencies]
+anser-plugin-lazycat = { workspace = true, optional = true }

@@ -1,0 +1,22 @@
+[package]
+name = "anser-store"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+tokio = { workspace = true, features = ["sync"] }
+anser-core.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+rand.workspace = true
+uuid.workspace = true
+sqlx.workspace = true
+sea-orm = { version = "=2.0.4", default-features = false, features = ["macros", "runtime-tokio", "sqlx-sqlite"] }
+thiserror.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true
+tempfile = "3"

@@ -1,0 +1,6 @@
+{
+  "corpid": "ww_replace_with_corp_id",
+  "agentid": 1000002,
+  "secret": "replace-with-agent-secret",
+  "touser": "alice|bob"
+}
