@@ -1,3 +1,4 @@
+import { t } from "nsh/i18n";
 import { cleanup, effect, resource, signal, Text, View } from "nsh";
 import { messageFor, type AnserApi } from "../api";
 import type { Channel, Delivery } from "../contracts";
@@ -25,9 +26,9 @@ export function History(props: {
 }) {
   const list = paged(props.api.history.bind(props.api));
   return (
-    <WorkspacePage title="投递记录">
+    <WorkspacePage title={t("history.delivery_history")}>
       <Action
-        label="刷新"
+        label={t("common.refresh")}
         onPress={list.reload}
         kind="quiet"
         disabled={list.loading()}
@@ -37,13 +38,13 @@ export function History(props: {
         loading={list.loading()}
         problem={list.problem()}
         empty={!list.items().length}
-        emptyLabel="还没有通知的投递记录。"
+        emptyLabel={t("history.no_notification_deliveries_yet")}
       />
       <Each of={list.items()} key={(message) => message.id}>
         {(message) => (
           <RecordRow
             title={message().message?.title || message().id}
-            subtitle={`${message().topic ?? "直接投递"} / ${localTime(message().created_at)}`}
+            subtitle={`${message().topic ?? t("common.direct_delivery")} / ${localTime(message().created_at)}`}
             onPress={() => props.onOpen(message().id)}
             status={<DeliveryStatus value={message().status} />}
           />
@@ -51,7 +52,7 @@ export function History(props: {
       </Each>
       <If when={list.next()}>
         <Action
-          label="加载更多"
+          label={t("common.load_more")}
           onPress={list.more}
           disabled={list.loading()}
         />
@@ -72,16 +73,22 @@ function DeliveryRecord(props: { delivery: Delivery; channels: Channel[] }) {
         <Text class="text-base font-medium text-foreground">{channel()}</Text>
         <DeliveryStatus value={data().status} />
       </View>
-      <Hint>账号：{data().account_id}</Hint>
+      <Hint>{t("history.account_value", { account: data().account_id })}</Hint>
       <If when={data().next_retry_at != null}>
-        <Hint>下次重试：{localTime(data().next_retry_at)}</Hint>
+        <Hint>
+          {t("history.next_retry_time", {
+            time: localTime(data().next_retry_at),
+          })}
+        </Hint>
       </If>
       <If when={(data().attempts?.length ?? 0) > 0}>
         <Action
           label={
             expanded()
-              ? "收起尝试记录"
-              : `查看 ${data().attempts?.length ?? 0} 次尝试`
+              ? t("history.hide_attempts")
+              : t("history.view_attempts", {
+                  count: data().attempts?.length ?? 0,
+                })
           }
           class="self-start"
           kind="quiet"
@@ -93,14 +100,20 @@ function DeliveryRecord(props: { delivery: Delivery; channels: Channel[] }) {
               {(attempt) => (
                 <View class="gap-1 border-t border-border pt-2">
                   <Text class="text-sm font-medium text-foreground">
-                    第 {attempt().n} 次尝试
+                    {t("history.attempt_number", { number: attempt().n })}
                   </Text>
                   <Hint>
-                    开始：{localTime(attempt().started_at)}　结束：
-                    {localTime(attempt().finished_at)}
+                    {t("history.attempt_time_range", {
+                      start: localTime(attempt().started_at),
+                      finish: localTime(attempt().finished_at),
+                    })}
                   </Hint>
                   <If when={attempt().latency != null}>
-                    <Hint>耗时：{attempt().latency} 毫秒</Hint>
+                    <Hint>
+                      {t("history.attempt_duration", {
+                        duration: attempt().latency,
+                      })}
+                    </Hint>
                   </If>
                   <If when={attempt().error_code || attempt().error_msg}>
                     <Text class="text-sm text-destructive">
@@ -153,9 +166,9 @@ export function MessageDetail(props: {
     void replay.run(async () => {
       if (
         !(await confirm(
-          "重放通知？",
-          "服务器将创建新的投递请求。",
-          "重放通知",
+          t("history.replay_notification"),
+          t("history.the_server_will_create_a_new"),
+          t("history.replay_notification_2"),
           false,
         ))
       )
@@ -167,10 +180,10 @@ export function MessageDetail(props: {
     });
   }
   return (
-    <WorkspacePage title="投递详情" back={props.onBack}>
+    <WorkspacePage title={t("history.delivery_details")} back={props.onBack}>
       <View class="flex-row flex-wrap items-center justify-between gap-2">
         <Action
-          label="刷新"
+          label={t("common.refresh")}
           kind="quiet"
           onPress={current.refetch}
           disabled={
@@ -178,7 +191,11 @@ export function MessageDetail(props: {
           }
         />
         <If when={active()}>
-          <Toggle label="自动刷新" checked={auto()} onChange={auto.set} />
+          <Toggle
+            label={t("history.auto_refresh")}
+            checked={auto()}
+            onChange={auto.set}
+          />
         </If>
       </View>
       <Problem message={replay.problem()} />
@@ -188,7 +205,7 @@ export function MessageDetail(props: {
         }
         problem={current.error() ? messageFor(current.error()) : ""}
         empty={!current()}
-        emptyLabel="找不到这条消息。"
+        emptyLabel={t("history.this_message_could_not_be_found")}
       />
       <If when={current()}>
         {(message) => (
@@ -199,12 +216,12 @@ export function MessageDetail(props: {
                   role="header"
                   class="text-[19px] font-semibold text-foreground"
                 >
-                  {message().message?.title || "通知"}
+                  {message().message?.title || t("history.notification")}
                 </Text>
                 <DeliveryStatus value={message().status} />
               </View>
               <Hint>
-                {message().topic ?? "直接投递"} /{" "}
+                {message().topic ?? t("common.direct_delivery")} /{" "}
                 {localTime(message().created_at)}
               </Hint>
               <View selectable>
@@ -216,9 +233,9 @@ export function MessageDetail(props: {
                 </Text>
               </View>
             </Panel>
-            <Section title="渠道投递">
+            <Section title={t("history.channel_deliveries")}>
               <If when={!message().deliveries?.length}>
-                <Hint>暂时没有渠道投递记录。</Hint>
+                <Hint>{t("history.no_channel_deliveries_yet")}</Hint>
               </If>
               <Each
                 of={message().deliveries ?? []}
@@ -242,7 +259,11 @@ export function MessageDetail(props: {
               }
             >
               <Action
-                label={replay.busy() ? "正在重放…" : "重放通知"}
+                label={
+                  replay.busy()
+                    ? t("history.replaying")
+                    : t("history.replay_notification_2")
+                }
                 onPress={retry}
                 disabled={replay.busy()}
                 class="self-start"

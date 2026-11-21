@@ -2,11 +2,11 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react
 import { createRoot } from "react-dom/client";
 import {
   EuiAvatar, EuiButton, EuiButtonEmpty, EuiFieldPassword, EuiFieldText, EuiFormRow,
-  EuiIcon, EuiProvider,
+  EuiIcon,
 } from "@elastic/eui";
 import { Api, errorMessage, type SignIn, type User } from "./api";
 import { Failure, Progress } from "./components/Common";
-import { consoleTheme } from "./theme";
+import { PreferenceMenu, Preferences, useLanguage, useT } from "./preferences";
 import logo from "./assets/logo.png";
 import "./styles.css";
 
@@ -53,11 +53,12 @@ function writeSession(value?: string) {
 }
 
 function App() {
+  const t = useT();
   const [token, setToken] = useState(readSession);
   const [user, setUser] = useState<User>();
   const [ready, setReady] = useState(false);
   const [path, setPath] = useState(pathName);
-  const [color, setColor] = useState<"light" | "dark">(() => matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+  const language = useLanguage();
   const [menuOpen, setMenuOpen] = useState(false);
 
   useEffect(() => {
@@ -65,13 +66,6 @@ function App() {
     window.addEventListener("popstate", update);
     return () => window.removeEventListener("popstate", update);
   }, []);
-  useEffect(() => {
-    const mode = matchMedia("(prefers-color-scheme: dark)");
-    const update = () => setColor(mode.matches ? "dark" : "light");
-    mode.addEventListener("change", update);
-    return () => mode.removeEventListener("change", update);
-  }, []);
-  useEffect(() => { document.documentElement.dataset.theme = color; }, [color]);
   useEffect(() => {
     if (user) document.getElementById("main")?.focus({ preventScroll: true });
   }, [path, user]);
@@ -135,47 +129,50 @@ function App() {
   }
 
   let main;
-  if (!ready) main = <div className="checking"><Progress label="正在检查登录状态" /></div>;
+  if (!ready) main = <div className="checking"><Progress label={t("正在检查登录状态")} /></div>;
   else if (!user) main = <Login onLogin={onLogin} />;
   else main = <div className="shell">
-    <a className="skip" href="#main">跳至主内容</a>
+    <a className="skip" href="#main">{t("跳至主内容")}</a>
     <header className="shell-header">
       <EuiButtonEmpty className="nav-trigger" size="s" iconType="menu" aria-expanded={menuOpen} aria-controls="main-navigation"
-        onClick={() => setMenuOpen((open) => !open)}>菜单</EuiButtonEmpty>
+        onClick={() => setMenuOpen((open) => !open)}>{t("菜单")}</EuiButtonEmpty>
       <a href="/admin" className="wordmark" onClick={(event) => { event.preventDefault(); navigate("/admin"); }}>
-        <img src={logo} alt="" width="44" height="44" /><strong>雁字</strong><span>Anser</span>
+        <img src={logo} alt="" width="44" height="44" /><strong>{t("雁字")}</strong>{language === "zh-CN" && <span>Anser</span>}
       </a>
       <div className="profile">
         <EuiAvatar size="s" name={user.username} />
         <span>{user.username}</span>
-        <EuiButtonEmpty size="s" onClick={() => { void api.write("/auth/logout", "POST").catch(() => undefined).finally(signOut); }}>退出</EuiButtonEmpty>
+        <PreferenceMenu />
+        <EuiButtonEmpty size="s" onClick={() => { void api.write("/auth/logout", "POST").catch(() => undefined).finally(signOut); }}>{t("退出")}</EuiButtonEmpty>
       </div>
     </header>
-    <nav className={`sidebar${menuOpen ? " sidebar-open" : ""}`} id="main-navigation" aria-label="控制台">
+    <nav className={`sidebar${menuOpen ? " sidebar-open" : ""}`} id="main-navigation" aria-label={t("控制台")}>
       {[pages.slice(0, 3), pages.slice(3, 6), pages.slice(6)].map((group, index) => <ul className="nav-group" key={index}>{group.map((item) => {
         const selected = path === item.path || (item.path !== "/admin" && path.startsWith(`${item.path}/`));
         return <li key={item.path}><a href={item.path} aria-current={selected ? "page" : undefined}
           onClick={(event) => { if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return; event.preventDefault(); navigate(item.path); }}>
-          <EuiIcon type={item.icon} color="inherit" /><span>{item.label}</span>
+          <EuiIcon type={item.icon} color="inherit" /><span>{t(item.label)}</span>
         </a></li>;
       })}</ul>)}
     </nav>
     <main id="main" className="workspace" tabIndex={-1}><Suspense fallback={<Progress />}><Workspace key={path} path={path} api={api} navigate={navigate} /></Suspense></main>
   </div>;
 
-  return <EuiProvider colorMode={color} modify={consoleTheme}>{main}</EuiProvider>;
+  return main;
 }
 
 function Login({ onLogin }: { onLogin: (result: SignIn) => void }) {
+  const t = useT();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<string>();
   return <main className="login">
+    <div className="login-preferences"><PreferenceMenu /></div>
     <div className="login-panel">
-      <img className="login-logo" src={logo} alt="雁字 Logo" width="108" height="108" />
-      <h1>雁字 Anser</h1>
-      <p className="login-caption">管理员登录</p>
+      <img className="login-logo" src={logo} alt={t("雁字 Logo")} width="108" height="108" />
+      <h1>{t("雁字 Anser")}</h1>
+      <p className="login-caption">{t("管理员登录")}</p>
       <form className="stack" onSubmit={async (event) => {
         event.preventDefault();
         if (busy) return;
@@ -194,11 +191,11 @@ function Login({ onLogin }: { onLogin: (result: SignIn) => void }) {
         finally { setBusy(false); }
       }}>
         <Failure message={failure} />
-        <EuiFormRow label="用户名" fullWidth><EuiFieldText autoComplete="username" required fullWidth
+        <EuiFormRow label={t("用户名")} fullWidth><EuiFieldText autoComplete="username" required fullWidth
           value={username} onChange={(event) => setUsername(event.target.value)} /></EuiFormRow>
-        <EuiFormRow label="密码" fullWidth><EuiFieldPassword required fullWidth type="password" autoComplete="current-password"
+        <EuiFormRow label={t("密码")} fullWidth><EuiFieldPassword required fullWidth type="password" autoComplete="current-password"
           value={password} onChange={(event) => setPassword(event.target.value)} /></EuiFormRow>
-        <EuiButton fill fullWidth type="submit" isLoading={busy}>登录</EuiButton>
+        <EuiButton fill fullWidth type="submit" isLoading={busy}>{t("登录")}</EuiButton>
       </form>
     </div>
   </main>;
@@ -226,4 +223,4 @@ function Workspace({ path, api, navigate }: { path: string; api: Api; navigate: 
 
 const root = document.getElementById("root");
 if (!root) throw new Error("Missing Anser administrator application root");
-createRoot(root).render(<App />);
+createRoot(root).render(<Preferences><App /></Preferences>);

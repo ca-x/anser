@@ -1,3 +1,4 @@
+import { t } from "nsh/i18n";
 import { announce, cleanup, Notifications, signal } from "nsh";
 import { ApiError, messageFor, type AnserApi } from "./api";
 import type { InboxItem } from "./contracts";
@@ -63,13 +64,13 @@ export function inboxState(api: AnserApi, onOpen: (id: number) => void) {
       }
       items.set([...known.values()].sort((left, right) => right.id - left.id));
       if (initialized && fresh.length) {
-        announce(`收到 ${fresh.length} 条新通知。`);
+        announce(t("inbox.new_count", { count: fresh.length }));
         if (native()) {
           for (const item of fresh.slice(0, 4)) {
             void Notifications.show({
               id: `inbox:${item.id}`,
-              title: "雁字新通知",
-              body: "打开雁字查看详情。",
+              title: t("inbox.new_anser_notification"),
+              body: t("inbox.open_anser_to_view_it"),
             }).catch(() => undefined);
           }
         }
@@ -124,12 +125,15 @@ export function inboxState(api: AnserApi, onOpen: (id: number) => void) {
       } else {
         nativeMessage.set(
           permission === "denied"
-            ? "系统已拒绝通知权限，可在系统设置中修改。"
-            : "当前平台或运行环境无法显示系统通知。",
+            ? t("inbox.system_notification_permission_was_denied_you")
+            : t("inbox.system_notifications_are_unavailable_in_this"),
         );
       }
     } catch {
-      if (subscribed) nativeMessage.set("当前运行环境无法请求系统通知权限。");
+      if (subscribed)
+        nativeMessage.set(
+          t("inbox.could_not_request_system_notification_permission"),
+        );
     }
   }
 

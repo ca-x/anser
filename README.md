@@ -4,11 +4,15 @@
 
 雁字是自托管通知聚合与分发应用。用统一 API 将消息投递到 Topic、渠道账号或 Anser 原生客户端。服务端自带 Elastic UI 管理台，NSH 客户端独立安装，用原生组件处理连接、通知、发送和投递记录。
 
+服务端二进制、Docker 镜像归档与 NSH 客户端分别打包，可在 [GitHub Releases](https://github.com/ca-x/anser/releases/latest) 下载并用 `SHA256SUMS` 校验。
+
+Web 登录页和管理台的齿轮菜单，以及 NSH 客户端的设置页，均可切换简体中文、English 和浅色、深色或跟随系统的主题。偏好保存在当前浏览器或客户端设备。
+
 ## 界面截图
 
 ### 服务端管理台
 
-投递总览和渠道账号页面，使用本地演示数据。
+投递总览为简体中文浅色主题，渠道账号页为 English 深色主题。截图使用演示数据。
 
 ![Anser 服务端的投递总览](docs/screenshots/server-overview.png)
 
@@ -16,7 +20,7 @@
 
 ### NSH 原生客户端
 
-Linux 客户端的通知发送页。
+Linux 客户端的通知发送页，使用 English 深色主题。
 
 ![Anser Linux 原生客户端的通知发送页](docs/screenshots/nsh-linux-compose.png)
 
@@ -33,6 +37,8 @@ unset ANSER_BOOTSTRAP_PASSWORD
 ```
 
 访问 `http://127.0.0.1:8080/login` 登录，管理界面位于 `/admin`。同一 SQLite 数据库上的后续启动不会重置管理员。生产环境可用 HTTPS 反向代理，设置 `ANSER_PUBLIC_URL=https://anser.example.com` 生成移动端配对二维码。Docker 镜像使用持久卷保存数据库与主密钥文件。
+
+使用预构建镜像时，下载对应架构的归档，用 `docker load -i anser-docker-linux-amd64.tar.gz` 导入。导入的镜像标签为 `anser:<版本号>`。
 
 也可下载独立服务端二进制，或使用 Node.js 24 和 Rust 1.94 从源码构建。
 
@@ -79,4 +85,4 @@ ANSER_REQUIRE_WEB=1 cargo build --locked --release -p anser-server
 | `ANSER_MAX_TTL_SECONDS` / `ANSER_RETENTION_DAYS` | 默认 86400 秒上限、30 天记录保留 |
 | `ANSER_QUEUE_LIMIT` / `ANSER_REQUESTS_PER_MINUTE` | 默认 10000 个待处理路线、每凭据每分钟 120000 次请求 |
 
-保持 `Cargo.toml`、Web 和 NSH 客户端版本为同一 `x.y.z` 值。GitHub Actions 在匹配的 `vX.Y.Z` 标签构建 GHCR 的 Linux amd64/arm64 镜像、服务端多平台归档以及独立 NSH 客户端包，随 GitHub Release 发布 SHA-256。
+保持 `Cargo.toml`、Web 和 NSH 客户端版本为同一 `x.y.z` 值。GitHub Actions 在匹配的 `vX.Y.Z` 标签构建 GHCR 的 Linux amd64/arm64 镜像，并随 GitHub Release 发布 Docker 镜像归档、服务端多平台二进制、独立 NSH 客户端包及 SHA-256 校验和。

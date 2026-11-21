@@ -1,3 +1,4 @@
+import { t } from "nsh/i18n";
 import { Image, Scroll, Text, View, type JSX } from "nsh";
 import { NavPage } from "nsh/base";
 import { Action } from "./Controls";
@@ -24,7 +25,7 @@ export function Brand(props: { compact?: boolean }) {
             : "text-[26px] font-semibold text-foreground"
         }
       >
-        雁字
+        {t("workspace.anser")}
       </Text>
     </View>
   );
@@ -42,7 +43,11 @@ export function WorkspacePage(props: {
       header={
         <View class="min-h-14 flex-row items-center gap-3 border-b border-border bg-card px-4 md:px-6">
           <If when={props.back}>
-            <Action label="返回" onPress={() => props.back?.()} kind="quiet" />
+            <Action
+              label={t("workspace.back")}
+              onPress={() => props.back?.()}
+              kind="quiet"
+            />
           </If>
           <Text
             role="header"
@@ -90,7 +95,11 @@ export function RecordRow(props: {
       </View>
       {props.status}
       <If when={props.onPress}>
-        <Action label="查看" onPress={() => props.onPress?.()} kind="quiet" />
+        <Action
+          label={t("workspace.view")}
+          onPress={() => props.onPress?.()}
+          kind="quiet"
+        />
       </If>
     </View>
   );

@@ -1,3 +1,4 @@
+import { t } from "nsh/i18n";
 import type {
   Acceptance,
   Account,
@@ -32,7 +33,7 @@ export function validateOrigin(value: string): string {
   } catch {
     throw new ApiError(
       "invalid_url",
-      "请输入完整的服务器地址，例如 https://anser.example.com。",
+      t("api.enter_a_complete_server_address_such"),
     );
   }
   if (
@@ -42,20 +43,22 @@ export function validateOrigin(value: string): string {
     url.search ||
     url.hash
   ) {
-    throw new ApiError("invalid_url", "服务器地址只需协议、主机和端口。");
+    throw new ApiError("invalid_url", t("api.use_only_the_protocol_host_and"));
   }
   const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
   if (url.protocol !== "https:" && !(url.protocol === "http:" && loopback)) {
     throw new ApiError(
       "invalid_url",
-      "请为远程服务器使用 HTTPS。HTTP 仅供本机连接。",
+      t("api.remote_servers_require_https_http_is"),
     );
   }
   return url.origin;
 }
 
 export function messageFor(error: unknown): string {
-  return error instanceof ApiError ? error.message : "请求未完成，请重试。";
+  return error instanceof ApiError
+    ? error.message
+    : t("api.the_request_could_not_be_completed");
 }
 
 function segment(value: string) {
@@ -75,7 +78,7 @@ export class AnserApi {
     this.origin = validateOrigin(origin);
     this.#key = key?.trim();
     if (key !== undefined && (!this.#key || /\s/.test(this.#key))) {
-      throw new ApiError("invalid_key", "请输入完整的 API Key。");
+      throw new ApiError("invalid_key", t("api.enter_the_full_api_key"));
     }
   }
 
@@ -116,14 +119,14 @@ export class AnserApi {
         throw new ApiError(
           "unauthorized",
           this.#key
-            ? "登录凭据无效或已到期，请重新连接。"
-            : "登录资料或配对码无效。",
+            ? t("api.your_session_has_expired_or_the")
+            : t("api.invalid_credentials_or_pairing_code"),
           401,
         );
       if (response.status === 403)
         throw new ApiError(
           "forbidden",
-          "当前 API Key 没有这项操作的权限。",
+          t("api.your_credentials_do_not_allow_this"),
           403,
         );
       const data =
@@ -134,14 +137,14 @@ export class AnserApi {
         const payload = data as { code?: string; message?: string } | undefined;
         throw new ApiError(
           payload?.code ?? "http_error",
-          payload?.message ?? `服务器返回 HTTP ${response.status}。`,
+          payload?.message ?? t("api.http_status", { status: response.status }),
           response.status,
         );
       }
       if (data === undefined && response.status !== 204) {
         throw new ApiError(
           "invalid_response",
-          "服务器未返回 Anser JSON 响应。",
+          t("api.the_server_did_not_return_an"),
         );
       }
       return data as T;
@@ -153,13 +156,19 @@ export class AnserApi {
         "code" in error &&
         error.code === "ERR_ACCESS_DENIED"
       ) {
-        throw new ApiError("network_denied", "客户端的网络权限未允许此地址。");
+        throw new ApiError(
+          "network_denied",
+          t("api.the_app_does_not_have_network"),
+        );
       }
       if (abort.signal.aborted)
-        throw new ApiError("timeout", "连接或请求已超时。");
+        throw new ApiError(
+          "timeout",
+          t("api.the_connection_or_request_timed_out"),
+        );
       throw new ApiError(
         "network_error",
-        "无法连接服务器。请检查地址、TLS 证书和网络。",
+        t("api.could_not_reach_the_server_check"),
       );
     } finally {
       clearTimeout(timeout);
@@ -211,7 +220,10 @@ export class AnserApi {
       signal,
     );
     if (!Array.isArray(result?.items))
-      throw new ApiError("invalid_response", "此服务器未返回 Anser 渠道清单。");
+      throw new ApiError(
+        "invalid_response",
+        t("api.this_server_did_not_return_an"),
+      );
     return result.items;
   }
 

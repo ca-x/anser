@@ -1,3 +1,4 @@
+import { t } from "nsh/i18n";
 import { signal, View } from "nsh";
 import type {
   Account,
@@ -20,11 +21,17 @@ import {
 } from "./Controls";
 import { RecordRow } from "./Workspace";
 
-const modes = [
-  { value: "broadcast", title: "广播到全部匹配账号" },
-  { value: "failover", title: "按优先级故障转移" },
-  { value: "weighted", title: "加权随机选择" },
-  { value: "weighted_failover", title: "加权选择后按序兜底" },
+const modes = () => [
+  {
+    value: "broadcast",
+    title: t("routing.broadcast_to_all_matching_accounts"),
+  },
+  { value: "failover", title: t("routing.fail_over_by_priority") },
+  { value: "weighted", title: t("routing.choose_at_random_by_weight") },
+  {
+    value: "weighted_failover",
+    title: t("routing.choose_by_weight_then_fail_over"),
+  },
 ];
 const defaults: Required<Retry> = {
   max_attempts: 3,
@@ -65,13 +72,23 @@ export function strategyDraft(initial?: Strategy) {
       if (selectedMode) value.mode = selectedMode;
       if (selectedMode === "broadcast") value.success_criteria = criteria();
       if (configureRetry()) {
-        const base = integer(delay(), "初始间隔", 1, 86400000);
+        const base = integer(delay(), t("routing.initial_delay"), 1, 86400000);
         value.retry = {
-          max_attempts: integer(attempts(), "每个账号尝试次数", 1, 100),
+          max_attempts: integer(
+            attempts(),
+            t("routing.attempts_per_account"),
+            1,
+            100,
+          ),
           backoff: backoff(),
           base_delay: base,
-          max_delay: integer(maximum(), "最大间隔", base, 86400000),
-          ttl: integer(ttl(), "消息存活时间", 1, 604800000),
+          max_delay: integer(
+            maximum(),
+            t("routing.maximum_delay"),
+            base,
+            86400000,
+          ),
+          ttl: integer(ttl(), t("routing.message_lifetime"), 1, 604800000),
           jitter: jitter(),
           until_success: untilSuccess(),
         };
@@ -88,12 +105,15 @@ export function StrategyEditor(props: {
   return (
     <View class="gap-3">
       <Choice
-        label="路由方式"
+        label={t("routing.routing_mode")}
         value={props.draft.mode() ?? (props.optional ? "inherit" : "broadcast")}
         items={
           props.optional
-            ? [{ value: "inherit", title: "沿用服务器策略" }, ...modes]
-            : modes
+            ? [
+                { value: "inherit", title: t("routing.use_server_policy") },
+                ...modes(),
+              ]
+            : modes()
         }
         onChange={(value) =>
           props.draft.mode.set(
@@ -103,11 +123,11 @@ export function StrategyEditor(props: {
       />
       <If when={props.draft.mode() === "broadcast"}>
         <Choice
-          label="广播成功条件"
+          label={t("routing.broadcast_success_criteria")}
           value={props.draft.criteria()}
           items={[
-            { value: "all", title: "全部成功" },
-            { value: "any", title: "任一成功" },
+            { value: "all", title: t("routing.all_succeed") },
+            { value: "any", title: t("routing.any_succeeds") },
           ]}
           onChange={(value) =>
             props.draft.criteria.set(value === "any" ? "any" : "all")
@@ -115,18 +135,18 @@ export function StrategyEditor(props: {
         />
       </If>
       <Toggle
-        label="自定义重试间隔和次数"
+        label={t("routing.customize_retry_timing_and_attempts")}
         checked={props.draft.configureRetry()}
         onChange={props.draft.configureRetry.set}
       />
       <If when={props.draft.configureRetry()}>
         <View class="gap-3">
           <Choice
-            label="退避方式"
+            label={t("routing.backoff")}
             value={props.draft.backoff()}
             items={[
-              { value: "exponential", title: "指数退避" },
-              { value: "fixed", title: "固定间隔" },
+              { value: "exponential", title: t("routing.exponential_backoff") },
+              { value: "fixed", title: t("routing.fixed_delay") },
             ]}
             onChange={(value) =>
               props.draft.backoff.set(
@@ -137,7 +157,7 @@ export function StrategyEditor(props: {
           <View class="gap-3 md:flex-row">
             <View class="flex-1">
               <Field
-                label="每个账号尝试次数"
+                label={t("routing.attempts_per_account")}
                 keyboard="numeric"
                 value={props.draft.attempts()}
                 onChange={props.draft.attempts.set}
@@ -145,7 +165,7 @@ export function StrategyEditor(props: {
             </View>
             <View class="flex-1">
               <Field
-                label="初始间隔（毫秒）"
+                label={t("routing.initial_delay_ms")}
                 keyboard="numeric"
                 value={props.draft.delay()}
                 onChange={props.draft.delay.set}
@@ -155,7 +175,7 @@ export function StrategyEditor(props: {
           <View class="gap-3 md:flex-row">
             <View class="flex-1">
               <Field
-                label="最大间隔（毫秒）"
+                label={t("routing.maximum_delay_ms")}
                 keyboard="numeric"
                 value={props.draft.maximum()}
                 onChange={props.draft.maximum.set}
@@ -163,7 +183,7 @@ export function StrategyEditor(props: {
             </View>
             <View class="flex-1">
               <Field
-                label="消息存活时间（毫秒）"
+                label={t("routing.message_lifetime_ms")}
                 keyboard="numeric"
                 value={props.draft.ttl()}
                 onChange={props.draft.ttl.set}
@@ -171,12 +191,12 @@ export function StrategyEditor(props: {
             </View>
           </View>
           <Toggle
-            label="打散重试时间"
+            label={t("routing.randomize_retry_intervals")}
             checked={props.draft.jitter()}
             onChange={props.draft.jitter.set}
           />
           <Toggle
-            label="在存活时间内继续尝试"
+            label={t("routing.keep_trying_within_the_message_lifetime")}
             checked={props.draft.untilSuccess()}
             onChange={props.draft.untilSuccess.set}
           />
@@ -239,9 +259,9 @@ export function Targets(props: {
   }
 
   return (
-    <Section title={props.title ?? "目标"}>
+    <Section title={props.title ?? t("routing.targets")}>
       <If when={props.targets.length === 0}>
-        <Hint>{props.emptyLabel ?? "尚未添加目标。"}</Hint>
+        <Hint>{props.emptyLabel ?? t("routing.no_targets_added")}</Hint>
       </If>
       <Each of={props.targets} key={(target) => JSON.stringify(target)}>
         {(target, index) => (
@@ -254,8 +274,12 @@ export function Targets(props: {
                 ?.display_name,
             )}
             subtitle={[
-              target().weight == null ? "" : `权重 ${target().weight}`,
-              target().priority == null ? "" : `优先级 ${target().priority}`,
+              target().weight == null
+                ? ""
+                : t("routing.target_weight", { weight: target().weight }),
+              target().priority == null
+                ? ""
+                : t("routing.target_priority", { priority: target().priority }),
             ]
               .filter(Boolean)
               .join(" · ")}
@@ -263,7 +287,7 @@ export function Targets(props: {
               <View class="flex-row flex-wrap items-center gap-1">
                 <If when={props.allowOverrides}>
                   <Action
-                    label="上移"
+                    label={t("routing.move_up")}
                     kind="quiet"
                     disabled={index() === 0}
                     onPress={() => {
@@ -280,7 +304,7 @@ export function Targets(props: {
                   />
                 </If>
                 <Action
-                  label="移除"
+                  label={t("routing.remove")}
                   kind="quiet"
                   onPress={() =>
                     props.onChange(
@@ -299,7 +323,7 @@ export function Targets(props: {
         when={choose()}
         else={
           <Action
-            label="添加目标"
+            label={t("routing.add_target")}
             class="self-start"
             onPress={() => choose.set(true)}
           />
@@ -307,10 +331,10 @@ export function Targets(props: {
       >
         <Panel>
           <Choice
-            label="渠道"
+            label={t("common.channel")}
             value={channel()}
             items={[
-              { value: "", title: "不限渠道" },
+              { value: "", title: t("routing.any_channel") },
               ...props.channels.map((entry) => ({
                 value: entry.id,
                 title: entry.display_name,
@@ -322,10 +346,10 @@ export function Targets(props: {
             }}
           />
           <Choice
-            label="账号"
+            label={t("common.account")}
             value={account()}
             items={[
-              { value: "", title: "不限账号" },
+              { value: "", title: t("routing.any_account") },
               ...props.accounts
                 .filter((item) => !channel() || item.channel === channel())
                 .map((item) => ({
@@ -337,16 +361,16 @@ export function Targets(props: {
             onChange={(value) => account.set(value ?? "")}
           />
           <Field
-            label="账号标签"
+            label={t("routing.account_tags")}
             value={tagText()}
             onChange={tagText.set}
-            hint="多个标签用逗号分隔。"
+            hint={t("common.separate_multiple_tags_with_commas")}
           />
           <If when={props.allowOverrides}>
             <View class="gap-3 md:flex-row">
               <View class="flex-1">
                 <Field
-                  label="权重（可选）"
+                  label={t("routing.weight_optional")}
                   keyboard="numeric"
                   value={weight()}
                   onChange={weight.set}
@@ -354,7 +378,7 @@ export function Targets(props: {
               </View>
               <View class="flex-1">
                 <Field
-                  label="优先级（可选）"
+                  label={t("routing.priority_optional")}
                   keyboard="numeric"
                   value={priority()}
                   onChange={priority.set}
@@ -364,13 +388,13 @@ export function Targets(props: {
           </If>
           <View class="flex-row flex-wrap gap-2">
             <Action
-              label="添加"
+              label={t("routing.add")}
               kind="primary"
               disabled={!valid()}
               onPress={add}
             />
             <Action
-              label="取消"
+              label={t("common.cancel")}
               onPress={() => choose.set(false)}
               kind="quiet"
             />

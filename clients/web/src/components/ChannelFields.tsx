@@ -1,3 +1,4 @@
+import { useT } from "../preferences";
 import { EuiFieldNumber, EuiFieldPassword, EuiFieldText, EuiFormRow, EuiSelect } from "@elastic/eui";
 import type { Channel, JsonObject } from "../api";
 import { split } from "./Common";
@@ -22,13 +23,14 @@ const fieldNames: Record<string, string> = {
   bot_token: "机器人令牌", chat_id: "聊天 ID", parse_mode: "解析模式", sendkey: "SendKey",
   signing_secret: "签名密钥", webhook: "Webhook 地址", app_id: "应用 ID", app_secret: "应用密钥",
   receive_id: "接收目标", receive_id_type: "接收目标类型", region: "区域", appid: "公众号 AppID",
-  secret: "应用密钥", template_id: "模板 ID", openid: "OpenID", corpid: "企业 ID", agentid: "应用 ID",
+  encryption_key: "加密密钥", secret: "应用密钥", template_id: "模板 ID", openid: "OpenID", corpid: "企业 ID", agentid: "应用 ID",
   title_field: "标题字段", body_field: "正文字段", touser: "成员 ID", mode: "接入方式",
 };
 
 export function ChannelFields({ channel, value, update }: {
   channel: Channel; value: JsonObject; update: (value: JsonObject) => void;
 }) {
+  const t = useT();
   const schema = channel.config_schema;
   const fields = (typeof schema.properties === "object" && schema.properties !== null ? schema.properties : {}) as Record<string, Property>;
   const required = new Set(Array.isArray(schema.required) ? schema.required : []);
@@ -47,17 +49,17 @@ export function ChannelFields({ channel, value, update }: {
 
   return <div className="stack">{Object.entries(fields).filter(([field]) => channel.id !== "feishu" || visible(field, value.mode)).map(([key, field]) => {
     const entry = value[key] ?? "";
-    const label = field.title || fieldNames[key] || key;
+    const label = t(field.title || fieldNames[key] || key);
     const placeholder = typeof field.default === "string" || typeof field.default === "number" ? String(field.default) : undefined;
     const secret = field.writeOnly || field.format === "password" || /password|token|secret|sendkey|webhook|proxy/.test(key);
     const isRequired = required.has(key);
     let control;
     if (field.enum) {
       control = <EuiSelect fullWidth required={isRequired} value={String(entry)} onChange={(event) => change(key, event.target.value)}
-        options={[{ value: "", text: placeholder ? `默认 · ${placeholder}` : "请选择" }, ...field.enum.map((value) => ({ value, text: value }))]} />;
+        options={[{ value: "", text: placeholder ? t("默认 · {value}", { value: placeholder }) : t("请选择") }, ...field.enum.map((value) => ({ value, text: value }))]} />;
     } else if (field.type === "boolean") {
       control = <EuiSelect fullWidth value={String(entry)} onChange={(event) => change(key, event.target.value === "" ? "" : event.target.value === "true")}
-        options={[{ value: "", text: "默认" }, { value: "true", text: "是" }, { value: "false", text: "否" }]} />;
+        options={[{ value: "", text: t("默认") }, { value: "true", text: t("是") }, { value: "false", text: t("否") }]} />;
     } else if (field.type === "number" || field.type === "integer") {
       control = <EuiFieldNumber fullWidth required={isRequired} min={field.minimum} max={field.maximum} value={entry as number | string}
         step={field.type === "integer" ? 1 : "any"} placeholder={placeholder}
@@ -69,9 +71,9 @@ export function ChannelFields({ channel, value, update }: {
       const set = (item: string) => change(key, item);
       control = secret ? <EuiFieldPassword fullWidth required={isRequired} autoComplete="off" type="password" value={text}
         onChange={(event) => set(event.target.value)} /> : <EuiFieldText fullWidth required={isRequired}
-        value={text} placeholder={parseArray ? "以逗号分隔" : placeholder} onChange={(event) => set(event.target.value)} />;
+        value={text} placeholder={parseArray ? t("以逗号分隔") : placeholder} onChange={(event) => set(event.target.value)} />;
     }
-    const help = field.type === "array" ? "以逗号分隔多个值。" : field.description;
+    const help = field.type === "array" ? t("以逗号分隔多个值。") : field.description && t(field.description);
     return <EuiFormRow key={key} label={label} helpText={help} fullWidth>{control}</EuiFormRow>;
   })}</div>;
 }

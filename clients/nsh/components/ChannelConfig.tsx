@@ -1,3 +1,4 @@
+import { t } from "nsh/i18n";
 import { signal, View } from "nsh";
 import { ApiError } from "../api";
 import type { Channel, JsonObject } from "../contracts";
@@ -54,7 +55,10 @@ export function channelConfigDraft(channel: () => Channel | undefined) {
   const value = (): JsonObject => {
     const definition = definitions();
     if (advanced() || !definition.length)
-      return parseObject(raw().trim() || "{}", "渠道配置");
+      return parseObject(
+        raw().trim() || "{}",
+        t("common.channel_configuration"),
+      );
     const result: JsonObject = {};
     const entered = values();
     for (const field of definition) {
@@ -66,7 +70,9 @@ export function channelConfigDraft(channel: () => Channel | undefined) {
           else
             throw new ApiError(
               "missing_config",
-              `请填写 ${schema.title ?? name}。`,
+              t("channel_config.field_required", {
+                field: schema.title ?? name,
+              }),
             );
         }
         continue;
@@ -77,7 +83,9 @@ export function channelConfigDraft(channel: () => Channel | undefined) {
         } catch {
           throw new ApiError(
             "invalid_json",
-            `${schema.title ?? name} 应为有效的 JSON。`,
+            t("channel_config.invalid_field_json", {
+              field: schema.title ?? name,
+            }),
           );
         }
       } else if (schema.type === "integer" || schema.type === "number") {
@@ -88,7 +96,9 @@ export function channelConfigDraft(channel: () => Channel | undefined) {
         ) {
           throw new ApiError(
             "invalid_number",
-            `${schema.title ?? name} 应为有效数字。`,
+            t("channel_config.invalid_field_number", {
+              field: schema.title ?? name,
+            }),
           );
         }
         result[name] = number;
@@ -112,7 +122,7 @@ export function ChannelConfig(props: {
     <Panel>
       <If when={props.draft.definitions().length > 0}>
         <Toggle
-          label="使用 JSON 编辑配置"
+          label={t("channel_config.edit_configuration_as_json")}
           checked={props.draft.advanced()}
           onChange={props.draft.advanced.set}
         />
@@ -125,7 +135,11 @@ export function ChannelConfig(props: {
               {(field) => {
                 const property = () => field().schema;
                 const label = () =>
-                  `${property().title ?? field().name}${field().required ? "（必填）" : ""}`;
+                  field().required
+                    ? t("channel_config.required_field", {
+                        name: property().title ?? field().name,
+                      })
+                    : (property().title ?? field().name);
                 const enums = () =>
                   property().enum?.filter(
                     (value): value is string => typeof value === "string",
@@ -192,11 +206,11 @@ export function ChannelConfig(props: {
         }
       >
         <Field
-          label="渠道配置（JSON）"
+          label={t("channel_config.channel_configuration_json")}
           multiline
           value={props.draft.raw()}
           onChange={props.draft.raw.set}
-          hint="JSON 模式会显示你输入的内容。"
+          hint={t("channel_config.json_mode_shows_the_text_you")}
           placeholder="{}"
         />
       </If>

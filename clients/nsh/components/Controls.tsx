@@ -1,3 +1,4 @@
+import { t } from "nsh/i18n";
 import { Text, View, type JSX } from "nsh";
 import { AlertDialog, Button, Input, Select, Switch } from "nsh/base";
 
@@ -116,7 +117,7 @@ export function Choice(props: {
             >
               {props.items.find((item) => item.value === props.value)?.title ??
                 props.placeholder ??
-                "请选择"}
+                t("controls.select_an_option")}
             </Text>
             <Text class="text-sm text-muted-foreground">⌄</Text>
           </View>
@@ -178,7 +179,7 @@ export function ReadState(props: {
     <View class="gap-2">
       <Problem message={props.problem} />
       <If when={props.loading && props.empty}>
-        <Hint>正在加载…</Hint>
+        <Hint>{t("controls.loading")}</Hint>
       </If>
       <If when={!props.loading && !props.problem && props.empty}>
         <View class="rounded-lg border border-border bg-card p-4">
@@ -220,7 +221,7 @@ export async function confirm(
     title,
     description: message,
     actions: [
-      { id: "cancel", label: "取消", role: "cancel" },
+      { id: "cancel", label: t("common.cancel"), role: "cancel" },
       { id: "confirm", label, role: destructive ? "destructive" : "default" },
     ],
   });

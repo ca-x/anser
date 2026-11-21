@@ -1,3 +1,4 @@
+import { t } from "nsh/i18n";
 import { signal, View } from "nsh";
 import type { AnserApi } from "../api";
 import type { Channel, Format, Publish, Target } from "../contracts";
@@ -16,8 +17,8 @@ import { strategyDraft, StrategyEditor, Targets } from "../components/Routing";
 import { WorkspacePage } from "../components/Workspace";
 import { operation, paged } from "../state";
 
-const formats = [
-  { value: "text", title: "纯文本" },
+const formats = () => [
+  { value: "text", title: t("common.plain_text") },
   { value: "markdown", title: "Markdown" },
   { value: "html", title: "HTML" },
 ];
@@ -62,10 +63,10 @@ export function Compose(props: {
       if (targets().length) next.channels = targets();
       const messageTags = tagsFrom(tags());
       if (messageTags.length) next.tags = messageTags;
-      next.url = optionalHttpUrl(link(), "通知链接");
+      next.url = optionalHttpUrl(link(), t("compose.notification_link"));
       next.level = level();
       if (topic() && topicPassword()) next.topic_password = topicPassword();
-      const file = optionalHttpUrl(attachment(), "附件地址");
+      const file = optionalHttpUrl(attachment(), t("compose.attachment_url"));
       if (file)
         next.attachments = [
           {
@@ -74,12 +75,16 @@ export function Compose(props: {
             content_type: attachmentType().trim() || undefined,
           },
         ];
-      if (extras().trim()) next.extras = parseObject(extras(), "扩展字段");
+      if (extras().trim())
+        next.extras = parseObject(extras(), t("compose.extra_fields"));
       if (callback().trim())
-        next.callback_url = optionalHttpUrl(callback(), "回调地址");
+        next.callback_url = optionalHttpUrl(
+          callback(),
+          t("compose.callback_url"),
+        );
       // Preserve both the idempotency key and the original absolute expiry when a timed-out request is retried.
       const expirySeconds = expiresIn().trim()
-        ? integer(expiresIn(), "有效期", 1, 604800)
+        ? integer(expiresIn(), t("compose.expiration"), 1, 604800)
         : undefined;
       const requestedStrategy = strategy.value();
       if (Object.keys(requestedStrategy).length)
@@ -112,18 +117,22 @@ export function Compose(props: {
 
   return (
     <WorkspacePage
-      title="发送通知"
+      title={t("compose.send_notification")}
       footer={
         <View class="flex-row flex-wrap items-center justify-between gap-3">
           <Hint>
             {topic()
-              ? `Topic：${topic()}`
+              ? t("common.topic_name_value", { name: topic() })
               : targets().length
-                ? `已选 ${targets().length} 个目标`
-                : "使用默认路由"}
+                ? t("compose.target_count", { count: targets().length })
+                : t("compose.use_default_routing")}
           </Hint>
           <Action
-            label={delivery.busy() ? "正在提交…" : "发送通知"}
+            label={
+              delivery.busy()
+                ? t("compose.submitting")
+                : t("compose.send_notification")
+            }
             onPress={send}
             kind="primary"
             disabled={delivery.busy() || !title().trim() || !body().trim()}
@@ -132,19 +141,17 @@ export function Compose(props: {
       }
     >
       <Problem message={delivery.problem()} />
-      <Section title="收件范围">
+      <Section title={t("compose.recipients")}>
         <Choice
           label="Topic"
           value={topic()}
           items={[
-            { value: "", title: "直接投递" },
-            ...topics
-              .items()
-              .map((item) => ({
-                value: item.name,
-                title: item.name,
-                disabled: !item.enabled,
-              })),
+            { value: "", title: t("common.direct_delivery") },
+            ...topics.items().map((item) => ({
+              value: item.name,
+              title: item.name,
+              disabled: !item.enabled,
+            })),
           ]}
           onChange={(value) => {
             topic.set(value ?? "");
@@ -158,7 +165,7 @@ export function Compose(props: {
           }
         >
           <Field
-            label="Topic 密码（如需）"
+            label={t("compose.topic_password_if_needed")}
             masked
             value={topicPassword()}
             onChange={topicPassword.set}
@@ -166,7 +173,7 @@ export function Compose(props: {
         </If>
         <If when={topics.next()}>
           <Action
-            label="加载更多 Topic"
+            label={t("compose.load_more_topics")}
             kind="quiet"
             class="self-start"
             disabled={topics.loading()}
@@ -179,41 +186,43 @@ export function Compose(props: {
       </Section>
       <Panel>
         <Field
-          label="标题"
+          label={t("common.title")}
           value={title()}
           onChange={title.set}
-          placeholder="通知标题"
+          placeholder={t("compose.notification_title")}
           disabled={delivery.busy()}
         />
         <Field
-          label="正文"
+          label={t("common.body")}
           value={body()}
           onChange={body.set}
-          placeholder="写下要发送的通知"
+          placeholder={t("compose.write_a_notification")}
           autoCapitalize="sentences"
           multiline
           disabled={delivery.busy()}
         />
         <Choice
-          label="正文格式"
-          items={formats}
+          label={t("common.body_format")}
+          items={formats()}
           value={format()}
           onChange={(value) => format.set((value ?? "text") as Format)}
         />
       </Panel>
       <Targets
-        title="指定渠道或账号"
+        title={t("compose.choose_channels_or_accounts")}
         targets={targets()}
         onChange={targets.set}
         channels={props.channels}
         accounts={accounts.items()}
         emptyLabel={
-          topic() ? "使用该 Topic 的路由和订阅。" : "使用服务器默认路由。"
+          topic()
+            ? t("compose.use_this_topic_s_routing_and")
+            : t("compose.use_the_server_s_default_routing")
         }
       />
       <If when={accounts.next()}>
         <Action
-          label="加载更多账号"
+          label={t("common.load_more_accounts")}
           class="self-start"
           kind="quiet"
           disabled={accounts.loading()}
@@ -221,7 +230,11 @@ export function Compose(props: {
         />
       </If>
       <Action
-        label={advanced() ? "收起发送选项" : "显示发送选项"}
+        label={
+          advanced()
+            ? t("compose.hide_send_options")
+            : t("compose.show_send_options")
+        }
         kind="quiet"
         class="self-start"
         onPress={() => advanced.update((value) => !value)}
@@ -229,43 +242,43 @@ export function Compose(props: {
       <If when={advanced()}>
         <Panel>
           <Field
-            label="消息标签"
+            label={t("compose.message_tags")}
             value={tags()}
             onChange={tags.set}
-            hint="多个标签用逗号分隔。"
+            hint={t("common.separate_multiple_tags_with_commas")}
           />
           <Choice
-            label="级别"
+            label={t("compose.severity")}
             value={level()}
             items={[
-              { value: "info", title: "信息" },
-              { value: "warn", title: "警告" },
-              { value: "error", title: "错误" },
+              { value: "info", title: t("compose.info") },
+              { value: "warn", title: t("compose.warning") },
+              { value: "error", title: t("compose.error") },
             ]}
             onChange={(value) => level.set(value ?? "info")}
           />
           <Field
-            label="通知链接"
+            label={t("compose.notification_link")}
             keyboard="url"
             value={link()}
             onChange={link.set}
           />
           <Field
-            label="附件地址"
+            label={t("compose.attachment_url")}
             keyboard="url"
             value={attachment()}
             onChange={attachment.set}
-            hint="使用接收渠道可访问的链接。"
+            hint={t("compose.use_a_link_that_the_receiving")}
           />
           <If when={attachment().trim()}>
             <View class="gap-3">
               <Field
-                label="附件名称"
+                label={t("compose.attachment_name")}
                 value={attachmentName()}
                 onChange={attachmentName.set}
               />
               <Field
-                label="附件类型"
+                label={t("compose.attachment_type")}
                 value={attachmentType()}
                 onChange={attachmentType.set}
                 placeholder="image/png"
@@ -273,24 +286,28 @@ export function Compose(props: {
             </View>
           </If>
           <Field
-            label="有效期（秒）"
+            label={t("compose.expiration_seconds")}
             keyboard="numeric"
             value={expiresIn()}
             onChange={expiresIn.set}
           />
           <Field
-            label="终态回调地址"
+            label={t("compose.final_status_callback_url")}
             keyboard="url"
             value={callback()}
             onChange={callback.set}
           />
           <Field
-            label="扩展字段（JSON）"
+            label={t("compose.extra_fields_json")}
             multiline
             value={extras()}
             onChange={extras.set}
           />
-          <Toggle label="提交后等待结果" checked={wait()} onChange={wait.set} />
+          <Toggle
+            label={t("compose.wait_for_delivery_result")}
+            checked={wait()}
+            onChange={wait.set}
+          />
           <StrategyEditor draft={strategy} optional />
         </Panel>
       </If>

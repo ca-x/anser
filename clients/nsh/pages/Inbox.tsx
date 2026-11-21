@@ -1,3 +1,4 @@
+import { t } from "nsh/i18n";
 import { signal, Text, View } from "nsh";
 import type { AnserApi } from "../api";
 import type { Format, InboxItem } from "../contracts";
@@ -18,10 +19,10 @@ import { operation } from "../state";
 
 function sender(item: InboxItem) {
   return item.from_username
-    ? `来自 ${item.from_username}`
+    ? t("inbox.from_user", { username: item.from_username })
     : item.topic
-      ? `Topic：${item.topic}`
-      : "服务器通知";
+      ? t("common.topic_name_value", { name: item.topic })
+      : t("inbox.server_notification");
 }
 
 export function Inbox(props: {
@@ -31,32 +32,34 @@ export function Inbox(props: {
 }) {
   const state = props.state;
   return (
-    <WorkspacePage title="收件箱">
+    <WorkspacePage title={t("common.inbox")}>
       <View class="flex-row flex-wrap items-center justify-between gap-2">
         <Action
-          label="刷新"
+          label={t("common.refresh")}
           kind="quiet"
           onPress={state.reload}
           disabled={state.loading()}
         />
-        <Action label="给用户发消息" kind="primary" onPress={props.onSend} />
+        <Action
+          label={t("inbox.message_a_user")}
+          kind="primary"
+          onPress={props.onSend}
+        />
       </View>
       <Panel>
         <Toggle
-          label="本次连接显示系统通知"
+          label={t("inbox.show_system_notifications_for_this_session")}
           checked={state.native()}
           onChange={state.changeNative}
         />
-        <Hint>
-          应用运行时接收消息。系统通知只提醒有新消息，详情在收件箱查看。
-        </Hint>
+        <Hint>{t("inbox.messages_arrive_while_the_app_is")}</Hint>
         <Problem message={state.nativeMessage()} />
       </Panel>
       <ReadState
         loading={state.loading()}
         problem={state.problem()}
         empty={!state.items().length}
-        emptyLabel="暂无收到的通知。"
+        emptyLabel={t("inbox.no_incoming_notifications")}
       />
       <Each of={state.items()} key={(item) => item.id}>
         {(item) => (
@@ -65,7 +68,9 @@ export function Inbox(props: {
             subtitle={`${sender(item())} / ${localTime(item().created_at)}`}
             status={
               <If when={item().read_at == null}>
-                <Text class="text-sm font-semibold text-waiting">未读</Text>
+                <Text class="text-sm font-semibold text-waiting">
+                  {t("inbox.unread")}
+                </Text>
               </If>
             }
             onPress={() => props.onOpen(item().id)}
@@ -87,9 +92,12 @@ export function InboxDetail(props: {
     void action.run(() => props.state.markRead(props.id));
 
   return (
-    <WorkspacePage title="收到的通知" back={props.onBack}>
+    <WorkspacePage title={t("inbox.received_notification")} back={props.onBack}>
       <Problem message={action.problem()} />
-      <If when={item()} else={<Hint>找不到这条通知。</Hint>}>
+      <If
+        when={item()}
+        else={<Hint>{t("inbox.this_notification_could_not_be_found")}</Hint>}
+      >
         {(message) => (
           <Panel>
             <Text
@@ -108,7 +116,7 @@ export function InboxDetail(props: {
             </View>
             <If when={message().read_at == null && action.problem()}>
               <Action
-                label="标为已读"
+                label={t("inbox.mark_as_read")}
                 onPress={() =>
                   void action.run(() => props.state.markRead(props.id))
                 }
@@ -141,17 +149,17 @@ export function InboxSend(props: { api: AnserApi; onBack: () => void }) {
       if (!action.live()) return;
       title.set("");
       body.set("");
-      sent.set(`消息已发送给 ${target}。`);
+      sent.set(t("inbox.sent_to", { recipient: target }));
     });
   }
 
   return (
     <WorkspacePage
-      title="给用户发消息"
+      title={t("inbox.message_a_user")}
       back={props.onBack}
       footer={
         <Action
-          label={action.busy() ? "正在发送…" : "发送消息"}
+          label={action.busy() ? t("inbox.sending") : t("inbox.send_message")}
           onPress={send}
           kind="primary"
           disabled={
@@ -169,30 +177,30 @@ export function InboxSend(props: { api: AnserApi; onBack: () => void }) {
       </If>
       <Panel>
         <Field
-          label="收件人用户名"
+          label={t("inbox.recipient_username")}
           value={recipient()}
           onChange={recipient.set}
           disabled={action.busy()}
         />
         <Field
-          label="标题"
+          label={t("common.title")}
           value={title()}
           onChange={title.set}
           disabled={action.busy()}
         />
         <Field
-          label="正文"
+          label={t("common.body")}
           value={body()}
           onChange={body.set}
           multiline
           disabled={action.busy()}
         />
         <Choice
-          label="正文格式"
+          label={t("common.body_format")}
           value={format()}
           disabled={action.busy()}
           items={[
-            { value: "text", title: "纯文本" },
+            { value: "text", title: t("common.plain_text") },
             { value: "markdown", title: "Markdown" },
             { value: "html", title: "HTML" },
           ]}

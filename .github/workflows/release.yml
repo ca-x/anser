@@ -122,7 +122,7 @@ jobs:
           if-no-files-found: error
 
   images:
-    needs: check
+    needs: [validate, check]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     permissions:
@@ -160,20 +160,33 @@ jobs:
           labels: org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
           cache-from: type=gha,scope=${{ matrix.arch }}
           cache-to: type=gha,mode=max,scope=${{ matrix.arch }}
-      - name: Save image digest
+      - name: Save image digest and Docker archive
         if: github.ref_type == 'tag'
         env:
           ARCH: ${{ matrix.arch }}
           DIGEST: ${{ steps.build.outputs.digest }}
+          IMAGE: ${{ steps.image.outputs.name }}
+          VERSION: ${{ needs.validate.outputs.version }}
         run: |
           set -euo pipefail
           [[ "$DIGEST" =~ ^sha256:[a-f0-9]{64}$ ]]
           echo "$DIGEST" > "$ARCH.txt"
+          docker image pull --platform "linux/$ARCH" "$IMAGE@$DIGEST"
+          docker image tag "$IMAGE@$DIGEST" "anser:$VERSION"
+          mkdir -p image-dist
+          docker image save "anser:$VERSION" | gzip -n > "image-dist/anser-docker-linux-$ARCH.tar.gz"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: github.ref_type == 'tag'
         with:
           name: digest-${{ matrix.arch }}
           path: ${{ matrix.arch }}.txt
+          if-no-files-found: error
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: github.ref_type == 'tag'
+        with:
+          name: anser-docker-linux-${{ matrix.arch }}
+          path: image-dist/*.tar.gz
+          compression-level: 0
           if-no-files-found: error
 
   publish-image:
@@ -235,7 +248,7 @@ jobs:
         run: |
           set -euo pipefail
           archives=(anser-*.tar.gz anser-*.zip)
-          test "${#archives[@]}" -eq 7
+          test "${#archives[@]}" -eq 9
           sha256sum "${archives[@]}" > SHA256SUMS
           sha256sum --check SHA256SUMS
       - uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2.5.0

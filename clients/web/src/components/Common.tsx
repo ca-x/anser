@@ -1,3 +1,4 @@
+import { useLanguage, useT } from "../preferences";
 import type { ReactNode } from "react";
 import {
   EuiBadge, EuiButton, EuiButtonEmpty, EuiCallOut, EuiConfirmModal, EuiEmptyPrompt,
@@ -18,13 +19,15 @@ export function PageTitle({ title, action, description }: { title: string; actio
 }
 
 export function Failure({ message, retry }: { message?: string; retry?: () => void }) {
-  return message ? <EuiCallOut announceOnMount color="danger" iconType="warning" title={message} size="s">
-    {retry && <EuiButtonEmpty size="xs" onClick={retry}>重新加载</EuiButtonEmpty>}
+  const t = useT();
+  return message ? <EuiCallOut announceOnMount color="danger" iconType="warning" title={t(message)} size="s">
+    {retry && <EuiButtonEmpty size="xs" onClick={retry}>{t("重新加载")}</EuiButtonEmpty>}
   </EuiCallOut> : null;
 }
 
-export function Progress({ label = "正在加载" }: { label?: string }) {
-  return <div className="loading" role="status"><EuiLoadingSpinner size="m" /><span>{label}</span></div>;
+export function Progress({ label }: { label?: string }) {
+  const t = useT();
+  return <div className="loading" role="status"><EuiLoadingSpinner size="m" /><span>{label ?? t("正在加载")}</span></div>;
 }
 
 export function Empty({ title, description, action }: { title: string; description?: string; action?: ReactNode }) {
@@ -32,7 +35,8 @@ export function Empty({ title, description, action }: { title: string; descripti
 }
 
 export function More({ next, busy, load }: { next?: string | null; busy?: boolean; load: () => void }) {
-  return next ? <div className="list-footer"><EuiButton size="s" isLoading={busy} onClick={load}>加载更多</EuiButton></div> : null;
+  const t = useT();
+  return next ? <div className="list-footer"><EuiButton size="s" isLoading={busy} onClick={load}>{t("加载更多")}</EuiButton></div> : null;
 }
 
 const states: Record<string, { label: string; color: "default" | "success" | "warning" | "danger" | "primary" }> = {
@@ -48,12 +52,16 @@ const states: Record<string, { label: string; color: "default" | "success" | "wa
 };
 
 export function Status({ value }: { value: string }) {
+  const t = useT();
   const state = states[value];
-  return <EuiBadge color={state?.color ?? "default"}>{state?.label ?? value}</EuiBadge>;
+  return <EuiBadge color={state?.color ?? "default"}>{state ? t(state.label) : value}</EuiBadge>;
 }
 
-export function date(value?: number | null) {
-  return value ? new Intl.DateTimeFormat("zh-CN", { dateStyle: "medium", timeStyle: "short" }).format(value) : "—";
+export function useDate() {
+  const language = useLanguage();
+  return (value?: number | null) => value
+    ? new Intl.DateTimeFormat(language, { dateStyle: "medium", timeStyle: "short" }).format(value)
+    : "—";
 }
 
 export function Tags({ values }: { values?: string[] }) {
@@ -91,8 +99,9 @@ export function Drawer({ title, close, children, footer, size = "m" }: {
 export function Confirm({ title, children, label, close, confirm, busy }: {
   title: string; children: ReactNode; label: string; close: () => void; confirm: () => void; busy?: boolean;
 }) {
+  const t = useT();
   return <EuiConfirmModal
-    title={title} onCancel={close} onConfirm={confirm} cancelButtonText="取消"
+    title={title} onCancel={close} onConfirm={confirm} cancelButtonText={t("取消")}
     confirmButtonText={label} buttonColor="danger" isLoading={busy} defaultFocusedButton="cancel"
   >{children}</EuiConfirmModal>;
 }

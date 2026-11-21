@@ -1,3 +1,4 @@
+import { t } from "nsh/i18n";
 import { signal, Text, View } from "nsh";
 import { ApiError, type AnserApi } from "../api";
 import type { Channel, JsonObject, Target, Topic } from "../contracts";
@@ -27,21 +28,28 @@ export function Topics(props: {
 }) {
   const list = paged(props.api.topics.bind(props.api));
   return (
-    <WorkspacePage title="Topic 与订阅">
+    <WorkspacePage title={t("topics.topics_and_subscriptions")}>
       <View class="flex-row flex-wrap justify-between gap-2">
         <View class="flex-row flex-wrap gap-2">
           <Action
-            label="刷新"
+            label={t("common.refresh")}
             onPress={list.reload}
             kind="quiet"
             disabled={list.loading()}
           />
           <If when={props.admin !== false}>
-            <Action label="默认路由" onPress={props.onDefault} />
+            <Action
+              label={t("common.default_routing")}
+              onPress={props.onDefault}
+            />
           </If>
         </View>
         <If when={props.admin !== false}>
-          <Action label="创建 Topic" onPress={props.onCreate} kind="primary" />
+          <Action
+            label={t("topics.create_topic")}
+            onPress={props.onCreate}
+            kind="primary"
+          />
         </If>
       </View>
       <ReadState
@@ -50,8 +58,8 @@ export function Topics(props: {
         empty={!list.items().length}
         emptyLabel={
           props.admin === false
-            ? "服务器还没有可订阅的 Topic。"
-            : "还没有 Topic。创建后即可管理路由和订阅。"
+            ? t("topics.no_topics_available_to_subscribe_to")
+            : t("topics.no_topics_yet_create_one_to")
         }
       />
       <Each of={list.items()} key={(topic) => topic.name}>
@@ -67,7 +75,7 @@ export function Topics(props: {
                     : "text-sm text-muted-foreground"
                 }
               >
-                {topic().enabled ? "已启用" : "已停用"}
+                {topic().enabled ? t("common.enabled") : t("common.disabled")}
               </Text>
             }
             onPress={() => props.onOpen(topic())}
@@ -76,7 +84,7 @@ export function Topics(props: {
       </Each>
       <If when={list.next()}>
         <Action
-          label="加载更多"
+          label={t("common.load_more")}
           onPress={list.more}
           disabled={list.loading()}
         />
@@ -111,25 +119,29 @@ export function TopicDetail(props: {
   const account = signal("");
   const address = signal("");
   const password = signal("");
-  const modeLabels = {
-    broadcast: "广播",
-    failover: "故障转移",
-    weighted: "加权",
-    weighted_failover: "加权故障转移",
-  };
+  const modeLabel = () =>
+    ({
+      broadcast: t("topics.broadcast"),
+      failover: t("topics.failover"),
+      weighted: t("topics.weighted"),
+      weighted_failover: t("topics.weighted_failover"),
+    })[topic.policy.mode];
 
   function add() {
     void subscribe.run(async () => {
       if (!subscriber().trim())
-        throw new ApiError("invalid_subscriber", "请填写订阅者标识。");
+        throw new ApiError(
+          "invalid_subscriber",
+          t("topics.enter_a_subscriber_identifier"),
+        );
       let target: JsonObject | undefined;
       if (address().trim()) {
         if (!account())
           throw new ApiError(
             "missing_account",
-            "替换接收目标前请选择渠道账号。",
+            t("topics.select_a_channel_account_before_overriding"),
           );
-        target = parseObject(address(), "接收目标");
+        target = parseObject(address(), t("topics.recipient_override"));
       }
       await props.api.subscribe(topic.name, {
         subscriber_ref: subscriber().trim(),
@@ -153,9 +165,9 @@ export function TopicDetail(props: {
     void unsubscribe.run(async () => {
       if (
         !(await confirm(
-          "取消订阅？",
-          "该订阅在队列中等待发送的通知会被取消。",
-          "退订",
+          t("topics.unsubscribe"),
+          t("topics.queued_notifications_for_this_subscription_will"),
+          t("topics.unsubscribe_2"),
         ))
       )
         return;
@@ -168,36 +180,40 @@ export function TopicDetail(props: {
     <WorkspacePage title={topic.name} back={props.onBack}>
       <Panel>
         <Text class="text-base font-semibold text-foreground">
-          {topic.enabled ? "已启用" : "已停用"} ·{" "}
-          {modeLabels[topic.policy.mode]}
-          {topic.protected ? " · 需要密码" : ""}
+          {topic.enabled ? t("common.enabled") : t("common.disabled")} ·{" "}
+          {modeLabel()}
+          {topic.protected ? t("topics.protected_suffix") : ""}
         </Text>
         <If when={topic.description}>
           <Hint>{topic.description}</Hint>
         </If>
-        <Hint>{topic.policy.targets.length} 个路由目标</Hint>
+        <Hint>
+          {t("topics.target_count", { count: topic.policy.targets.length })}
+        </Hint>
         <View class="flex-row flex-wrap gap-2">
           <Action
-            label="发布通知"
+            label={t("topics.publish_notification")}
             onPress={props.onPublish}
             kind="primary"
             disabled={!topic.enabled}
           />
           <If when={props.admin !== false}>
-            <Action label="编辑 Topic" onPress={props.onEdit} />
+            <Action label={t("topics.edit_topic")} onPress={props.onEdit} />
           </If>
         </View>
       </Panel>
-      <Section title="订阅">
+      <Section title={t("topics.subscriptions")}>
         <View class="flex-row flex-wrap justify-between gap-2">
           <Action
-            label="刷新"
+            label={t("common.refresh")}
             onPress={list.reload}
             kind="quiet"
             disabled={list.loading()}
           />
           <Action
-            label={editing() ? "收起表单" : "添加订阅"}
+            label={
+              editing() ? t("topics.hide_form") : t("topics.add_subscription")
+            }
             onPress={() => editing.update((value) => !value)}
           />
         </View>
@@ -205,23 +221,24 @@ export function TopicDetail(props: {
           <Panel>
             <Problem message={subscribe.problem()} />
             <Field
-              label="订阅者标识"
+              label={t("topics.subscriber_identifier")}
               value={subscriber()}
               onChange={subscriber.set}
             />
             <If when={props.admin !== false}>
               <Choice
-                label="专属账号"
+                label={t("topics.dedicated_account")}
                 value={account()}
                 items={[
-                  { value: "", title: "使用 Topic 路由策略" },
-                  ...accounts
-                    .items()
-                    .map((item) => ({
-                      value: item.id,
-                      title: item.name,
-                      disabled: !item.enabled,
-                    })),
+                  {
+                    value: "",
+                    title: t("topics.use_the_topic_routing_policy"),
+                  },
+                  ...accounts.items().map((item) => ({
+                    value: item.id,
+                    title: item.name,
+                    disabled: !item.enabled,
+                  })),
                 ]}
                 onChange={(value) => {
                   account.set(value ?? "");
@@ -230,15 +247,15 @@ export function TopicDetail(props: {
               />
               <If when={accounts.problem()}>
                 <Field
-                  label="专属账号 ID（可选）"
+                  label={t("topics.dedicated_account_id_optional")}
                   value={account()}
                   onChange={account.set}
-                  hint="无法列出账号时，可以输入管理员提供的账号 ID。"
+                  hint={t("topics.if_accounts_are_unavailable_enter_an")}
                 />
               </If>
               <If when={accounts.next()}>
                 <Action
-                  label="加载更多账号"
+                  label={t("common.load_more_accounts")}
                   class="self-start"
                   kind="quiet"
                   onPress={accounts.more}
@@ -247,29 +264,33 @@ export function TopicDetail(props: {
               </If>
               <If when={account()}>
                 <Field
-                  label="接收目标（可选 JSON）"
+                  label={t("topics.recipient_override_optional_json")}
                   value={address()}
                   onChange={address.set}
-                  hint="填写渠道支持的目标字段。留空时使用该账号已保存的接收目标。"
+                  hint={t("topics.enter_the_fields_supported_by_this")}
                 />
               </If>
             </If>
             <If when={topic.protected}>
               <Field
-                label="Topic 密码"
+                label={t("topics.topic_password")}
                 masked
                 value={password()}
                 onChange={password.set}
               />
             </If>
             <Field
-              label="匹配消息标签"
+              label={t("topics.match_message_tags")}
               value={filter()}
               onChange={filter.set}
-              hint="多个标签用逗号分隔。"
+              hint={t("common.separate_multiple_tags_with_commas")}
             />
             <Action
-              label={subscribe.busy() ? "正在保存…" : "保存订阅"}
+              label={
+                subscribe.busy()
+                  ? t("common.saving")
+                  : t("topics.save_subscription")
+              }
               onPress={add}
               kind="primary"
               disabled={subscribe.busy() || !subscriber().trim()}
@@ -281,7 +302,7 @@ export function TopicDetail(props: {
           loading={list.loading()}
           problem={list.problem()}
           empty={!list.items().length}
-          emptyLabel="这个 Topic 还没有订阅者。"
+          emptyLabel={t("topics.this_topic_has_no_subscribers")}
         />
         <Each of={list.items()} key={(entry) => entry.id}>
           {(entry) => (
@@ -291,12 +312,12 @@ export function TopicDetail(props: {
                 accounts.items().find((item) => item.id === entry().account_id)
                   ?.name ??
                   entry().account_id ??
-                  "使用 Topic 路由",
+                  t("topics.use_topic_routing"),
                 ...(entry().filter ?? []),
               ].join(" / ")}
               status={
                 <Action
-                  label="退订"
+                  label={t("topics.unsubscribe_2")}
                   kind="quiet"
                   disabled={unsubscribe.busy()}
                   onPress={() => remove(entry().id)}
@@ -307,7 +328,7 @@ export function TopicDetail(props: {
         </Each>
         <If when={list.next()}>
           <Action
-            label="加载更多"
+            label={t("common.load_more")}
             onPress={list.more}
             disabled={list.loading()}
           />
@@ -352,10 +373,13 @@ export function TopicEditor(props: {
       )
         throw new ApiError(
           "invalid_topic",
-          "Topic 名称只能包含字母、数字、点、下划线和连字符。",
+          t("topics.a_topic_name_can_include_letters"),
         );
       if (protect() && !original?.protected && !password())
-        throw new ApiError("missing_topic_password", "请设置 Topic 密码。");
+        throw new ApiError(
+          "missing_topic_password",
+          t("topics.set_a_topic_password"),
+        );
       const policy = strategy.value();
       const request = {
         name: topic,
@@ -363,7 +387,7 @@ export function TopicEditor(props: {
         enabled: enabled(),
         default_tags: tagsFrom(defaultTags()),
         retention: retention().trim()
-          ? integer(retention(), "记录保留期", 1, 3650)
+          ? integer(retention(), t("topics.history_retention"), 1, 3650)
           : null,
         password: protect()
           ? password() || undefined
@@ -386,9 +410,9 @@ export function TopicEditor(props: {
       if (
         !original ||
         !(await confirm(
-          "删除 Topic？",
-          "该 Topic 将无法接收新发布。",
-          "删除 Topic",
+          t("topics.delete_topic"),
+          t("topics.the_topic_will_stop_accepting_new"),
+          t("topics.delete_topic_2"),
         ))
       )
         return;
@@ -399,18 +423,18 @@ export function TopicEditor(props: {
 
   return (
     <WorkspacePage
-      title={original ? "编辑 Topic" : "创建 Topic"}
+      title={original ? t("topics.edit_topic") : t("topics.create_topic")}
       back={props.onBack}
       footer={
         <View class="flex-row flex-wrap gap-2">
           <Action
-            label={action.busy() ? "正在保存…" : "保存 Topic"}
+            label={action.busy() ? t("common.saving") : t("topics.save_topic")}
             onPress={save}
             kind="primary"
             disabled={action.busy() || !name().trim()}
           />
           <Action
-            label="取消"
+            label={t("common.cancel")}
             onPress={props.onBack}
             kind="quiet"
             disabled={action.busy()}
@@ -421,47 +445,51 @@ export function TopicEditor(props: {
       <Problem message={action.problem()} />
       <Panel>
         <Field
-          label="Topic 名称"
+          label={t("topics.topic_name")}
           value={name()}
           onChange={name.set}
           disabled={Boolean(original)}
-          hint="可使用字母、数字、点、下划线和连字符。"
+          hint={t("topics.use_letters_numbers_periods_underscores_and")}
         />
         <Field
-          label="描述"
+          label={t("topics.description")}
           value={description()}
           onChange={description.set}
           multiline
         />
         <Field
-          label="默认消息标签"
+          label={t("topics.default_message_tags")}
           value={defaultTags()}
           onChange={defaultTags.set}
-          hint="多个标签用逗号分隔。"
+          hint={t("common.separate_multiple_tags_with_commas")}
         />
         <Field
-          label="记录保留期（天）"
+          label={t("topics.history_retention_days")}
           value={retention()}
           onChange={retention.set}
           keyboard="numeric"
-          hint="留空使用服务器默认设置。"
+          hint={t("topics.leave_blank_to_use_server_defaults")}
         />
-        <Toggle label="启用 Topic" checked={enabled()} onChange={enabled.set} />
         <Toggle
-          label="启用密码保护"
+          label={t("topics.enable_topic")}
+          checked={enabled()}
+          onChange={enabled.set}
+        />
+        <Toggle
+          label={t("topics.require_a_password")}
           checked={protect()}
           onChange={protect.set}
         />
         <If when={protect()}>
           <Field
-            label="Topic 密码"
+            label={t("topics.topic_password")}
             masked
             value={password()}
             onChange={password.set}
             hint={
               original?.protected
-                ? "留空将沿用现有密码。"
-                : "未获授权的订阅或发布可能需要此密码。"
+                ? t("topics.leave_blank_to_keep_the_existing")
+                : t("topics.users_may_need_this_password_to")
             }
           />
         </If>
@@ -471,27 +499,27 @@ export function TopicEditor(props: {
         onChange={targets.set}
         channels={props.channels}
         accounts={accounts.items()}
-        title="路由目标"
+        title={t("topics.routing_targets_2")}
         allowOverrides
-        emptyLabel="未指定显式目标。发送时按可用账号和订阅规则投递。"
+        emptyLabel={t("topics.no_targets_specified_delivery_will_use")}
       />
       <If when={accounts.next()}>
         <Action
-          label="加载更多账号"
+          label={t("common.load_more_accounts")}
           class="self-start"
           kind="quiet"
           disabled={accounts.loading()}
           onPress={accounts.more}
         />
       </If>
-      <Section title="路由策略">
+      <Section title={t("common.routing_policy")}>
         <Panel>
           <StrategyEditor draft={strategy} />
         </Panel>
       </Section>
       <If when={original}>
         <Action
-          label="删除 Topic"
+          label={t("topics.delete_topic_2")}
           onPress={remove}
           kind="danger"
           class="self-start"

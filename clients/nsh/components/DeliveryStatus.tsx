@@ -1,16 +1,28 @@
-import { Text } from "nsh";
+import { t } from "nsh/i18n";
+import { locale, Text } from "nsh";
 
 const statuses: Record<
   string,
   { label: string; style: string; live?: boolean }
 > = {
-  pending: { label: "待投递", style: "text-waiting", live: true },
-  sending: { label: "投递中", style: "text-waiting", live: true },
-  success: { label: "已成功", style: "text-success" },
-  failed: { label: "失败", style: "text-destructive" },
-  dead: { label: "死信", style: "text-destructive" },
-  cancelled: { label: "已取消", style: "text-muted-foreground" },
-  skipped: { label: "已跳过", style: "text-muted-foreground" },
+  pending: {
+    label: "delivery_status.queued",
+    style: "text-waiting",
+    live: true,
+  },
+  sending: {
+    label: "delivery_status.sending",
+    style: "text-waiting",
+    live: true,
+  },
+  success: { label: "delivery_status.succeeded", style: "text-success" },
+  failed: { label: "delivery_status.failed", style: "text-destructive" },
+  dead: { label: "delivery_status.dead_letter", style: "text-destructive" },
+  cancelled: {
+    label: "delivery_status.canceled",
+    style: "text-muted-foreground",
+  },
+  skipped: { label: "delivery_status.skipped", style: "text-muted-foreground" },
 };
 
 export function activeStatus(value: string) {
@@ -25,7 +37,7 @@ export function DeliveryStatus(props: { value: string }) {
     };
   return (
     <Text class={`text-sm font-semibold ${status().style}`}>
-      {status().label}
+      {statuses[props.value] ? t(status().label) : status().label}
     </Text>
   );
 }
@@ -33,7 +45,10 @@ export function DeliveryStatus(props: { value: string }) {
 export function localTime(value?: number | null) {
   if (value == null) return "—";
   const date = new Date(value);
-  const two = (number: number) => String(number).padStart(2, "0");
-  if (!Number.isFinite(date.getTime())) return "—";
-  return `${date.getFullYear()}-${two(date.getMonth() + 1)}-${two(date.getDate())} ${two(date.getHours())}:${two(date.getMinutes())}:${two(date.getSeconds())}`;
+  return Number.isFinite(date.getTime())
+    ? date.toLocaleString(locale(), {
+        dateStyle: "medium",
+        timeStyle: "medium",
+      })
+    : "—";
 }

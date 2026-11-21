@@ -1,3 +1,4 @@
+import { t } from "nsh/i18n";
 import { signal, Text, View } from "nsh";
 import { ApiError, type AnserApi } from "../api";
 import type { Account, Channel, Format, JsonObject } from "../contracts";
@@ -26,21 +27,25 @@ export function Accounts(props: {
 }) {
   const list = paged(props.api.accounts.bind(props.api));
   return (
-    <WorkspacePage title="渠道账号">
+    <WorkspacePage title={t("accounts.channel_accounts")}>
       <View class="flex-row flex-wrap justify-between gap-2">
         <Action
-          label="刷新"
+          label={t("common.refresh")}
           kind="quiet"
           onPress={list.reload}
           disabled={list.loading()}
         />
-        <Action label="添加账号" kind="primary" onPress={props.onCreate} />
+        <Action
+          label={t("accounts.add_account")}
+          kind="primary"
+          onPress={props.onCreate}
+        />
       </View>
       <ReadState
         loading={list.loading()}
         problem={list.problem()}
         empty={!list.items().length}
-        emptyLabel="还没有渠道账号。添加账号后可以测试发送。"
+        emptyLabel={t("accounts.no_channel_accounts_add_one_to")}
       />
       <Each of={list.items()} key={(account) => account.id}>
         {(account) => (
@@ -59,7 +64,7 @@ export function Accounts(props: {
                     : "text-sm text-muted-foreground"
                 }
               >
-                {account().enabled ? "已启用" : "已停用"}
+                {account().enabled ? t("common.enabled") : t("common.disabled")}
               </Text>
             }
             onPress={() => props.onOpen(account())}
@@ -68,7 +73,7 @@ export function Accounts(props: {
       </Each>
       <If when={list.next()}>
         <Action
-          label="加载更多"
+          label={t("common.load_more")}
           onPress={list.more}
           disabled={list.loading()}
         />
@@ -102,22 +107,30 @@ export function AccountEditor(props: {
   const action = operation();
   const test = operation();
   const testing = signal(false);
-  const testTitle = signal("雁字测试");
-  const testBody = signal("这是一条来自雁字的测试通知。");
+  const testTitle = signal(t("accounts.anser_test"));
+  const testBody = signal(t("accounts.this_is_a_test_notification_from"));
   const testFormat = signal<Format>("text");
   const testResult = signal("");
 
   function save() {
     void action.run(async () => {
       if (!name().trim() || !channelId())
-        throw new ApiError("invalid_account", "请填写账号名称并选择渠道。");
+        throw new ApiError(
+          "invalid_account",
+          t("accounts.enter_an_account_name_and_select"),
+        );
       const data: JsonObject = {
         name: name().trim(),
         tags: tagsFrom(tags()),
-        weight: integer(weight(), "权重", 0, 4294967295),
-        priority: integer(priority(), "优先级", -2147483648, 2147483647),
+        weight: integer(weight(), t("accounts.weight"), 0, 4294967295),
+        priority: integer(
+          priority(),
+          t("accounts.priority"),
+          -2147483648,
+          2147483647,
+        ),
         rate_limit: limit().trim()
-          ? integer(limit(), "每分钟限速", 1, 60000)
+          ? integer(limit(), t("accounts.rate_limit_per_minute"), 1, 60000)
           : null,
         enabled: enabled(),
       };
@@ -135,9 +148,9 @@ export function AccountEditor(props: {
       if (
         !original ||
         !(await confirm(
-          "删除账号？",
-          "该账号将从路由的可用目标中移除。",
-          "删除账号",
+          t("accounts.delete_account"),
+          t("accounts.the_account_will_no_longer_be"),
+          t("accounts.delete_account_2"),
         ))
       )
         return;
@@ -161,26 +174,28 @@ export function AccountEditor(props: {
           result !== null &&
           "status" in result &&
           result.status === "accepted"
-          ? "渠道已接收请求，结果仍在处理中。"
-          : "渠道已接收测试通知。",
+          ? t("accounts.the_channel_accepted_the_request_and")
+          : t("accounts.the_channel_accepted_the_test_notification"),
       );
     });
   }
 
   return (
     <WorkspacePage
-      title={original ? "编辑账号" : "添加账号"}
+      title={original ? t("accounts.edit_account") : t("accounts.add_account")}
       back={props.onBack}
       footer={
         <View class="flex-row flex-wrap gap-2">
           <Action
-            label={action.busy() ? "正在保存…" : "保存账号"}
+            label={
+              action.busy() ? t("common.saving") : t("accounts.save_account")
+            }
             kind="primary"
             onPress={save}
             disabled={action.busy() || test.busy()}
           />
           <Action
-            label="取消"
+            label={t("common.cancel")}
             kind="quiet"
             onPress={props.onBack}
             disabled={action.busy() || test.busy()}
@@ -190,9 +205,13 @@ export function AccountEditor(props: {
     >
       <Problem message={action.problem()} />
       <Panel>
-        <Field label="账号名称" value={name()} onChange={name.set} />
+        <Field
+          label={t("accounts.account_name")}
+          value={name()}
+          onChange={name.set}
+        />
         <Choice
-          label="渠道"
+          label={t("common.channel")}
           value={channelId() || null}
           items={props.channels.map((entry) => ({
             value: entry.id,
@@ -205,53 +224,57 @@ export function AccountEditor(props: {
           }}
         />
         <Field
-          label="标签"
+          label={t("accounts.tags")}
           value={tags()}
           onChange={tags.set}
-          hint="多个标签用逗号分隔。"
+          hint={t("common.separate_multiple_tags_with_commas")}
         />
         <View class="gap-3 md:flex-row">
           <View class="flex-1">
             <Field
-              label="权重"
+              label={t("accounts.weight")}
               value={weight()}
               onChange={weight.set}
               keyboard="numeric"
-              hint="0 用作加权兜底。"
+              hint={t("accounts.a_weight_of_0_marks_a")}
             />
           </View>
           <View class="flex-1">
             <Field
-              label="优先级"
+              label={t("accounts.priority")}
               value={priority()}
               onChange={priority.set}
               keyboard="numeric"
-              hint="值越小越先尝试。"
+              hint={t("accounts.lower_values_are_tried_first")}
             />
           </View>
           <View class="flex-1">
             <Field
-              label="每分钟限速"
+              label={t("accounts.rate_limit_per_minute")}
               value={limit()}
               onChange={limit.set}
               keyboard="numeric"
             />
           </View>
         </View>
-        <Toggle label="启用账号" checked={enabled()} onChange={enabled.set} />
+        <Toggle
+          label={t("accounts.enable_account")}
+          checked={enabled()}
+          onChange={enabled.set}
+        />
       </Panel>
       <If when={channelId()}>
-        <Section title="渠道配置">
+        <Section title={t("common.channel_configuration")}>
           <If when={original}>
             <Toggle
-              label="替换已保存的配置"
+              label={t("accounts.replace_saved_configuration")}
               checked={replaceConfig()}
               onChange={(value) => {
                 replaceConfig.set(value);
                 if (!value) config.clear();
               }}
             />
-            <Hint>已保存的凭据不会传回客户端。替换时请重新填写完整配置。</Hint>
+            <Hint>{t("accounts.saved_credentials_are_hidden_enter_the")}</Hint>
           </If>
           <If when={replaceConfig()}>
             <ChannelConfig draft={config} />
@@ -259,9 +282,13 @@ export function AccountEditor(props: {
         </Section>
       </If>
       <If when={original}>
-        <Section title="测试发送">
+        <Section title={t("accounts.test_delivery")}>
           <Action
-            label={testing() ? "收起测试" : "测试已保存的账号"}
+            label={
+              testing()
+                ? t("accounts.hide_test")
+                : t("accounts.test_saved_account")
+            }
             kind="secondary"
             onPress={() => testing.update((value) => !value)}
             class="self-start"
@@ -269,18 +296,18 @@ export function AccountEditor(props: {
           <If when={testing()}>
             <Panel>
               <Field
-                label="测试标题"
+                label={t("accounts.test_title")}
                 value={testTitle()}
                 onChange={testTitle.set}
               />
               <Field
-                label="测试正文"
+                label={t("accounts.test_body")}
                 value={testBody()}
                 onChange={testBody.set}
                 multiline
               />
               <Choice
-                label="测试格式"
+                label={t("accounts.test_format")}
                 value={testFormat()}
                 items={(channel()?.capabilities.formats ?? ["text"]).map(
                   (value) => ({ value, title: value }),
@@ -294,7 +321,11 @@ export function AccountEditor(props: {
                 <Text class="text-sm text-success">{testResult()}</Text>
               </If>
               <Action
-                label={test.busy() ? "正在测试…" : "发送测试通知"}
+                label={
+                  test.busy()
+                    ? t("accounts.testing")
+                    : t("accounts.send_test_notification")
+                }
                 kind="primary"
                 onPress={testSend}
                 disabled={
@@ -307,7 +338,7 @@ export function AccountEditor(props: {
             </Panel>
           </If>
           <Action
-            label="删除账号"
+            label={t("accounts.delete_account_2")}
             kind="danger"
             class="self-start"
             onPress={remove}

@@ -1,3 +1,4 @@
+import { t } from "nsh/i18n";
 import { cleanup, effect, Scroll, signal, Text, View } from "nsh";
 import { AnserApi } from "../api";
 import type { Channel, User } from "../contracts";
@@ -14,8 +15,11 @@ import {
 } from "../components/Controls";
 import { Brand } from "../components/Workspace";
 import { operation } from "../state";
+import { PreferenceControls } from "../components/Preferences";
+import type { Preferences } from "../preferences";
 
 export function Connection(props: {
+  preferences: Preferences;
   pairing?: Pairing;
   linkError?: string;
   onConnect: (api: AnserApi, channels: Channel[], user?: User) => void;
@@ -28,6 +32,7 @@ export function Connection(props: {
   const link = signal("");
   const pair = signal<Pairing | undefined>(undefined);
   const showImport = signal(false);
+  const showPreferences = signal(false);
   const connect = operation();
   let pending: AnserApi | undefined;
   cleanup(() => pending?.close());
@@ -51,9 +56,9 @@ export function Connection(props: {
         withCode &&
         invitation &&
         !(await confirm(
-          "使用配对码连接？",
+          t("connection.connect_using_a_pairing_code"),
           invitation.origin,
-          "连接此服务器",
+          t("connection.connect_to_this_server"),
           false,
         ))
       )
@@ -110,11 +115,11 @@ export function Connection(props: {
         <Brand />
         <Panel>
           <Text role="header" class="text-[22px] font-semibold text-foreground">
-            连接 Anser 服务器
+            {t("connection.connect_to_an_anser_server")}
           </Text>
           <Problem message={connect.problem() || props.linkError || ""} />
           <Field
-            label="服务器地址"
+            label={t("connection.server_address")}
             keyboard="url"
             value={address()}
             onChange={(value) => {
@@ -130,7 +135,7 @@ export function Connection(props: {
             else={
               <View class="gap-3">
                 <Choice
-                  label="登录方式"
+                  label={t("connection.sign_in_method")}
                   value={method()}
                   onChange={(value) => {
                     method.set(value ?? "password");
@@ -138,7 +143,10 @@ export function Connection(props: {
                     password.set("");
                   }}
                   items={[
-                    { value: "password", title: "用户名和密码" },
+                    {
+                      value: "password",
+                      title: t("connection.username_and_password"),
+                    },
                     { value: "key", title: "API Key" },
                   ]}
                   disabled={connect.busy()}
@@ -152,7 +160,7 @@ export function Connection(props: {
                       onChange={key.set}
                       onSubmit={() => submit()}
                       masked
-                      placeholder="输入服务器分配的 API Key"
+                      placeholder={t("connection.enter_an_api_key_issued_by")}
                       testID="api-key"
                       disabled={connect.busy()}
                     />
@@ -160,14 +168,14 @@ export function Connection(props: {
                 >
                   <View class="gap-3">
                     <Field
-                      label="用户名"
+                      label={t("connection.username")}
                       value={username()}
                       onChange={username.set}
                       testID="username"
                       disabled={connect.busy()}
                     />
                     <Field
-                      label="密码"
+                      label={t("connection.password")}
                       value={password()}
                       onChange={password.set}
                       onSubmit={() => submit()}
@@ -177,9 +185,15 @@ export function Connection(props: {
                     />
                   </View>
                 </If>
-                <Hint>登录凭据仅用于本次连接。</Hint>
+                <Hint>
+                  {t("connection.your_credentials_are_kept_for_this")}
+                </Hint>
                 <Action
-                  label={connect.busy() ? "正在连接…" : "连接"}
+                  label={
+                    connect.busy()
+                      ? t("connection.connecting")
+                      : t("connection.connect")
+                  }
                   kind="primary"
                   onPress={() => submit()}
                   disabled={
@@ -194,15 +208,15 @@ export function Connection(props: {
             }
           >
             <View class="gap-3">
-              <Hint>确认你信任此服务器。配对码只能使用一次。</Hint>
+              <Hint>{t("connection.confirm_that_you_trust_this_server")}</Hint>
               <Action
-                label="使用配对码连接"
+                label={t("connection.connect_using_pairing_code")}
                 kind="primary"
                 onPress={() => submit(true)}
                 disabled={connect.busy()}
               />
               <Action
-                label="改用其他登录方式"
+                label={t("connection.use_another_sign_in_method")}
                 kind="quiet"
                 onPress={() => pair.set(undefined)}
                 disabled={connect.busy()}
@@ -211,7 +225,11 @@ export function Connection(props: {
           </If>
         </Panel>
         <Action
-          label={showImport() ? "收起连接链接" : "导入连接链接"}
+          label={
+            showImport()
+              ? t("connection.hide_link_import")
+              : t("connection.import_connection_link")
+          }
           kind="quiet"
           class="self-start"
           onPress={() => showImport.update((value) => !value)}
@@ -219,11 +237,9 @@ export function Connection(props: {
         />
         <If when={showImport()}>
           <Panel>
-            <Hint>
-              用系统相机扫描服务器的二维码，或粘贴扫码后得到的连接链接。
-            </Hint>
+            <Hint>{t("connection.scan_the_pairing_qr_code_with")}</Hint>
             <Field
-              label="连接链接"
+              label={t("connection.connection_link")}
               value={link()}
               onChange={link.set}
               onSubmit={importLink}
@@ -231,11 +247,21 @@ export function Connection(props: {
               masked
             />
             <Action
-              label="预览服务器"
+              label={t("connection.preview_server")}
               onPress={importLink}
               disabled={!link().trim()}
             />
           </Panel>
+        </If>
+
+        <Action
+          label={t("preferences.title")}
+          kind="quiet"
+          class="self-start"
+          onPress={() => showPreferences.update((value) => !value)}
+        />
+        <If when={showPreferences()}>
+          <PreferenceControls preferences={props.preferences} />
         </If>
       </View>
     </Scroll>

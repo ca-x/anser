@@ -1,3 +1,4 @@
+import { t } from "nsh/i18n";
 import { ApiError } from "./api";
 import type { JsonObject, Target } from "./contracts";
 
@@ -17,10 +18,16 @@ export function parseObject(text: string, label: string): JsonObject {
   try {
     value = JSON.parse(text);
   } catch {
-    throw new ApiError("invalid_json", `${label}应为有效的 JSON。`);
+    throw new ApiError(
+      "invalid_json",
+      t("forms.invalid_json", { field: label }),
+    );
   }
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new ApiError("invalid_json", `${label}应为 JSON 对象。`);
+    throw new ApiError(
+      "invalid_json",
+      t("forms.expected_json_object", { field: label }),
+    );
   }
   return value as JsonObject;
 }
@@ -35,7 +42,7 @@ export function integer(text: string, label: string, min: number, max: number) {
   ) {
     throw new ApiError(
       "invalid_number",
-      `${label}应为 ${min} 至 ${max} 之间的整数。`,
+      t("forms.integer_range", { field: label, min: min, max: max }),
     );
   }
   return value;
@@ -59,7 +66,7 @@ export function optionalHttpUrl(
   }
   throw new ApiError(
     "invalid_url",
-    `${label}应为不含凭据的 HTTP 或 HTTPS URL。`,
+    t("forms.invalid_http_url", { field: label }),
   );
 }
 
@@ -75,6 +82,6 @@ export function selectorTitle(
       target.tag_selector?.join("、"),
     ]
       .filter(Boolean)
-      .join(" / ") || "全部账号"
+      .join(" / ") || t("forms.all_accounts")
   );
 }

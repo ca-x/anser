@@ -157,7 +157,7 @@ export class Api {
     const payload: unknown = await response.json().catch(() => undefined);
     if (!response.ok) {
       const reason = payload && typeof payload === "object" && "message" in payload && typeof payload.message === "string"
-        ? payload.message : `服务器返回 HTTP ${response.status}。`;
+        ? payload.message : `HTTP ${response.status}`;
       throw new ApiError(response.status, reason);
     }
     if (payload === undefined) throw new ApiError(response.status, "服务器未返回 Anser JSON 数据。");

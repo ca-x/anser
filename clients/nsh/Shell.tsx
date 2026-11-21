@@ -1,3 +1,4 @@
+import { t } from "nsh/i18n";
 import {
   cleanup,
   platform,
@@ -11,7 +12,9 @@ import { Button, createNavStack, NavStack } from "nsh/base";
 import { TabBar } from "nsh/mobile";
 import { messageFor, type AnserApi } from "./api";
 import { Action, confirm, Hint } from "./components/Controls";
-import { Brand } from "./components/Workspace";
+import { Brand, WorkspacePage } from "./components/Workspace";
+import { PreferenceControls } from "./components/Preferences";
+import { createPreferences, type Preferences } from "./preferences";
 import type { Account, Channel, Topic, User } from "./contracts";
 import { inboxState } from "./inbox";
 import type { Pairing } from "./pairing";
@@ -34,6 +37,7 @@ type Route =
   | { name: "topic"; topic: Topic }
   | { name: "topic-editor"; topic?: Topic }
   | { name: "default-route" }
+  | { name: "preferences" }
   | { name: "accounts" }
   | { name: "account-editor"; account?: Account }
   | { name: "history" }
@@ -42,41 +46,46 @@ type Route =
   | { name: "inbox-detail"; id: number }
   | { name: "inbox-send" };
 
-const sections: { id: Section; title: string; ios: string; android: string }[] =
-  [
-    {
-      id: "compose",
-      title: "发送",
-      ios: "paperplane",
-      android: "android:ic_menu_send",
-    },
-    {
-      id: "topics",
-      title: "Topic",
-      ios: "tag",
-      android: "android:ic_menu_agenda",
-    },
-    {
-      id: "accounts",
-      title: "账号",
-      ios: "person.crop.circle",
-      android: "android:ic_menu_manage",
-    },
-    {
-      id: "history",
-      title: "投递",
-      ios: "clock",
-      android: "android:ic_menu_recent_history",
-    },
-    {
-      id: "inbox",
-      title: "收件箱",
-      ios: "tray",
-      android: "android:ic_dialog_email",
-    },
-  ];
+const sections: {
+  id: Section;
+  title: () => string;
+  ios: string;
+  android: string;
+}[] = [
+  {
+    id: "compose",
+    title: () => t("shell.send"),
+    ios: "paperplane",
+    android: "android:ic_menu_send",
+  },
+  {
+    id: "topics",
+    title: () => "Topic",
+    ios: "tag",
+    android: "android:ic_menu_agenda",
+  },
+  {
+    id: "accounts",
+    title: () => t("shell.accounts"),
+    ios: "person.crop.circle",
+    android: "android:ic_menu_manage",
+  },
+  {
+    id: "history",
+    title: () => t("shell.deliveries"),
+    ios: "clock",
+    android: "android:ic_menu_recent_history",
+  },
+  {
+    id: "inbox",
+    title: () => t("common.inbox"),
+    ios: "tray",
+    android: "android:ic_dialog_email",
+  },
+];
 
 export function AnserApp() {
+  const preferences = createPreferences();
   const session = signal<Session | undefined>(undefined);
   const pairing = signal<Pairing | undefined>(undefined);
   const linkError = signal("");
@@ -117,25 +126,29 @@ export function AnserApp() {
   }
 
   return (
-    <View class="flex-1 bg-background">
-      <If
-        when={session()}
-        else={
-          <Connection
-            pairing={pairing()}
-            linkError={linkError()}
-            onConnect={connected}
-          />
-        }
-      >
-        {(active) => (
-          <Workspace
-            session={active()}
-            onDisconnect={signOut}
-            pendingPairing={pairing()}
-            onDismissPairing={() => pairing.set(undefined)}
-          />
-        )}
+    <View class="flex-1 bg-background" testID="app-background">
+      <If when={preferences.ready()}>
+        <If
+          when={session()}
+          else={
+            <Connection
+              preferences={preferences}
+              pairing={pairing()}
+              linkError={linkError()}
+              onConnect={connected}
+            />
+          }
+        >
+          {(active) => (
+            <Workspace
+              preferences={preferences}
+              session={active()}
+              onDisconnect={signOut}
+              pendingPairing={pairing()}
+              onDismissPairing={() => pairing.set(undefined)}
+            />
+          )}
+        </If>
       </If>
     </View>
   );
@@ -143,6 +156,7 @@ export function AnserApp() {
 
 function Workspace(props: {
   session: Session;
+  preferences: Preferences;
   onDisconnect: (keepPairing?: boolean) => void;
   pendingPairing?: Pairing;
   onDismissPairing: () => void;
@@ -193,7 +207,7 @@ function Workspace(props: {
                 : "text-sm text-foreground"
             }
           >
-            {tab().title}
+            {tab().title()}
             {badge(tab().id) ? ` (${badge(tab().id)})` : ""}
           </Text>
         </Button>
@@ -207,15 +221,15 @@ function Workspace(props: {
         {(invite) => (
           <View class="flex-row flex-wrap items-center gap-2 border-b border-border bg-card px-4 pt-[env(safe-area-inset-top)]">
             <Text class="flex-1 text-sm text-foreground">
-              收到连接邀请：{invite().origin}
+              {t("shell.invitation_from_server", { origin: invite().origin })}
             </Text>
             <Action
-              label="切换服务器"
+              label={t("shell.switch_server")}
               onPress={() =>
                 void confirm(
-                  "断开当前连接？",
+                  t("shell.disconnect_from_the_current_server"),
                   invite().origin,
-                  "切换服务器",
+                  t("shell.switch_server"),
                   false,
                 )
                   .then((accepted) => {
@@ -225,7 +239,7 @@ function Workspace(props: {
               }
             />
             <Action
-              label="忽略"
+              label={t("shell.ignore")}
               kind="quiet"
               onPress={props.onDismissPairing}
             />
@@ -242,13 +256,18 @@ function Workspace(props: {
             <View class="gap-1">{links()}</View>
             <View class="flex-1" />
             <View class="gap-1 px-2">
-              <Hint>{user?.username ?? "API Key 会话"}</Hint>
+              <Hint>{user?.username ?? t("shell.api_key_session")}</Hint>
               <Text class="line-clamp-2 text-[13px] text-muted-foreground">
                 {api.origin}
               </Text>
             </View>
             <Action
-              label="断开连接"
+              label={t("preferences.title")}
+              onPress={() => open({ name: "preferences" })}
+              kind="quiet"
+            />
+            <Action
+              label={t("shell.disconnect")}
               kind="quiet"
               onPress={() => props.onDisconnect()}
             />
@@ -330,6 +349,12 @@ function Workspace(props: {
                     onDeleted={() => nav.setRoutes([{ name: "topics" }])}
                   />
                 );
+              case "preferences":
+                return (
+                  <WorkspacePage title={t("preferences.title")} back={back}>
+                    <PreferenceControls preferences={props.preferences} />
+                  </WorkspacePage>
+                );
               case "default-route":
                 return (
                   <DefaultRoute
@@ -392,7 +417,7 @@ function Workspace(props: {
             >
               <TabBar
                 items={enabledSections.map((tab) => ({
-                  title: tab.title,
+                  title: tab.title(),
                   icon: platform.os === "ios" ? tab.ios : tab.android,
                   badge: badge(tab.id),
                 }))}
@@ -410,7 +435,12 @@ function Workspace(props: {
                 {user?.username ?? api.origin}
               </Text>
               <Action
-                label="断开"
+                label={t("preferences.title")}
+                onPress={() => open({ name: "preferences" })}
+                kind="quiet"
+              />
+              <Action
+                label={t("shell.disconnect_2")}
                 onPress={() => props.onDisconnect()}
                 kind="quiet"
               />

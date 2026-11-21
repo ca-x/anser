@@ -1,3 +1,4 @@
+import { useT } from "../preferences";
 import { useId, useState } from "react";
 import {
   EuiAccordion, EuiButtonEmpty, EuiFieldNumber, EuiFieldText, EuiFormRow, EuiSelect, EuiSwitch, EuiText,
@@ -18,6 +19,7 @@ export const modes = [
 export function PolicyFields({ value, update, channels, accounts }: {
   value: Policy; update: (value: Policy) => void; channels: Channel[]; accounts: Account[];
 }) {
+  const t = useT();
   const advanced = useId();
   function updateTarget(index: number, target?: Target) {
     update({ ...value, targets: target ? value.targets.map((entry, position) => position === index ? target : entry)
@@ -25,48 +27,49 @@ export function PolicyFields({ value, update, channels, accounts }: {
   }
   return <section className="stack">
     <div className="form-grid">
-      <EuiFormRow label="路由模式" fullWidth>
-        <EuiSelect fullWidth options={modes} value={value.mode} onChange={(event) => update({ ...value, mode: event.target.value as Policy["mode"] })} />
+      <EuiFormRow label={t("路由模式")} fullWidth>
+        <EuiSelect fullWidth options={modes.map((mode) => ({...mode, text: t(mode.text)}))} value={value.mode} onChange={(event) => update({ ...value, mode: event.target.value as Policy["mode"] })} />
       </EuiFormRow>
-      {value.mode === "broadcast" && <EuiFormRow label="成功判定" fullWidth>
-        <EuiSelect fullWidth value={value.success_criteria} options={[{ value: "all", text: "全部送达" }, { value: "any", text: "任一送达" }]}
+      {value.mode === "broadcast" && <EuiFormRow label={t("成功判定")} fullWidth>
+        <EuiSelect fullWidth value={value.success_criteria} options={[{ value: "all", text: t("全部送达") }, { value: "any", text: t("任一送达") }]}
           onChange={(event) => update({ ...value, success_criteria: event.target.value as Policy["success_criteria"] })} />
       </EuiFormRow>}
     </div>
-    <div className="section-header"><h3>路由目标</h3><EuiButtonEmpty size="s" iconType="plus" onClick={() => update({ ...value, targets: [...value.targets, {}] })}>添加目标</EuiButtonEmpty></div>
-    {value.targets.length === 0 && <EuiText size="s" color="subdued"><p>无显式目标时使用所有启用账号。</p></EuiText>}
+    <div className="section-header"><h3>{t("路由目标")}</h3><EuiButtonEmpty size="s" iconType="plus" onClick={() => update({ ...value, targets: [...value.targets, {}] })}>{t("添加目标")}</EuiButtonEmpty></div>
+    {value.targets.length === 0 && <EuiText size="s" color="subdued"><p>{t("无显式目标时使用所有启用账号。")}</p></EuiText>}
     {value.targets.map((target, index) => <fieldset className="target-row" key={index}>
-      <legend>目标 {index + 1}</legend>
+      <legend>{t("目标 {number}", { number: index + 1 })}</legend>
       <div className="form-grid">
-        <EuiFormRow label="渠道" fullWidth><EuiSelect fullWidth
+        <EuiFormRow label={t("渠道")} fullWidth><EuiSelect fullWidth
           value={target.channel ?? ""}
-          options={[{ value: "", text: "不限渠道" }, ...channels.map(({ id, display_name }) => ({ value: id, text: display_name }))]}
+          options={[{ value: "", text: t("不限渠道") }, ...channels.map(({ id, display_name }) => ({ value: id, text: t(display_name) }))]}
           onChange={(event) => updateTarget(index, { ...target, channel: event.target.value || undefined, account_id: undefined })} />
         </EuiFormRow>
-        <EuiFormRow label="账号" fullWidth><EuiSelect fullWidth value={target.account_id ?? ""}
-          options={[{ value: "", text: "不限账号" }, ...accounts.filter(({ channel }) => !target.channel || channel === target.channel).map(({ id, name }) => ({ value: id, text: name }))]}
+        <EuiFormRow label={t("账号")} fullWidth><EuiSelect fullWidth value={target.account_id ?? ""}
+          options={[{ value: "", text: t("不限账号") }, ...accounts.filter(({ channel }) => !target.channel || channel === target.channel).map(({ id, name }) => ({ value: id, text: name }))]}
           onChange={(event) => updateTarget(index, { ...target, account_id: event.target.value || undefined })} />
         </EuiFormRow>
       </div>
       <TargetTags value={target.tag_selector ?? []} update={(tag_selector) => updateTarget(index, { ...target, tag_selector })} />
       <div className="form-grid">
-        <EuiFormRow label="覆盖权重" fullWidth><EuiFieldNumber fullWidth min={0} value={target.weight ?? ""} placeholder="跟随账号"
+        <EuiFormRow label={t("覆盖权重")} fullWidth><EuiFieldNumber fullWidth min={0} value={target.weight ?? ""} placeholder={t("跟随账号")}
           onChange={(event) => updateTarget(index, { ...target, weight: event.target.value === "" ? undefined : event.target.valueAsNumber })} /></EuiFormRow>
-        <EuiFormRow label="覆盖优先级" fullWidth><EuiFieldNumber fullWidth value={target.priority ?? ""} placeholder="跟随账号"
+        <EuiFormRow label={t("覆盖优先级")} fullWidth><EuiFieldNumber fullWidth value={target.priority ?? ""} placeholder={t("跟随账号")}
           onChange={(event) => updateTarget(index, { ...target, priority: event.target.value === "" ? undefined : event.target.valueAsNumber })} /></EuiFormRow>
       </div>
-      <EuiButtonEmpty size="xs" color="danger" onClick={() => updateTarget(index)}>移除目标</EuiButtonEmpty>
+      <EuiButtonEmpty size="xs" color="danger" onClick={() => updateTarget(index)}>{t("移除目标")}</EuiButtonEmpty>
     </fieldset>)}
-    <EuiAccordion id={advanced} buttonContent="重试和过期">
+    <EuiAccordion id={advanced} buttonContent={t("重试和过期")}>
       <RetryFields value={value.retry} update={(retry) => update({ ...value, retry })} />
     </EuiAccordion>
   </section>;
 }
 
 function TargetTags({ value, update }: { value: string[]; update: (tags: string[]) => void }) {
+  const t = useT();
   const [raw, setRaw] = useState(value.join(", "));
   const text = split(raw).join(", ") === value.join(", ") ? raw : value.join(", ");
-  return <EuiFormRow label="标签筛选" helpText="账号须同时具备所列标签。" fullWidth>
+  return <EuiFormRow label={t("标签筛选")} helpText={t("账号须同时具备所列标签。")} fullWidth>
     <EuiFieldText value={text} fullWidth onChange={(event) => {
       setRaw(event.target.value);
       update(split(event.target.value));
@@ -75,19 +78,20 @@ function TargetTags({ value, update }: { value: string[]; update: (tags: string[
 }
 
 function RetryFields({ value, update }: { value: Retry; update: (value: Retry) => void }) {
+  const t = useT();
   const numbers = [
-    ["max_attempts", "单账号最大尝试次数", 1, 100], ["base_delay", "初始延迟（毫秒）", 1],
-    ["max_delay", "最大延迟（毫秒）", 1], ["ttl", "投递有效期（毫秒）", 1],
+    ["max_attempts", t("单账号最大尝试次数"), 1, 100], ["base_delay", t("初始延迟（毫秒）"), 1],
+    ["max_delay", t("最大延迟（毫秒）"), 1], ["ttl", t("投递有效期（毫秒）"), 1],
   ] as const;
   return <div className="stack inset">
     <div className="form-grid">{numbers.map(([key, name, min, max]) => <EuiFormRow key={key} label={name} fullWidth>
       <EuiFieldNumber fullWidth required min={min} max={max} value={value[key]} onChange={(event) => update({ ...value, [key]: Number(event.target.value) })} />
     </EuiFormRow>)}</div>
-    <EuiFormRow label="退避方式" fullWidth>
+    <EuiFormRow label={t("退避方式")} fullWidth>
       <EuiSelect fullWidth value={value.backoff} onChange={(event) => update({ ...value, backoff: event.target.value as Retry["backoff"] })}
-        options={[{ value: "fixed", text: "固定延迟" }, { value: "exponential", text: "指数退避" }]} />
+        options={[{ value: "fixed", text: t("固定延迟") }, { value: "exponential", text: t("指数退避") }]} />
     </EuiFormRow>
-    <EuiSwitch label="延迟随机抖动" checked={value.jitter} onChange={(event) => update({ ...value, jitter: event.target.checked })} />
-    <EuiSwitch label="在有效期内重试直到成功" checked={value.until_success} onChange={(event) => update({ ...value, until_success: event.target.checked })} />
+    <EuiSwitch label={t("延迟随机抖动")} checked={value.jitter} onChange={(event) => update({ ...value, jitter: event.target.checked })} />
+    <EuiSwitch label={t("在有效期内重试直到成功")} checked={value.until_success} onChange={(event) => update({ ...value, until_success: event.target.checked })} />
   </div>;
 }

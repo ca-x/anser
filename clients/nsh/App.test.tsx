@@ -63,7 +63,10 @@ async function login(app: App, url = origin) {
 }
 
 test("blocks a remote plaintext login before any request", async () => {
-  const app = await open("./App.tsx", { platform: "linux" });
+  const app = await open("./App.tsx", {
+    platform: "linux",
+    locale: "zh-Hans-CN",
+  });
   await login(app, "http://anser.example.test");
   await app.waitFor("请为远程服务器使用 HTTPS。HTTP 仅供本机连接。");
   expect(app.requests()).toEqual([]);
@@ -71,6 +74,7 @@ test("blocks a remote plaintext login before any request", async () => {
 
 test("logs in and sends a notification with an idempotency key", async () => {
   const app = await open("./App.tsx", {
+    locale: "zh-CN",
     platform: "linux",
     width: 1120,
     height: 760,
@@ -120,6 +124,7 @@ test("logs in and sends a notification with an idempotency key", async () => {
 
 test("previews a QR deep link and exchanges its code after explicit confirmation", async () => {
   const app = await open("./App.tsx", {
+    locale: "zh-CN",
     urlScheme: `anser://connect?server=${encodeURIComponent(origin)}&code=${pairingCode}`,
     network: {
       ...baseNetwork(),
@@ -143,6 +148,7 @@ test("previews a QR deep link and exchanges its code after explicit confirmation
 
 test("receives and marks a direct message as read, then addresses a reply by username", async () => {
   const app = await open("./App.tsx", {
+    locale: "zh-CN",
     platform: "linux",
     width: 1120,
     network: {
@@ -181,6 +187,7 @@ test("receives and marks a direct message as read, then addresses a reply by use
 test("subscribes to a protected Topic with a separate password", async () => {
   let subscribed = false;
   const app = await open("./App.tsx", {
+    locale: "zh-CN",
     platform: "linux",
     width: 1120,
     network: {
@@ -213,4 +220,52 @@ test("subscribes to a protected Topic with a separate password", async () => {
   await app.press("保存订阅");
   await app.waitFor("退订");
   expect(subscribed).toBe(true);
+});
+
+test("switches language and appearance, then restores the saved preferences", async () => {
+  const options: OpenOptions = {
+    platform: "linux",
+    width: 1120,
+    height: 1030,
+    locale: "zh-Hans-CN",
+    colorScheme: "light",
+    storage: {
+      "anser.preferences": JSON.stringify({
+        language: "zh-CN",
+        appearance: "system",
+      }),
+    },
+  };
+  const app = await open("./App.tsx", options);
+  await app.waitFor("连接 Anser 服务器");
+  await app.press("偏好设置");
+  await app.press("label:语言");
+  await app.press("English");
+  await app.waitFor("Connect to an Anser server");
+
+  await app.press("label:Appearance");
+  await app.press("Dark");
+  expect(app.viewStyle("id:app-background")?.backgroundColor).toBe("#171615ff");
+
+  await app.press("label:Appearance");
+  await app.press("Light");
+  expect(app.viewStyle("id:app-background")?.backgroundColor).toBe("#f8f6f2ff");
+
+  await app.press("label:Appearance");
+  await app.press("Follow system");
+  expect(app.viewStyle("id:app-background")?.backgroundColor).toBe("#f8f6f2ff");
+
+  await app.press("label:Appearance");
+  await app.press("Dark");
+  const saved = JSON.parse(app.storage()["anser.preferences"]);
+  expect(saved).toEqual({ language: "en", appearance: "dark" });
+
+  const relaunched = await open("./App.tsx", {
+    ...options,
+    storage: app.storage(),
+  });
+  await relaunched.waitFor("Connect to an Anser server");
+  expect(relaunched.viewStyle("id:app-background")?.backgroundColor).toBe(
+    "#171615ff",
+  );
 });

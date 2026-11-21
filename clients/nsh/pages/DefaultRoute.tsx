@@ -1,3 +1,4 @@
+import { t } from "nsh/i18n";
 import { resource, signal, View } from "nsh";
 import type { AnserApi } from "../api";
 import { messageFor } from "../api";
@@ -26,17 +27,17 @@ export function DefaultRoute(props: {
     <If
       when={value()}
       else={
-        <WorkspacePage title="默认路由" back={props.onBack}>
+        <WorkspacePage title={t("common.default_routing")} back={props.onBack}>
           <ReadState
             loading={
               value.state() === "pending" || value.state() === "refreshing"
             }
             problem={value.error() ? messageFor(value.error()) : ""}
             empty
-            emptyLabel="未找到默认路由。"
+            emptyLabel={t("default_route.no_default_route_found")}
           />
           <Action
-            label="重新加载"
+            label={t("default_route.reload")}
             onPress={value.refetch}
             disabled={value.state() === "pending"}
             class="self-start"
@@ -81,12 +82,16 @@ function DefaultRouteEditor(props: {
   }
   return (
     <WorkspacePage
-      title="默认路由"
+      title={t("common.default_routing")}
       back={props.onBack}
       footer={
         <View class="flex-row flex-wrap gap-2">
           <Action
-            label={action.busy() ? "正在保存…" : "保存默认路由"}
+            label={
+              action.busy()
+                ? t("common.saving")
+                : t("default_route.save_default_routing")
+            }
             onPress={save}
             kind="primary"
             disabled={action.busy()}
@@ -100,18 +105,18 @@ function DefaultRouteEditor(props: {
         onChange={targets.set}
         channels={props.channels}
         accounts={accounts.items()}
-        title="默认目标"
-        emptyLabel="未指定目标时匹配全部可用账号。"
+        title={t("default_route.default_targets")}
+        emptyLabel={t("default_route.with_no_targets_specified_all_available")}
         allowOverrides
       />
       <If when={accounts.next()}>
         <Action
-          label="加载更多账号"
+          label={t("common.load_more_accounts")}
           onPress={accounts.more}
           disabled={accounts.loading()}
         />
       </If>
-      <Section title="路由策略">
+      <Section title={t("common.routing_policy")}>
         <Panel>
           <StrategyEditor draft={strategy} />
         </Panel>
