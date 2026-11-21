@@ -7,8 +7,8 @@ export const blankMessage: Message = { title: "", body: "", format: "text" };
 export function Composer({ message, update }: { message: Message; update: (message: Message) => void }) {
   const t = useT();
   return <>
-    <EuiFormRow label={t("标题")} fullWidth>
-      <EuiFieldText fullWidth value={message.title} required onChange={(event) => update({ ...message, title: event.target.value })} />
+    <EuiFormRow label={t("标题")} helpText={t("标题和正文至少填写一项。")} fullWidth>
+      <EuiFieldText fullWidth value={message.title} required={!message.body.trim()} onChange={(event) => update({ ...message, title: event.target.value })} />
     </EuiFormRow>
     <EuiFormRow label={t("消息格式")} fullWidth>
       <EuiSelect fullWidth value={message.format} onChange={(event) => update({ ...message, format: event.target.value as Message["format"] })}

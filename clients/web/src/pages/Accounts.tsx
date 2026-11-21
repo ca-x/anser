@@ -74,12 +74,12 @@ export function AccountList({ api, catalog, channel }: {
   </>;
 }
 
-function channelAvailable(channel?: Channel) {
+export function channelAvailable(channel?: Channel) {
   return !!channel && channel.available !== false && channel.enabled !== false;
 }
 
-function AccountEditor({ api, account, channels, close, onDone }: {
-  api: Api; account?: Account; channels: Channel[]; close: () => void; onDone: () => void;
+export function AccountEditor({ api, account, channels, close, onDone }: {
+  api: Api; account?: Account; channels: Channel[]; close: () => void; onDone: (saved: Account) => void;
 }) {
   const channelName = useChannelName();
   const t = useT();
@@ -112,8 +112,8 @@ function AccountEditor({ api, account, channels, close, onDone }: {
       if (!channel) throw new Error("此渠道当前不可用。");
       payload.config = serializeConfig(channel, config, useSharedProxy);
     }
-    await api.write(account ? `/accounts/${segment(account.id)}` : "/accounts", account ? "PUT" : "POST", payload);
-    onDone();
+    const saved = await api.write<Account>(account ? `/accounts/${segment(account.id)}` : "/accounts", account ? "PUT" : "POST", payload);
+    onDone(saved);
   });
   return <Drawer title={account ? t("编辑账号") : t("新增渠道账号")} close={close}
     footer={<><EuiButtonEmpty onClick={close}>{t("取消")}</EuiButtonEmpty><EuiButton form={formId} type="submit" fill isLoading={task.busy}>{t("保存账号")}</EuiButton></>}>

@@ -119,12 +119,13 @@ export interface Delivery {
   id: string;
   channel: string;
   account_id: string;
+  account_name?: string | null;
   subscription_id?: string | null;
   status: string;
   next_retry_at?: number | null;
   attempts: Attempt[];
 }
-export interface MessageDetail { id: string; topic?: string | null; status: string; message: Message; created_at: number; deliveries?: Delivery[] }
+export interface MessageDetail { id: string; topic?: string | null; status: string; message: Message; created_at: number; inbox_deliveries?: number; inbox_recipient?: string | null; deliveries?: Delivery[] }
 
 export const segment = encodeURIComponent;
 
@@ -156,11 +157,23 @@ export class Api {
     });
   }
   send(topic: string | undefined, message: Publish, key: string) {
-    const path = topic ? `/topics/${segment(topic)}/publish` : "/send";
-    return this.request<Receipt>(path, {
+    return this.submit<Receipt>(topic ? `/topics/${segment(topic)}/publish` : "/send", message, key);
+  }
+  async sendInbox(recipient: string, { title, body, format }: Pick<Message, "title" | "body" | "format">, key: string): Promise<Receipt> {
+    try {
+      const response = await this.submit<{ message_id: string }>("/inbox/send", { title, body, format, recipient }, key);
+      return { message_id: response.message_id, status: "success" };
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 404) throw new ApiError(404, "未找到可接收通知的用户，请检查用户名。", error.code);
+      throw error;
+    }
+  }
+
+  private submit<T>(path: string, value: unknown, key: string) {
+    return this.request<T>(path, {
       method: "POST",
       headers: { "Idempotency-Key": key },
-      body: JSON.stringify(message),
+      body: JSON.stringify(value),
     });
   }
 

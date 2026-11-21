@@ -2,16 +2,16 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Api, errorMessage, segment, type Page } from "./api";
 
 export function useResource<T>(api: Api, path: string | undefined) {
-  const [result, setResult] = useState<{ path?: string; data?: T; error?: string }>({});
+  const [result, setResult] = useState<{ path?: string; data?: T; error?: string; fetching?: boolean }>({});
   const [version, setVersion] = useState(0);
   const reload = useCallback(() => setVersion((value) => value + 1), []);
   useEffect(() => {
     if (path === undefined) return;
     const controller = new AbortController();
-    setResult((current) => current.path === path ? { ...current, error: undefined } : { path });
+    setResult((current) => current.path === path ? { ...current, error: undefined, fetching: true } : { path, fetching: true });
     void api.read<T>(path, controller.signal).then(
       (data) => { if (!controller.signal.aborted) setResult({ path, data }); },
-      (error: unknown) => { if (!controller.signal.aborted) setResult((current) => ({ ...current, path, error: errorMessage(error) })); },
+      (error: unknown) => { if (!controller.signal.aborted) setResult((current) => ({ ...current, path, fetching: false, error: errorMessage(error) })); },
     );
     return () => controller.abort();
   }, [api, path, version]);

@@ -4,6 +4,7 @@ import {
   EuiAvatar, EuiButton, EuiButtonEmpty, EuiFieldPassword, EuiFieldText, EuiFlyout, EuiFlyoutBody, EuiFlyoutHeader, EuiFormRow, EuiTitle,
 } from "@elastic/eui";
 import { Api, ApiError, errorMessage, type SignIn, type User } from "./api";
+import { SendSession } from "./send-draft";
 import { Failure, Progress } from "./components/Common";
 import { PreferenceMenu, Preferences, useT } from "./preferences";
 import logo from "./assets/logo.png";
@@ -28,7 +29,7 @@ const Topics = lazy(() => import("./pages/Topics").then(({ Topics }) => ({ defau
 const Dashboard = lazy(() => import("./pages/Admin").then(({ Dashboard }) => ({ default: Dashboard })));
 const DefaultRoute = lazy(() => import("./pages/Admin").then(({ DefaultRoute }) => ({ default: DefaultRoute })));
 const Keys = lazy(() => import("./pages/Admin").then(({ Keys }) => ({ default: Keys })));
-const Pair = lazy(() => import("./pages/Admin").then(({ Pair }) => ({ default: Pair })));
+const Pair = lazy(() => import("./pages/Pair"));
 const Users = lazy(() => import("./pages/Admin").then(({ Users }) => ({ default: Users })));
 const Messages = lazy(() => import("./pages/Delivery").then(({ Messages }) => ({ default: Messages })));
 const MessageView = lazy(() => import("./pages/Delivery").then(({ MessageView }) => ({ default: MessageView })));
@@ -114,6 +115,7 @@ function App() {
     navigate("/login", true);
   }, [navigate]);
   const api = useMemo(() => new Api(token, signOut), [token, signOut]);
+  const sendSession = useMemo(() => new SendSession(), [token]);
 
   useEffect(() => {
     if (!token) {
@@ -178,7 +180,7 @@ function App() {
         requestAnimationFrame(() => document.getElementById("main")?.focus({ preventScroll: true }));
       }} /></EuiFlyoutBody>
     </EuiFlyout> : <Navigation path={path} navigate={navigate} sidebar />}
-    <main id="main" className="workspace" tabIndex={-1}><Suspense fallback={<Progress />}><Workspace key={path} path={path} api={api} navigate={navigate} /></Suspense></main>
+    <main id="main" className="workspace" tabIndex={-1}><Suspense fallback={<Progress />}><Workspace key={path} path={path} api={api} username={user.username} sendSession={sendSession} navigate={navigate} /></Suspense></main>
   </div>;
 
   return main;
@@ -268,13 +270,13 @@ function decodeSegment(value: string) {
   try { return decodeURIComponent(value); } catch { return value; }
 }
 
-function Workspace({ path, api, navigate }: { path: string; api: Api; navigate: (path: string) => void }) {
+function Workspace({ path, api, username, sendSession, navigate }: { path: string; api: Api; username: string; sendSession: SendSession; navigate: (path: string) => void }) {
   const detail = /^\/admin\/messages\/([^/]+)$/.exec(path);
   if (detail) return <MessageView api={api} id={decodeSegment(detail[1])} navigate={navigate} />;
   const channel = /^\/admin\/channels\/([^/]+)$/.exec(path);
   if (channel) return <ChannelSettings api={api} id={decodeSegment(channel[1])} navigate={navigate} />;
   switch (path) {
-    case "/admin/send": return <Send api={api} navigate={navigate} />;
+    case "/admin/send": return <Send api={api} session={sendSession} navigate={navigate} />;
     case "/admin/messages": return <Messages api={api} navigate={navigate} />;
     case "/admin/accounts": return <Accounts api={api} />;
     case "/admin/channels": return <Channels api={api} navigate={navigate} />;
@@ -283,7 +285,7 @@ function Workspace({ path, api, navigate }: { path: string; api: Api; navigate: 
     case "/admin/proxies": return <Proxies api={api} />;
     case "/admin/users": return <Users api={api} />;
     case "/admin/api-keys": return <Keys api={api} />;
-    case "/admin/pair": return <Pair api={api} />;
+    case "/admin/pair": return <Pair api={api} username={username} />;
     case "/admin/security": return <Security api={api} />;
     default: return <Dashboard api={api} navigate={navigate} />;
   }

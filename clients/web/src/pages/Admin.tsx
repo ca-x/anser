@@ -2,10 +2,9 @@ import { useLanguage, useT } from "../preferences";
 import { useId, useState } from "react";
 import {
   EuiBadge, EuiBasicTable, EuiButton, EuiButtonEmpty, EuiCallOut, EuiCheckboxGroup, EuiCopy, EuiFieldPassword,
-  EuiFieldText, EuiFormRow, EuiIcon, EuiSwitch, EuiText,
+  EuiFieldText, EuiFormRow, EuiIcon, EuiSwitch,
 } from "@elastic/eui";
-import { QRCodeCanvas } from "qrcode.react";
-import { Api, segment, type Account, type ApiKey, type Channel, type IssuedKey, type MessageDetail, type Page, type PairCode, type Policy, type User } from "../api";
+import { Api, segment, type Account, type ApiKey, type Channel, type IssuedKey, type MessageDetail, type Page, type Policy, type User } from "../api";
 import { Confirm, useDate, Drawer, Empty, Failure, More, PageTitle, Progress, Tags } from "../components/Common";
 import { PolicyFields } from "../components/PolicyFields";
 import { useMutation, usePage, useResource } from "../resources";
@@ -213,35 +212,4 @@ function KeyEditor({ api, close, done }: { api: Api; close: () => void; done: (k
       <EuiFormRow label={t("到期时间（可选）")} fullWidth><EuiFieldText fullWidth type="datetime-local" value={expiry} onChange={(event) => setExpiry(event.target.value)} /></EuiFormRow>
     </form>
   </Drawer>;
-}
-
-export function Pair({ api }: { api: Api }) {
-  const t = useT();
-  const date = useDate();
-  const [server, setServer] = useState(window.location.origin);
-  const [pair, setPair] = useState<PairCode>();
-  const task = useMutation();
-  return <>
-    <PageTitle title={t("配对客户端")} description={t("用雁字客户端扫描二维码，为当前用户建立会话。")} />
-    <div className="pair-layout">
-      <form className="form-surface stack" onSubmit={(event) => {
-        event.preventDefault();
-        setPair(undefined);
-        void task.run(async () => setPair(await api.write<PairCode>("/auth/pair", "POST", { server: server.trim() || undefined })));
-      }}>
-        <Failure message={task.error} />
-        <EuiFormRow label={t("客户端可访问的服务器地址")} helpText={t("服务器配置了 ANSER_PUBLIC_URL 时，以服务端配置为准。")} fullWidth>
-          <EuiFieldText fullWidth type="url" required value={server} onChange={(event) => setServer(event.target.value)} />
-        </EuiFormRow>
-        <div className="form-actions"><EuiButton type="submit" fill iconType="link" isLoading={task.busy}>{t("生成配对码")}</EuiButton></div>
-      </form>
-      {pair && <section className="pair-code stack" aria-label={t("配对二维码")}>
-        <QRCodeCanvas value={pair.url} size={228} marginSize={3} title={t("雁字客户端配对二维码")} />
-        <EuiText textAlign="center" size="s" color="subdued"><p>{t("有效期至 {time}，配对码仅可使用一次。", { time: date(pair.expires_at) })}</p></EuiText>
-        <EuiCopy textToCopy={pair.url} afterMessage={t("已复制")}>
-          {(copy: () => void) => <EuiButtonEmpty iconType="copy" onClick={copy}>{t("复制配对链接")}</EuiButtonEmpty>}
-        </EuiCopy>
-      </section>}
-    </div>
-  </>;
 }
