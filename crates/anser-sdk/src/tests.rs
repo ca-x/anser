@@ -85,6 +85,38 @@ async fn retries_a_protected_publish_with_one_idempotency_key() {
 }
 
 #[tokio::test]
+async fn native_send_supports_legacy_receipts_and_opt_in_idempotent_retries() {
+    let (base, requests) = mock::serve_sequence(&[
+        ("201 Created", "", r#"{"id":1}"#),
+        ("429 Too Many Requests", "Retry-After: 0\r\n", RATE_LIMIT),
+        ("201 Created", "", r#"{"id":2,"message_id":"trace-id"}"#),
+    ])
+    .await;
+    let client = fixture_client(base.as_str());
+    let message = Message {
+        title: "Arrived".into(),
+        body: "Train 24 is here".into(),
+        ..Message::default()
+    };
+    let legacy = client.send_inbox("bob", &message).await.unwrap();
+    assert_eq!(legacy.id, 1);
+    assert!(legacy.message_id.is_none());
+    let receipt = client
+        .send_inbox_idempotent("bob", &message, "train-24")
+        .await
+        .unwrap();
+    assert_eq!(receipt.message_id.as_deref(), Some("trace-id"));
+    let requests = requests.await.unwrap();
+    assert_eq!(header(&requests[0], "idempotency-key"), None);
+    for request in &requests[1..] {
+        assert!(request.headers.starts_with("POST /v1/inbox/send "));
+        assert_eq!(header(request, "idempotency-key"), Some("train-24"));
+        let input: Value = serde_json::from_slice(&request.body).unwrap();
+        assert_eq!(input["recipient"], "bob");
+    }
+}
+
+#[tokio::test]
 async fn keeps_path_segments_and_api_errors_typed() {
     let (base, request) = mock::serve(
         "404 Not Found",

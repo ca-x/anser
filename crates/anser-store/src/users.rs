@@ -32,6 +32,12 @@ pub struct InboxItem {
     pub read_at: Option<i64>,
 }
 
+#[derive(Serialize, sqlx::FromRow)]
+pub struct InboxReceipt {
+    pub id: i64,
+    pub message_id: String,
+}
+
 impl Store {
     pub async fn create_user(
         &self,
@@ -228,15 +234,59 @@ impl Store {
 
     pub async fn send_inbox(
         &self,
+        key_id: &str,
         sender: Option<&str>,
         recipient: &str,
         message: &Message,
-    ) -> Result<i64> {
+        idempotency_key: Option<&str>,
+        retention_ms: i64,
+    ) -> Result<InboxReceipt> {
+        // Published messages use the raw validated key. Spaces cannot occur in a client key.
+        let request_key = idempotency_key.map(|key| format!("inbox {key}"));
+        let body = serde_json::to_string(message)?;
         let format = serde_json::to_value(message.format)?;
-        let value = sqlx::query_scalar("INSERT INTO inbox(user_id,from_username,title,body,format,created_at) SELECT id,?,?,?,?,? FROM users WHERE username=? AND enabled=1 RETURNING id")
-            .bind(sender).bind(&message.title).bind(&message.body).bind(format.as_str().unwrap_or("text"))
-            .bind(now_ms()).bind(recipient).fetch_optional(&self.0).await?.ok_or(DataError::Missing)?;
-        Ok(value)
+        let _writer = self.2.lock().await;
+        let mut tx = self.0.begin_with("BEGIN IMMEDIATE").await?;
+        let now = now_ms();
+        if let Some(key) = &request_key
+            && let Some(receipt) = sqlx::query_as(
+                "SELECT inbox_id AS id,message_id FROM idempotency
+                WHERE key_id=? AND request_key=? AND expires_at>? AND inbox_id IS NOT NULL",
+            )
+            .bind(key_id)
+            .bind(key)
+            .bind(now)
+            .fetch_optional(&mut *tx)
+            .await?
+        {
+            tx.commit().await?;
+            return Ok(receipt);
+        }
+        let message_id = new_id();
+        sqlx::query("INSERT INTO messages(id,key_id,body,request,status,inbox_deliveries,inbox_recipient,created_at,retain_until)
+            VALUES(?1,?2,?3,?3,'success',1,?4,?5,?6)")
+            .bind(&message_id).bind(key_id).bind(body).bind(recipient).bind(now).bind(now.saturating_add(retention_ms))
+            .execute(&mut *tx).await?;
+        let id = sqlx::query_scalar(
+            "INSERT INTO inbox(user_id,message_id,from_username,title,body,format,created_at)
+            SELECT id,?,?,?,?,?,? FROM users WHERE username=? AND enabled=1 RETURNING id",
+        )
+        .bind(&message_id)
+        .bind(sender)
+        .bind(&message.title)
+        .bind(&message.body)
+        .bind(format.as_str().unwrap_or("text"))
+        .bind(now)
+        .bind(recipient)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or(DataError::Missing)?;
+        if let Some(key) = &request_key {
+            crate::queue::remember_receipt(&mut tx, key_id, key, &message_id, Some(id), now)
+                .await?;
+        }
+        tx.commit().await?;
+        Ok(InboxReceipt { id, message_id })
     }
 }
 

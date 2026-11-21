@@ -2,6 +2,7 @@
 
 #![cfg(unix)]
 
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -316,16 +317,8 @@ fn device_address<'a>(devices: &'a [EndDevice], id: &str) -> Result<&'a str, Sen
 }
 
 fn notification(message: &Message) -> Result<NotifyRequest, SendError> {
-    let title = limit(&message.title, TITLE_LIMIT);
-    if title.is_empty() {
-        return Err(SendError::new(
-            "lazycat_invalid_message",
-            "notification title is required",
-            false,
-        ));
-    }
-    let body = match message.format {
-        MessageFormat::Text => limit(&message.body, BODY_LIMIT),
+    let text = match message.format {
+        MessageFormat::Text => Cow::Borrowed(message.body.as_str()),
         MessageFormat::Markdown => {
             let mut text = String::new();
             for event in Parser::new_ext(&message.body, Options::empty()) {
@@ -334,7 +327,7 @@ fn notification(message: &Message) -> Result<NotifyRequest, SendError> {
                     Event::SoftBreak
                     | Event::HardBreak
                     | Event::End(TagEnd::Paragraph | TagEnd::Item | TagEnd::Heading(_)) => {
-                        text.push(' ')
+                        text.push('\n')
                     }
                     _ => {}
                 }
@@ -342,7 +335,7 @@ fn notification(message: &Message) -> Result<NotifyRequest, SendError> {
                     break;
                 }
             }
-            limit(&text, BODY_LIMIT)
+            Cow::Owned(text)
         }
         MessageFormat::Html => {
             return Err(SendError::new(
@@ -352,9 +345,25 @@ fn notification(message: &Message) -> Result<NotifyRequest, SendError> {
             ));
         }
     };
+    let title = limit(&message.title, TITLE_LIMIT);
+    let title = if title.is_empty() {
+        limit(
+            text.trim_start().lines().next().unwrap_or_default(),
+            TITLE_LIMIT,
+        )
+    } else {
+        title
+    };
+    if title.is_empty() {
+        return Err(SendError::new(
+            "lazycat_invalid_message",
+            "notification needs a title or a line of readable text",
+            false,
+        ));
+    }
     Ok(NotifyRequest {
         title,
-        body,
+        body: limit(&text, BODY_LIMIT),
         deeplink_url: None,
     })
 }

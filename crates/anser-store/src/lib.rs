@@ -57,6 +57,42 @@ mod tests {
     use super::*;
 
     #[tokio::test]
+    async fn upgrade_preserves_old_inboxes_and_backfills_only_linked_receipts() {
+        use sqlx::{Connection, SqliteConnection};
+        let mut db = SqliteConnection::connect("sqlite::memory:").await.unwrap();
+        let migrations = sqlx::migrate!();
+        migrations.run_to(8, &mut db).await.unwrap();
+        sqlx::raw_sql("INSERT INTO api_keys(id,secret_hash,name,scopes,created_at)
+              VALUES('sender',zeroblob(32),'key','[]',0);
+            INSERT INTO users(id,username,password_hash,admin,created_at)
+              VALUES('a','alice','hash',0,0),('b','bob','hash',0,0);
+            INSERT INTO messages(id,key_id,body,request,topic,created_at,retain_until)
+              VALUES('topic','sender','{}','{}','ops',0,100),('routed','sender','{}','{}',NULL,0,100);
+            INSERT INTO inbox(user_id,message_id,title,body,format,created_at)
+              VALUES('a','topic','release','restarted','text',0),
+                    ('b','topic','release','restarted','text',0),('b',NULL,'old','private','text',0);")
+            .execute(&mut db).await.unwrap();
+        migrations.run_to(9, &mut db).await.unwrap();
+
+        let messages: Vec<(String, i64, Option<String>)> =
+            sqlx::query_as("SELECT id,inbox_deliveries,inbox_recipient FROM messages ORDER BY id")
+                .fetch_all(&mut db)
+                .await
+                .unwrap();
+        assert_eq!(
+            messages,
+            [("routed".into(), 0, None), ("topic".into(), 2, None)]
+        );
+        let historical: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM inbox WHERE message_id IS NULL AND body='private'",
+        )
+        .fetch_one(&mut db)
+        .await
+        .unwrap();
+        assert_eq!(historical, 1);
+    }
+
+    #[tokio::test]
     async fn reopens_a_migrated_database_with_foreign_keys_enabled() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("anser.sqlite3");

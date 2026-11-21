@@ -155,19 +155,40 @@ impl ChannelService for Serverchan {
 }
 
 fn payload(config: &Config, message: &Message) -> Result<Value, SendError> {
-    let title = truncate(&message.title, TITLE_LIMIT);
-    if title.trim().is_empty() {
-        return Err(SendError::new(
-            "serverchan_message",
-            "Server酱 requires a title",
-            false,
-        ));
-    }
     let mut body = if message.format == MessageFormat::Markdown {
         message.body.clone()
     } else {
         plain_body(message, BODY_LIMIT)
     };
+    let title = if message.title.trim().is_empty() {
+        let rendered;
+        let source = match message.format {
+            MessageFormat::Text => &message.body,
+            MessageFormat::Html => &body,
+            MessageFormat::Markdown => {
+                rendered = plain_body(message, BODY_LIMIT);
+                &rendered
+            }
+        };
+        truncate(
+            source
+                .trim_start()
+                .lines()
+                .next()
+                .unwrap_or_default()
+                .trim_end(),
+            TITLE_LIMIT,
+        )
+    } else {
+        truncate(&message.title, TITLE_LIMIT)
+    };
+    if title.trim().is_empty() {
+        return Err(SendError::new(
+            "serverchan_message",
+            "Server酱 needs a title or a line of readable text",
+            false,
+        ));
+    }
     if let Some(target) = &message.url {
         let target = link(target)?;
         body.push_str(&format!("\n\n[Open](<{target}>)"));
@@ -253,6 +274,27 @@ mod tests {
         );
         assert!(Config::parse(&json!({"sendkey":"sctpfoo.exampletsecret"})).is_err());
         assert!(Config::parse(&json!({"sendkey":"SCTexample","version":"3"})).is_err());
+    }
+
+    #[tokio::test]
+    async fn sends_a_title_from_the_first_rendered_line_and_keeps_the_full_body() {
+        let (base, received) = mock::serve("200 OK", "", r#"{"code":0}"#).await;
+        let config = Config::parse(&json!({"sendkey":"SCTexample"})).unwrap();
+        let message = Message {
+            title: " ".into(),
+            body: format!("\n\n**{}**\n\nSecond paragraph.", "雁".repeat(40)),
+            format: MessageFormat::Markdown,
+            ..Message::default()
+        };
+        send(&config, &message, base, &NetworkPolicy::new(true, vec![]))
+            .await
+            .unwrap();
+        let payload: Value = decode(&received.await.unwrap().body).unwrap();
+        assert_eq!(
+            payload["title"],
+            format!("{}…", "雁".repeat(TITLE_LIMIT - 1))
+        );
+        assert_eq!(payload["desp"], message.body);
     }
 
     #[tokio::test]

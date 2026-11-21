@@ -2,7 +2,7 @@
 
 `SCT…` 为 Turbo 凭据，`sctp<数字>t…` 为 Server酱³ 凭据。地址由官方 SDK 规则推导，可显式填写 `version` 核对。Turbo 可配 `channel`、`openid` 和 `noip`，Server酱³ 可配 `tags`。
 
-标题最多 32 字符，正文可使用 Markdown。可设 `short` 作为通知卡片摘要。
+未填写标题时，取正文中第一行可读文本作为标题，正文仍完整发送至渠道长度上限。标题最多 32 字符，正文可使用 Markdown。可设 `short` 作为通知卡片摘要。
 
 | 情况 | 分类 |
 | --- | --- |

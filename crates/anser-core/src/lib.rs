@@ -13,7 +13,9 @@ pub enum MessageFormat {
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct Message {
+    #[serde(default)]
     pub title: String,
+    #[serde(default)]
     pub body: String,
     #[serde(default)]
     pub format: MessageFormat,

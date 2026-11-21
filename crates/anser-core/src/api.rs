@@ -182,6 +182,9 @@ pub struct Delivery {
     pub id: String,
     pub channel: String,
     pub account_id: String,
+    /// Current account name for administrators with global account access.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account_name: Option<String>,
     pub subscription_id: Option<String>,
     pub status: String,
     pub next_retry_at: Option<i64>,
@@ -195,5 +198,11 @@ pub struct MessageDetail {
     pub status: String,
     pub message: Message,
     pub created_at: i64,
+    /// Number of native inboxes the server wrote to at send time.
+    #[serde(default)]
+    pub inbox_deliveries: i64,
+    /// Destination username supplied by the sender of a direct inbox notification.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inbox_recipient: Option<String>,
     pub deliveries: Vec<Delivery>,
 }

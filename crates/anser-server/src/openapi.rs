@@ -128,9 +128,11 @@ pub async fn document() -> Json<Value> {
             let mut method_params: Vec<_> = path.split('/').filter_map(|segment| segment.strip_prefix('{')?.strip_suffix('}'))
                 .map(|name| json!({"name":name,"in":"path","required":true,"schema":{"type":"string"}})).collect();
             let publishes = path == "/v1/send" || path.ends_with("/publish");
+            if publishes || path == "/v1/inbox/send" {
+                method_params.push(json!({"name":"Idempotency-Key","in":"header","description":"Repeat the same key with the same credential within 24 hours to retrieve the original receipt. Native sends use a separate key space.","schema":{"type":"string","pattern":"^[!-~]{1,128}$"}}));
+            }
             if publishes {
                 method_params.extend([
-                    json!({"name":"Idempotency-Key","in":"header","schema":{"type":"string","maxLength":128}}),
                     json!({"name":"wait","in":"query","schema":{"type":"boolean"}}),
                     json!({"name":"timeout_ms","in":"query","schema":{"type":"integer","maximum":30000}}),
                 ]);
@@ -283,7 +285,7 @@ fn success_schema(path: &str, method: &str) -> Option<(&'static str, Value)> {
         ("GET", "/v1/inbox") => ("200", page("InboxItem")),
         ("POST", "/v1/inbox/send") => (
             "201",
-            json!({"type":"object","properties":{"id":{"type":"integer","format":"int64"}}}),
+            json!({"type":"object","required":["id","message_id"],"properties":{"id":{"type":"integer","format":"int64","description":"Recipient inbox item ID"},"message_id":{"type":"string","description":"Sender receipt in /v1/messages/{id}"}}}),
         ),
         _ => return None,
     };
@@ -323,7 +325,12 @@ fn schemas() -> Value {
     key_out["enabled"] = boolean.clone();
     key_out["created_at"] = time.clone();
     let message = json!({
-        "type":"object","required":["title","body"],"properties":{
+        "type":"object","description":"Supply a title, a body, or both. At least one must contain non-whitespace text.",
+        "anyOf":[
+            {"required":["title"],"properties":{"title":{"pattern":r"\S"}}},
+            {"required":["body"],"properties":{"body":{"pattern":r"\S"}}}
+        ],
+        "properties":{
             "title":string,"body":string,"format":{"type":"string","enum":["text","markdown","html"]},
             "tags":strings,"level":string,"url":{"type":"string","format":"uri"},
             "attachments":{"type":"array","items":reference("Attachment")},"extras":{"type":"object"}
@@ -359,8 +366,8 @@ fn schemas() -> Value {
             "Channel":{"type":"object","required":["id","display_name","enabled","available","can_manage","config_schema","capabilities"],"properties":{"id":string,"display_name":string,"enabled":{"type":"boolean","description":"Persisted desired state"},"available":{"type":"boolean","description":"Current service availability"},"can_manage":{"type":"boolean","description":"Whether the requesting identity may manage global channel runtime"},"config_schema":{"type":"object"},"capabilities":{"type":"object"}}},
             "ChannelRuntime":{"type":"object","required":["id","enabled","available"],"properties":{"id":string,"enabled":{"type":"boolean","description":"Persisted desired state"},"available":{"type":"boolean","description":"Current service availability"}}},
             "ChannelChange":{"type":"object","properties":{"enabled":boolean,"reload":boolean},"oneOf":[{"required":["enabled"],"properties":{"reload":{"enum":[false]}}},{"required":["reload"],"properties":{"reload":{"enum":[true]}},"not":{"required":["enabled"]}}]},
-            "MessageDetail":{"type":"object","properties":{"id":string,"topic":string,"status":delivery_status,"message":reference("Message"),"created_at":time,"deliveries":{"type":"array","items":reference("Delivery")}}},
-            "Delivery":{"type":"object","properties":{"id":string,"channel":string,"account_id":string,"subscription_id":string,"status":delivery_status,"next_retry_at":time,"attempts":{"type":"array","items":reference("Attempt")}}},
+            "MessageDetail":{"type":"object","properties":{"id":string,"topic":string,"status":delivery_status,"message":reference("Message"),"created_at":time,"inbox_deliveries":{"type":"integer","format":"int64","minimum":0,"description":"Native inbox entries committed at send time. Independent of device activity and read status."},"inbox_recipient":{"type":"string","description":"Destination username supplied by the sender of a direct native notification. Omitted for topic messages."},"deliveries":{"type":"array","items":reference("Delivery")}}},
+            "Delivery":{"type":"object","properties":{"id":string,"channel":string,"account_id":string,"account_name":{"type":"string","description":"Current account display name when accessible to a global administrator."},"subscription_id":string,"status":delivery_status,"next_retry_at":time,"attempts":{"type":"array","items":reference("Attempt")}}},
             "Attempt":{"type":"object","properties":{"n":integer,"started_at":time,"finished_at":time,"error_code":string,"error_msg":string,"latency":integer}},
         }),
         json!({

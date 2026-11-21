@@ -213,8 +213,14 @@ async fn selects_a_device_and_sends_through_genuine_grpc_clients() {
         SendOutcome::Delivered
     );
     assert_eq!(fixture.auth_requests.load(Ordering::Relaxed), 2);
+    let mut body_only = message.clone();
+    body_only.title.clear();
+    body_only.body = format!("\n# {}\n\n第二段", "雁".repeat(85));
+    channel.send(&account, &body_only).await.unwrap();
     let received = fixture.received.lock().await;
-    assert_eq!(received.len(), 3);
+    assert_eq!(received.len(), 4);
+    assert_eq!(received[3].title, format!("{}…", "雁".repeat(79)));
+    assert_eq!(received[3].body, format!("{} 第二段", "雁".repeat(85)));
     assert_eq!(received[0].title, "雁字");
     assert_eq!(received[0].body, "a test");
     device_server.abort();

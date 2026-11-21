@@ -275,11 +275,40 @@ async fn protected_subscriptions_deliver_to_separate_inboxes_and_pair_codes_are_
             Method::POST,
             "/v1/topics/private-alerts/publish",
             Some(&admin),
-            json!({"title":"Maintenance", "body":"Service restored", "tags":["maintenance"]}),
+            json!({"title":"Maintenance", "tags":["maintenance"]}),
             StatusCode::ACCEPTED,
         )
         .await;
     assert_eq!(receipt["status"], "success");
+    let detail: Value = server
+        .get(
+            &format!("/v1/messages/{}", json_string(&receipt, "message_id")),
+            Some(&admin),
+        )
+        .await;
+    assert_eq!(detail["inbox_deliveries"], 2);
+    assert!(detail.get("inbox_recipient").is_none());
+    assert_eq!(detail["deliveries"], json!([]));
+    for (path, body) in [
+        ("/v1/send", json!({})),
+        ("/v1/topics/private-alerts/publish", json!({"title":"  "})),
+        ("/v1/inbox/send", json!({"recipient":"alice","body":"\n\t"})),
+        (
+            "/v1/accounts/example/test",
+            json!({"title":"  ","body":"　"}),
+        ),
+    ] {
+        let error: Value = server
+            .json(
+                Method::POST,
+                path,
+                Some(&admin),
+                body,
+                StatusCode::BAD_REQUEST,
+            )
+            .await;
+        assert_eq!(error["code"], "invalid_request");
+    }
     let mut inbox_ids = Vec::new();
     for token in [alice, bob] {
         let inbox: Value = server.get("/v1/inbox", Some(token)).await;
@@ -288,7 +317,7 @@ async fn protected_subscriptions_deliver_to_separate_inboxes_and_pair_codes_are_
         let item = &items[0];
         assert_eq!(item["topic"], "private-alerts");
         assert_eq!(item["title"], "Maintenance");
-        assert_eq!(item["body"], "Service restored");
+        assert_eq!(item["body"], "");
         assert_eq!(item["from_username"], BOOTSTRAP_USER);
         inbox_ids.push(item["id"].as_i64().unwrap());
     }
@@ -349,6 +378,105 @@ async fn protected_subscriptions_deliver_to_separate_inboxes_and_pair_codes_are_
         )
         .await;
     assert!(reused.get("token").is_none());
+}
+
+#[tokio::test]
+async fn direct_notification_keeps_one_sender_receipt_across_retries_and_restart() {
+    let temp = tempfile::tempdir().unwrap();
+    let database = temp.path().join("anser.sqlite3");
+    let server = Server::start(&database);
+    for user in ["alice", "bob"] {
+        server
+            .json::<Value>(
+                Method::POST,
+                "/v1/users",
+                Some(BOOTSTRAP_KEY),
+                json!({"username":user,"password":ACCOUNT_PASSWORD}),
+                StatusCode::CREATED,
+            )
+            .await;
+    }
+    let alice = server.login("alice", ACCOUNT_PASSWORD).await;
+    let bob = server.login("bob", ACCOUNT_PASSWORD).await;
+    let send = |server: &Server, recipient: &str, key: &str| {
+        server
+            .request(Method::POST, "/v1/inbox/send", Some(&alice))
+            .header("Idempotency-Key", key)
+            .json(&json!({"recipient":recipient,"body":"Train 24 is here"}))
+            .send()
+    };
+    let (first, second) = tokio::join!(send(&server, "bob", "same"), send(&server, "bob", "same"));
+    let receipt: Value = checked_json(first.unwrap(), StatusCode::CREATED).await;
+    assert_eq!(
+        checked_json::<Value>(second.unwrap(), StatusCode::CREATED).await,
+        receipt
+    );
+    let path = format!("/v1/messages/{}", json_string(&receipt, "message_id"));
+    let detail: Value = server.get(&path, Some(&alice)).await;
+    assert_eq!(detail["status"], "success");
+    assert_eq!(detail["message"]["title"], "");
+    assert_eq!(detail["message"]["body"], "Train 24 is here");
+    assert_eq!(detail["inbox_deliveries"], 1);
+    assert_eq!(detail["deliveries"], json!([]));
+    assert_eq!(
+        send(&server, "missing", "different")
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        send(&server, "bob", "invalid key").await.unwrap().status(),
+        StatusCode::BAD_REQUEST
+    );
+
+    let inbox: Value = server.get("/v1/inbox", Some(&bob)).await;
+    let items = inbox["items"].as_array().unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0]["id"], receipt["id"]);
+    assert_eq!(items[0]["from_username"], "alice");
+    assert_eq!(items[0]["body"], "Train 24 is here");
+    let read = format!("/v1/inbox/{}/read", receipt["id"].as_i64().unwrap());
+    assert_eq!(
+        server
+            .request(Method::POST, &read, Some(&bob))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::NO_CONTENT
+    );
+    assert_eq!(server.get::<Value>(&path, Some(&alice)).await, detail);
+    assert_eq!(detail["inbox_recipient"], "bob");
+    assert!(detail.get("read_at").is_none());
+    assert_eq!(
+        server
+            .request(Method::GET, &path, Some(&bob))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    let history: Value = server.get("/v1/messages", Some(&bob)).await;
+    assert_eq!(history["items"], json!([]));
+
+    drop(server);
+    let restarted = Server::start(&database);
+    assert_eq!(
+        checked_json::<Value>(
+            send(&restarted, "bob", "same").await.unwrap(),
+            StatusCode::CREATED
+        )
+        .await,
+        receipt
+    );
+    let new_session = restarted.login("alice", ACCOUNT_PASSWORD).await;
+    let history: Value = restarted.get("/v1/messages", Some(&new_session)).await;
+    assert_eq!(history["items"], json!([detail]));
+    let inbox: Value = restarted.get("/v1/inbox", Some(&bob)).await;
+    assert_eq!(inbox["items"].as_array().unwrap().len(), 1);
+    assert!(inbox["items"][0]["read_at"].is_number());
 }
 
 #[cfg(feature = "ntfy")]
@@ -843,6 +971,7 @@ mod durable_delivery {
             good_delivery.subscription_id.as_deref(),
             Some(subscription_id)
         );
+        assert_eq!(good_delivery.account_name.as_deref(), Some("available"));
         assert_eq!(good_delivery.status, "success");
         assert_eq!(good_delivery.attempts.len(), 1);
         assert_eq!(failed_delivery.status, "pending");
@@ -1283,7 +1412,7 @@ mod outbound_proxy {
         let account_id = json_string(&account, "id");
         let account_path = format!("/v1/accounts/{account_id}");
         let test_path = format!("{account_path}/test");
-        let test_body = json!({"title":"Check outbound proxy","body":"fixture"});
+        let test_body = json!({"body":"Check outbound proxy"});
         let blocked: Value = server
             .json(
                 Method::POST,

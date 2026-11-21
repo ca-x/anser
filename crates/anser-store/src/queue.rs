@@ -94,6 +94,8 @@ pub struct Outcome<'a> {
 
 #[derive(sqlx::FromRow)]
 struct StoredMessage {
+    inbox_recipient: Option<String>,
+    inbox_deliveries: i64,
     id: String,
     topic: Option<String>,
     status: String,
@@ -109,6 +111,8 @@ impl StoredMessage {
             status: self.status,
             message: serde_json::from_str(&self.body)?,
             created_at: self.created_at,
+            inbox_deliveries: self.inbox_deliveries,
+            inbox_recipient: self.inbox_recipient,
             deliveries: Vec::new(),
         })
     }
@@ -116,6 +120,7 @@ impl StoredMessage {
 
 #[derive(sqlx::FromRow)]
 struct DeliveryView {
+    account_name: Option<String>,
     id: String,
     channel: String,
     account_id: String,
@@ -406,12 +411,16 @@ impl Store {
         prefix: Option<&str>,
     ) -> Result<MessageDetail> {
         let mut tx = self.0.begin().await?;
-        let row: StoredMessage = sqlx::query_as("SELECT id,topic,status,body,created_at FROM messages WHERE id=? AND (? IS NULL OR key_id=? OR (SELECT user_id FROM api_keys WHERE id=messages.key_id)=(SELECT user_id FROM api_keys WHERE id=?)) AND (? IS NULL OR substr(topic,1,length(?))=?)")
+        let row: StoredMessage = sqlx::query_as("SELECT id,topic,status,body,created_at,inbox_deliveries,inbox_recipient FROM messages WHERE id=? AND (? IS NULL OR key_id=? OR (SELECT user_id FROM api_keys WHERE id=messages.key_id)=(SELECT user_id FROM api_keys WHERE id=?)) AND (? IS NULL OR substr(topic,1,length(?))=?)")
             .bind(id).bind(key_id).bind(key_id).bind(key_id).bind(prefix).bind(prefix).bind(prefix)
             .fetch_optional(&mut *tx).await?.ok_or(DataError::Missing)?;
         let mut message = row.detail()?;
-        let deliveries: Vec<DeliveryView> = sqlx::query_as("SELECT d.id,d.channel,d.account_id,r.subscription_id,d.state,d.due_at FROM deliveries d JOIN routes r ON r.id=d.route_id WHERE r.message_id=? ORDER BY r.id,d.position,d.id")
-            .bind(id).fetch_all(&mut *tx).await?;
+        // Only the unrestricted admin history view has access to account display names.
+        let show_account_names = key_id.is_none() && prefix.is_none();
+        let deliveries: Vec<DeliveryView> = sqlx::query_as("SELECT d.id,d.channel,d.account_id,r.subscription_id,d.state,d.due_at,
+            CASE WHEN ? THEN (SELECT name FROM accounts WHERE id=d.account_id) END AS account_name
+            FROM deliveries d JOIN routes r ON r.id=d.route_id WHERE r.message_id=? ORDER BY r.id,d.position,d.id")
+            .bind(show_account_names).bind(id).fetch_all(&mut *tx).await?;
         let attempts: Vec<AttemptView> = sqlx::query_as("SELECT a.delivery_id,a.n,a.started_at,a.finished_at,a.error_code,a.error_msg FROM attempts a JOIN deliveries d ON d.id=a.delivery_id JOIN routes r ON r.id=d.route_id WHERE r.message_id=? ORDER BY a.delivery_id,a.n")
             .bind(id).fetch_all(&mut *tx).await?;
         tx.commit().await?;
@@ -437,6 +446,7 @@ impl Store {
                 attempts: by_delivery.remove(&delivery.id).unwrap_or_default(),
                 id: delivery.id,
                 account_id: delivery.account_id,
+                account_name: delivery.account_name,
                 channel: delivery.channel,
                 subscription_id: delivery.subscription_id,
                 next_retry_at: (delivery.state == "waiting")
@@ -460,7 +470,7 @@ impl Store {
         prefix: Option<&str>,
     ) -> Result<Page<MessageDetail>> {
         let mut query = QueryBuilder::<Sqlite>::new(
-            "SELECT id,topic,status,body,created_at FROM messages WHERE 1=1",
+            "SELECT id,topic,status,body,created_at,inbox_deliveries,inbox_recipient FROM messages WHERE 1=1",
         );
         if let Some(cursor) = after {
             // Resolve the opaque cursor in the same snapshot as the page query.
@@ -556,6 +566,20 @@ impl Store {
         Ok(sqlx::query_as("SELECT 'queue_depth',count(*) FROM routes WHERE finished=0 UNION ALL SELECT 'delivery_' || state,count(*) FROM deliveries GROUP BY state UNION ALL SELECT 'attempts',count(*) FROM attempts UNION ALL SELECT 'retries',count(*) FROM attempts WHERE n>1 UNION ALL SELECT 'latency_ms_total',COALESCE(sum(max(0,finished_at-started_at)),0) FROM attempts UNION ALL SELECT 'callback_attempts',COALESCE(sum(attempts),0) FROM callbacks UNION ALL SELECT 'callback_pending',count(*) FROM callbacks WHERE finished=0")
             .fetch_all(&self.0).await?)
     }
+}
+
+pub(crate) async fn remember_receipt(
+    tx: &mut SqliteConnection,
+    key_id: &str,
+    request_key: &str,
+    message_id: &str,
+    inbox_id: Option<i64>,
+    now: i64,
+) -> Result<()> {
+    sqlx::query("INSERT INTO idempotency(key_id,request_key,message_id,inbox_id,expires_at) VALUES(?,?,?,?,?)
+        ON CONFLICT(key_id,request_key) DO UPDATE SET message_id=excluded.message_id,inbox_id=excluded.inbox_id,expires_at=excluded.expires_at")
+        .bind(key_id).bind(request_key).bind(message_id).bind(inbox_id).bind(now.saturating_add(86_400_000)).execute(tx).await?;
+    Ok(())
 }
 
 async fn enqueue_one(tx: &mut SqliteConnection, input: Submission) -> Result<Receipt> {
@@ -705,12 +729,10 @@ async fn enqueue_one(tx: &mut SqliteConnection, input: Submission) -> Result<Rec
         return Err(DataError::NoTargets);
     }
     let id = new_id();
-    let status = if groups.is_empty() {
-        if native.is_empty() {
-            "cancelled"
-        } else {
-            "success"
-        }
+    let mut status = if groups.is_empty() {
+        "cancelled"
+    } else if groups.iter().all(|(_, group)| group.is_empty()) {
+        "failed"
     } else {
         "pending"
     };
@@ -719,15 +741,26 @@ async fn enqueue_one(tx: &mut SqliteConnection, input: Submission) -> Result<Rec
             .bind(serde_json::to_string(&request)?).bind(status).bind(now).bind(now.saturating_add(retention))
             .execute(&mut *tx).await?;
     if let Some(key) = input.idempotency_key.as_deref() {
-        sqlx::query("INSERT INTO idempotency(key_id,request_key,message_id,expires_at) VALUES(?,?,?,?) ON CONFLICT(key_id,request_key) DO UPDATE SET message_id=excluded.message_id, expires_at=excluded.expires_at")
-                .bind(&input.key_id).bind(key).bind(&id).bind(now + 86_400_000).execute(&mut *tx).await?;
+        remember_receipt(tx, &input.key_id, key, &id, None, now).await?;
     }
-    let format = serde_json::to_value(request.message.format)?;
-    for owner in native {
-        sqlx::query("INSERT INTO inbox(user_id,message_id,from_username,topic,title,body,format,created_at) SELECT id,?,?,?,?,?,?,? FROM users WHERE id=? AND enabled=1")
-                .bind(&id).bind(input.sender.as_deref()).bind(input.topic.as_deref()).bind(&request.message.title)
-                .bind(&request.message.body).bind(format.as_str().unwrap_or("text")).bind(now)
-                .bind(owner).execute(&mut *tx).await?;
+    if !native.is_empty() {
+        let format = serde_json::to_value(request.message.format)?;
+        let count = sqlx::query("INSERT INTO inbox(user_id,message_id,from_username,topic,title,body,format,created_at)
+            SELECT id,?,?,?,?,?,?,? FROM users WHERE enabled=1 AND id IN (SELECT value FROM json_each(?))")
+            .bind(&id).bind(input.sender.as_deref()).bind(input.topic.as_deref()).bind(&request.message.title)
+            .bind(&request.message.body).bind(format.as_str().unwrap_or("text")).bind(now)
+            .bind(serde_json::to_string(&native)?).execute(&mut *tx).await?.rows_affected();
+        if count > 0 {
+            if groups.is_empty() {
+                status = "success";
+            }
+            sqlx::query("UPDATE messages SET inbox_deliveries=?,status=? WHERE id=?")
+                .bind(count as i64)
+                .bind(status)
+                .bind(&id)
+                .execute(&mut *tx)
+                .await?;
+        }
     }
     if let Some(callback) = request.callback_url {
         sqlx::query("INSERT INTO callbacks(message_id,url,next_at) VALUES(?,?,?)")
@@ -846,7 +879,7 @@ pub(crate) async fn cancel(tx: &mut SqliteConnection, subscription: &str) -> Res
 
 async fn update_message(tx: &mut SqliteConnection, id: &str) -> Result<()> {
     // Every independently routed subscription must meet its own success criterion.
-    let status: String = sqlx::query_scalar("UPDATE messages SET status=(SELECT CASE WHEN count(*) FILTER(WHERE state='pending')>0 THEN 'pending' WHEN count(*) FILTER(WHERE state='dead')>0 THEN 'dead' WHEN count(*) FILTER(WHERE state='failed')>0 THEN 'failed' WHEN count(*) FILTER(WHERE state='success')>0 THEN 'success' ELSE 'cancelled' END FROM routes WHERE message_id=?) WHERE id=? RETURNING status")
+    let status: String = sqlx::query_scalar("UPDATE messages SET status=(SELECT CASE WHEN count(*) FILTER(WHERE state='pending')>0 THEN 'pending' WHEN count(*) FILTER(WHERE state='dead')>0 THEN 'dead' WHEN count(*) FILTER(WHERE state='failed')>0 THEN 'failed' WHEN count(*) FILTER(WHERE state='success')>0 OR messages.inbox_deliveries>0 THEN 'success' ELSE 'cancelled' END FROM routes WHERE message_id=?) WHERE id=? RETURNING status")
         .bind(id).bind(id).fetch_one(&mut *tx).await?;
     if status != "pending" {
         sqlx::query("UPDATE callbacks SET next_at=? WHERE message_id=? AND finished=0 AND next_at IS NULL AND NOT EXISTS(SELECT 1 FROM routes WHERE message_id=? AND finished=0)")
@@ -922,6 +955,122 @@ mod tests {
             topic_admin: false,
             verified_password_hash: None,
         }
+    }
+
+    #[tokio::test]
+    async fn account_display_names_follow_admin_access_and_account_lifetime() {
+        let (_temp, store) = fixture().await;
+        let published = store.enqueue(submission(None)).await.unwrap();
+        let id = &published.message_id;
+        let sender = store.message(id, Some("sender"), None).await.unwrap();
+        assert!(sender.deliveries[0].account_name.is_none());
+        let admin = store.message(id, None, None).await.unwrap();
+        assert_eq!(admin.deliveries[0].account_name.as_deref(), Some("test"));
+        store.delete_account("account").await.unwrap();
+        let archived = store.message(id, None, None).await.unwrap();
+        assert_eq!(archived.deliveries[0].account_id, "account");
+        assert!(archived.deliveries[0].account_name.is_none());
+    }
+
+    #[tokio::test]
+    async fn native_receipt_survives_inbox_retention_and_shares_no_publish_keys() {
+        let (_temp, store) = fixture().await;
+        let recipient = store
+            .create_user("recipient", "hash", false, false)
+            .await
+            .unwrap()
+            .unwrap();
+        let message = submission(None).request.message;
+        let send = || {
+            store.send_inbox(
+                "sender",
+                None,
+                "recipient",
+                &message,
+                Some("same"),
+                86_400_000,
+            )
+        };
+        let receipt = send().await.unwrap();
+        let published = store.enqueue(submission(Some("same"))).await.unwrap();
+        assert_ne!(published.message_id, receipt.message_id);
+
+        let now = now_ms() + 1;
+        store.maintain(now, 0).await.unwrap();
+        assert!(
+            store
+                .inbox(&recipient.id, None, 10)
+                .await
+                .unwrap()
+                .items
+                .is_empty()
+        );
+        let replay = send().await.unwrap();
+        assert_eq!(replay.id, receipt.id);
+        assert_eq!(replay.message_id, receipt.message_id);
+        let history = store
+            .message(&receipt.message_id, None, None)
+            .await
+            .unwrap();
+        assert_eq!(history.inbox_deliveries, 1);
+        assert_eq!(history.inbox_recipient.as_deref(), Some("recipient"));
+        assert!(
+            store
+                .inbox(&recipient.id, None, 10)
+                .await
+                .unwrap()
+                .items
+                .is_empty()
+        );
+
+        // An expired key can be used for a genuinely new send.
+        sqlx::query("UPDATE idempotency SET expires_at=0 WHERE message_id=?")
+            .bind(&receipt.message_id)
+            .execute(&store.0)
+            .await
+            .unwrap();
+        let next = send().await.unwrap();
+        assert_ne!(next.message_id, receipt.message_id);
+        assert_ne!(next.id, receipt.id);
+    }
+
+    #[tokio::test]
+    async fn native_topic_counts_only_enabled_recipients() {
+        let (_temp, store) = fixture().await;
+        sqlx::raw_sql("INSERT INTO topics(id,space_id,name) VALUES('t','default','t');
+            INSERT INTO users(id,username,password_hash,admin,created_at) VALUES('u','reader','hash',0,0);
+            INSERT INTO subscriptions(id,topic_id,subscriber_ref,filter,user_id,created_at)
+            VALUES('s','t','reader','[]','u',0),('s2','t','other-device','[]','u',0);")
+            .execute(&store.0).await.unwrap();
+        let send = || {
+            let mut input = submission(None);
+            input.topic = Some("t".into());
+            store.enqueue(input)
+        };
+        let original = send().await.unwrap();
+        assert_eq!(original.status, "success");
+        assert_eq!(
+            store
+                .message(&original.message_id, None, None)
+                .await
+                .unwrap()
+                .inbox_deliveries,
+            1
+        );
+        store
+            .update_user("u", Some(false), None, None)
+            .await
+            .unwrap();
+        let disabled = send().await.unwrap();
+        assert_eq!(disabled.status, "cancelled");
+        assert_eq!(
+            store
+                .message(&disabled.message_id, None, None)
+                .await
+                .unwrap()
+                .inbox_deliveries,
+            0
+        );
     }
 
     #[tokio::test]

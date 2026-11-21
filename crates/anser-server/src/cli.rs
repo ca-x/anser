@@ -42,6 +42,10 @@ enum Resource {
     Send {
         #[arg(long)]
         topic: Option<String>,
+        /// Write to this user's native inbox and return the inbox ID and message ID.
+        #[arg(long, conflicts_with_all = ["topic", "wait"])]
+        recipient: Option<String>,
+        /// Reuse the original receipt when retrying with this credential within 24 hours.
         #[arg(long)]
         idempotency_key: Option<String>,
         #[arg(long)]
@@ -144,15 +148,23 @@ pub async fn run(remote: Remote) -> anyhow::Result<()> {
         Resource::Topics { action } => resource("topics", action).await?,
         Resource::Send {
             topic,
+            recipient,
             wait,
             idempotency_key,
             file,
         } => {
-            let mut request = match topic {
-                Some(topic) => command(Method::POST, "topics", [topic, "publish".into()]),
-                None => command(Method::POST, "send", []),
+            let mut body = read(file).await?;
+            let mut request = if let Some(recipient) = recipient {
+                body.as_object_mut()
+                    .ok_or_else(|| anyhow::anyhow!("message must be a JSON object"))?
+                    .insert("recipient".into(), recipient.into());
+                command(Method::POST, "inbox", ["send".into()])
+            } else if let Some(topic) = topic {
+                command(Method::POST, "topics", [topic, "publish".into()])
+            } else {
+                command(Method::POST, "send", [])
             }
-            .json(read(file).await?);
+            .json(body);
             request.idempotency_key = idempotency_key;
             if wait {
                 request.query.push(("wait", "true".into()));

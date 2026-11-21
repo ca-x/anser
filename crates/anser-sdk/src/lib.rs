@@ -204,11 +204,7 @@ impl Client {
             generated = uuid::Uuid::new_v4().to_string();
             &generated
         };
-        if key.is_empty() || key.len() > 128 || !key.bytes().all(|byte| byte.is_ascii_graphic()) {
-            return Err(Error::InvalidIdempotencyKey);
-        }
-        let mut key = HeaderValue::from_str(key).map_err(|_| Error::InvalidIdempotencyKey)?;
-        key.set_sensitive(true);
+        let key = idempotency_header(key)?;
         let request = request.header("Idempotency-Key", key).json(&PublishWire {
             request: message,
             topic_password: message.topic_password.as_deref(),
@@ -272,6 +268,21 @@ impl Client {
             .request(Method::POST, &["inbox", "send"], true)?
             .json(&InboxWire { recipient, message });
         self.execute(request, false).await
+    }
+
+    /// Retries with a caller-supplied stable key. Requires a server with native inbox
+    /// idempotency support. For older servers use `send_inbox` for a single HTTP attempt.
+    pub async fn send_inbox_idempotent(
+        &self,
+        recipient: &str,
+        message: &Message,
+        key: &str,
+    ) -> Result<InboxReceipt, Error> {
+        let request = self
+            .request(Method::POST, &["inbox", "send"], true)?
+            .header("Idempotency-Key", idempotency_header(key)?)
+            .json(&InboxWire { recipient, message });
+        self.execute(request, true).await
     }
 
     pub async fn mark_inbox_read(&self, id: i64) -> Result<(), Error> {
@@ -413,9 +424,11 @@ pub struct InboxItem {
     pub read_at: Option<i64>,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 pub struct InboxReceipt {
     pub id: i64,
+    /// Present on servers which record direct notifications in sending history.
+    pub message_id: Option<String>,
 }
 
 /// Sensitive session response. Omit Debug so tokens do not end up in logs.
@@ -512,6 +525,15 @@ struct InboxWire<'a> {
     recipient: &'a str,
     #[serde(flatten)]
     message: &'a Message,
+}
+
+fn idempotency_header(key: &str) -> Result<HeaderValue, Error> {
+    if key.is_empty() || key.len() > 128 || !key.bytes().all(|byte| byte.is_ascii_graphic()) {
+        return Err(Error::InvalidIdempotencyKey);
+    }
+    let mut key = HeaderValue::from_str(key).map_err(|_| Error::InvalidIdempotencyKey)?;
+    key.set_sensitive(true);
+    Ok(key)
 }
 
 fn bearer(key: &str) -> Result<HeaderValue, Error> {

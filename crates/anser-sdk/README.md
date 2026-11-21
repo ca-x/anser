@@ -31,3 +31,5 @@ println!("{}", detail.status);
 SDK 为读取和支持幂等重试的发送请求处理网络故障、408、429 和 5xx。订阅创建、用户登录和一次性配对交换只尝试一次。SDK 保留 HTTP 状态、API 错误码、错误消息与结构化详情。重定向不会自动跟随。
 
 使用 `Client::builder(...).build()` 初始化未登录客户端。通过 `login(username, password)` 或 `exchange_pair_code(code)` 获取会话，再调用 `with_api_key(&session.token)` 访问收件箱及需要鉴权的 API。远程部署使用 HTTPS。
+
+个人通知可用 `send_inbox(recipient, message)` 单次发送。支持原生收件箱幂等的服务端还可用 `send_inbox_idempotent(recipient, message, key)` 安全重试。回执的 `id` 是收件箱条目编号，`message_id` 用于查询发件历史（旧版服务端可能省略）。详情的 `inbox_deliveries` 表示发送时写入的收件箱数量。收件人阅读后，该数量保持不变。私信的 `inbox_recipient` 保留发送时填写的用户名，Topic 详情仅返回收件箱数量。

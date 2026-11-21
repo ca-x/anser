@@ -769,6 +769,22 @@ async fn send(
     enqueue(&app, &identity, None, wait, &headers, input).await
 }
 
+fn idempotency_key(headers: &HeaderMap) -> ApiResult<Option<&str>> {
+    Ok(match headers.get("idempotency-key") {
+        Some(header) => Some(
+            header
+                .to_str()
+                .ok()
+                .filter(|value| {
+                    (1..=128).contains(&value.len())
+                        && value.bytes().all(|byte| byte.is_ascii_graphic())
+                })
+                .ok_or_else(|| ApiError::bad("Invalid Idempotency-Key"))?,
+        ),
+        None => None,
+    })
+}
+
 async fn enqueue(
     app: &App,
     identity: &Identity,
@@ -799,19 +815,7 @@ async fn enqueue(
         anser_channel_http::validate_url(&url)
             .map_err(|_| ApiError::bad("Invalid callback URL"))?;
     }
-    let key = match headers.get("idempotency-key") {
-        Some(header) => Some(
-            header
-                .to_str()
-                .ok()
-                .filter(|value| {
-                    (1..=128).contains(&value.len())
-                        && value.bytes().all(|byte| byte.is_ascii_graphic())
-                })
-                .ok_or_else(|| ApiError::bad("Invalid Idempotency-Key"))?,
-        ),
-        None => None,
-    };
+    let key = idempotency_key(headers)?;
     let password = match topic {
         Some(topic) => verify_topic(app, identity, topic, input.topic_password.take()).await?,
         None => None,
@@ -980,8 +984,9 @@ struct InboxSend {
 async fn send_inbox(
     State(app): State<Arc<App>>,
     identity: Identity,
+    headers: HeaderMap,
     ApiJson(input): ApiJson<InboxSend>,
-) -> ApiResult<(StatusCode, Json<Value>)> {
+) -> ApiResult<(StatusCode, Json<anser_store::users::InboxReceipt>)> {
     identity.require("send")?;
     if identity.user.is_none() {
         identity.admin_global()?;
@@ -990,16 +995,19 @@ async fn send_inbox(
         return Err(ApiError::bad("Invalid recipient"));
     }
     validate_message(&input.message)?;
-    let id = app
+    let receipt = app
         .store
         .send_inbox(
+            &identity.key_id,
             identity.user.as_ref().map(|user| user.username.as_str()),
             &input.recipient,
             &input.message,
+            idempotency_key(&headers)?,
+            app.retention_ms,
         )
         .await?;
     app.inbox_wakeup.notify_waiters();
-    Ok((StatusCode::CREATED, Json(json!({ "id": id }))))
+    Ok((StatusCode::CREATED, Json(receipt)))
 }
 
 async fn statistics(
