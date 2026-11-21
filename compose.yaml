@@ -7,6 +7,7 @@ services:
       ANSER_BOOTSTRAP_USERNAME: ${ANSER_BOOTSTRAP_USERNAME:-}
       ANSER_BOOTSTRAP_PASSWORD: ${ANSER_BOOTSTRAP_PASSWORD:-}
       ANSER_PUBLIC_URL: ${ANSER_PUBLIC_URL:-}
+      ANSER_OUTBOUND_ALLOW_HOSTS: ${ANSER_OUTBOUND_ALLOW_HOSTS:-}
     volumes:
       - anser-data:/data
     restart: unless-stopped
