@@ -38,7 +38,11 @@ Set `ANSER_BOOTSTRAP_USERNAME` and `ANSER_BOOTSTRAP_PASSWORD` before running the
 
 ## Use the client
 
-Enter the server address and your credentials on the connection screen. The console can generate a one-time pairing code with a two-minute lifetime. Scan it with your phone's camera and confirm sign-in in Anser. Each subscriber to a topic receives their own notification. Signed-in users can also send a notification directly to another username.
+Enter your server address and sign in on the client’s connection screen. You can also generate a single-use code under **Pair a client** in the console. Scan it with your phone’s camera and confirm the server address in Anser within two minutes. On the same device, copy the pairing link and choose **Import connection link** in the client.
+
+**Send your first notification.** Open **Send notification** in the console, choose **Personal inbox**, and enter your own username and a short message. Open your inbox in the client to see it. When you send to another user, they can reply from the notification. Your delivery history shows the destination username for direct sends and the number of inboxes reached for topic sends. Read status stays in the recipient’s inbox.
+
+While signed in, you can switch screens in the client or console and return to your draft. Reloading the app or signing out clears it.
 
 Users can turn on two-factor authentication in their account security settings. After linking an authenticator, password sign-in also requires a one-time authenticator code or a recovery code. Save the recovery codes when you finish setup. They appear once.
 
@@ -54,6 +58,8 @@ The delivery overview shows the queue, successful deliveries, dead letters, and 
 
 <details>
 <summary>Delivery details, server plugins, proxies, and account security</summary>
+
+![Direct notification inbox receipt](docs/screenshots/en/server-inbox-receipt.png)
 
 ![Delivery and attempt details](docs/screenshots/en/server-delivery.png)
 
@@ -85,6 +91,8 @@ The delivery overview shows the queue, successful deliveries, dead letters, and 
 <details>
 <summary>Native Linux client</summary>
 
+![Delivery receipt after a reply in the native client](docs/screenshots/en/nsh-receipt.png)
+
 ![Sending a notification in the native client](docs/screenshots/en/nsh-compose.png)
 
 ![Channel plugin settings in the native client](docs/screenshots/en/nsh-plugin.png)
@@ -106,6 +114,7 @@ List both the proxy host and the notification destination host in `ANSER_OUTBOUN
 - The server exposes OpenAPI at `/v1/openapi.json` and a health check at `/healthz`.
 - Administrators can open a plugin's settings in the console or NSH client to enable it, disable it, reload it, or configure its accounts. Disabled plugins stay disabled after restart, and new deliveries skip their accounts.
 - `POST /v1/send` and `POST /v1/topics/{name}/publish` durably queue messages and accept `Idempotency-Key` and `?wait=true`. Send API keys in `Authorization: Bearer ...`.
+- `POST /v1/inbox/send` sends directly to a username and accepts an `Idempotency-Key`. The receipt contains the recipient’s inbox item `id` and a sender-visible `message_id` for delivery history. Direct messages sent before the upgrade remain in their recipients’ inboxes.
 - `GET /v1/messages/{id}` shows deliveries and their attempts. The console supports broadcast, priority failover, weighted selection, weighted failover, rate limits, and retry backoff.
 - The Rust SDK covers typed message submission, topic subscriptions, status queries, sign-in, and the inbox. Use `anser api --help` to find commands such as `anser api channels ntfy --action disable`. [Rust SDK](crates/anser-sdk)
 - Available channels include ntfy, ServerChan, Bark, SMTP email, LazyCat, WeChat Official Account, WeCom, Lark, and Telegram. PushPlus and gorush served as design references. [Channel setup](anser-plugins) · [LazyCat setup](docs/lazycat.md)

@@ -38,7 +38,11 @@ ANSER_REQUIRE_WEB=1 cargo build --locked --release -p anser-server
 
 ## 使用客户端
 
-连接页输入服务端地址和用户账号。在服务端管理台可生成两分钟内有效的一次性二维码，使用手机系统扫码打开雁字并确认登录。已经订阅同一主题的用户各自收到一条通知。已登录用户也可按用户名直接发送通知。
+在客户端连接页输入服务端地址并登录。也可以在管理台的「配对客户端」生成两分钟内有效的一次性二维码，用手机系统相机扫描，在雁字确认服务器地址后登录。同一台设备上可复制配对链接，在客户端选择「导入连接链接」。
+
+**发送第一条通知。** 在管理台「发送通知」选择「个人收件箱」，填写自己的用户名和一句正文，即可在客户端收件箱看到它。发给另一位用户时，对方可以从通知详情直接回复。发送者的投递记录显示通知存入了谁的收件箱。发布到主题时，详情显示实际收到通知的收件箱数量。阅读状态仅在收件人自己的收件箱中显示。
+
+登录期间，在客户端或管理台切换页面会保留发送草稿。刷新页面或退出登录会清除草稿。
 
 用户可在账号安全设置中自行开启双重验证。绑定验证器后，密码登录还需输入动态验证码或一次性恢复码。恢复码只在绑定成功时展示，请保存到安全的位置。
 
@@ -54,6 +58,8 @@ ANSER_REQUIRE_WEB=1 cargo build --locked --release -p anser-server
 
 <details>
 <summary>投递详情、插件、代理与账号安全设置</summary>
+
+![直发通知的收件箱回执](docs/screenshots/zh-CN/server-inbox-receipt.png)
 
 ![投递和发送尝试详情](docs/screenshots/zh-CN/server-delivery.png)
 
@@ -85,6 +91,8 @@ ANSER_REQUIRE_WEB=1 cargo build --locked --release -p anser-server
 <details>
 <summary>Linux 原生客户端</summary>
 
+![原生客户端回复后的送达回执](docs/screenshots/zh-CN/nsh-receipt.png)
+
 ![原生客户端发送通知](docs/screenshots/zh-CN/nsh-compose.png)
 
 ![原生客户端的插件设置](docs/screenshots/zh-CN/nsh-plugin.png)
@@ -106,6 +114,7 @@ ANSER_REQUIRE_WEB=1 cargo build --locked --release -p anser-server
 - API 文档由服务端提供在 `/v1/openapi.json`。健康检查在 `/healthz`。
 - 管理员可在管理台和 NSH 客户端打开各渠道插件的设置页，启用、禁用或重载插件，并用该插件专属的表单配置账号。禁用状态重启后仍然生效，该插件的账号会从新投递的候选集中跳过。
 - `POST /v1/send` 或 `POST /v1/topics/{name}/publish` 持久化入队，支持 `Idempotency-Key` 和 `?wait=true`。API Key 使用 `Authorization: Bearer ...`。
+- `POST /v1/inbox/send` 按用户名直发，支持 `Idempotency-Key`。回执中的 `id` 用于操作收件箱条目，`message_id` 用于查询发送结果。升级前的直发消息仍保留在收件人的收件箱中。
 - `GET /v1/messages/{id}` 查看路由投递和历史尝试。管理台可配置广播、有序故障转移、按权重选择、加权首选再故障转移、限流和退避。
 - [Rust SDK](crates/anser-sdk) 支持类型化发送、主题订阅、查询、登录及收件箱。CLI 用 `anser api --help` 查看管理命令，例如 `anser api channels ntfy --action disable`。
 - 支持 [ntfy](anser-plugins/ntfy)、[Server酱](anser-plugins/serverchan)、[Bark](anser-plugins/bark)、[SMTP 邮件](anser-plugins/email)、[懒猫通知](docs/lazycat.md)、[微信公众号](anser-plugins/wechat-mp)、[企业微信应用](anser-plugins/wecom)、[飞书](anser-plugins/feishu)和 [Telegram](anser-plugins/telegram)。PushPlus 和 gorush 用作设计参考。
