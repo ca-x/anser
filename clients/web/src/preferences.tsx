@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useMemo, useState, type ReactNode
 import { EuiButtonIcon, EuiContext, EuiFormRow, EuiPopover, EuiProvider, EuiSelect } from "@elastic/eui";
 import { channelDisplayName, chooseLanguage, chooseTheme, resolveTheme, translate, type Language, type ThemePreference } from "./locale";
 import { consoleTheme } from "./theme";
+import settingsIcon from "./assets/icons/settings.svg?no-inline";
 
 const languageKey = "anser.ui.language";
 const themeKey = "anser.ui.theme";
@@ -83,13 +84,17 @@ export function useChannelName() {
   return (id: string, fallback?: string) => channelDisplayName(language, id, fallback);
 }
 
+function PreferenceIcon() {
+  return <img className="preference-icon" src={settingsIcon} alt="" aria-hidden="true" width="24" height="24" />;
+}
+
 export function PreferenceMenu() {
   const [open, setOpen] = useState(false);
   const { language, theme, setLanguage, setTheme } = useContext(PreferencesContext);
   const t = useT();
   const label = t("界面设置");
   return <EuiPopover
-    button={<EuiButtonIcon iconType="gear" display="empty" size="m" className="preference-button" title={label}
+    button={<EuiButtonIcon iconType={PreferenceIcon} display="empty" size="m" className="preference-button" title={label}
       aria-label={label} aria-expanded={open} onClick={() => setOpen((value) => !value)} />}
     isOpen={open} closePopover={() => setOpen(false)} anchorPosition="downRight" ownFocus panelPaddingSize="m"
   >

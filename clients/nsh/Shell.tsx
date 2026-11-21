@@ -2,17 +2,25 @@ import { t } from "nsh/i18n";
 import {
   cleanup,
   effect,
+  Image,
   platform,
   signal,
   Text,
   UrlScheme,
   View,
   windowSize,
+  type ImageAsset,
 } from "nsh";
 import { Button, createNavStack, NavStack } from "nsh/base";
 import { currentWindow, isAvailable as desktopAvailable } from "nsh/desktop";
 import { TabBar } from "nsh/mobile";
 import { messageFor, type AnserApi } from "./api";
+import accountIcon from "./assets/navigation/id-badge.svg";
+import historyIcon from "./assets/navigation/history.svg";
+import inboxIcon from "./assets/navigation/inbox.svg";
+import preferencesIcon from "./assets/navigation/settings.svg";
+import sendIcon from "./assets/navigation/send.svg";
+import tagIcon from "./assets/navigation/tag.svg";
 import { Action, confirm, Hint } from "./components/Controls";
 import { Brand, WorkspacePage } from "./components/Workspace";
 import { PreferenceControls } from "./components/Preferences";
@@ -56,36 +64,42 @@ type Route =
 const sections: {
   id: Section;
   title: () => string;
+  icon: ImageAsset;
   ios: string;
   android: string;
 }[] = [
   {
     id: "compose",
     title: () => t("shell.send"),
+    icon: sendIcon,
     ios: "paperplane",
     android: "android:ic_menu_send",
   },
   {
     id: "topics",
     title: () => t("shell.topics"),
+    icon: tagIcon,
     ios: "tag",
     android: "android:ic_menu_agenda",
   },
   {
     id: "accounts",
     title: () => t("shell.accounts"),
+    icon: accountIcon,
     ios: "person.crop.circle",
     android: "android:ic_menu_manage",
   },
   {
     id: "history",
     title: () => t("shell.deliveries"),
+    icon: historyIcon,
     ios: "clock",
     android: "android:ic_menu_recent_history",
   },
   {
     id: "inbox",
     title: () => t("common.inbox"),
+    icon: inboxIcon,
     ios: "tray",
     android: "android:ic_dialog_email",
   },
@@ -224,24 +238,29 @@ function Workspace(props: {
 
   const links = () => (
     <Each of={enabledSections} key={(tab) => tab.id}>
-      {(tab) => (
-        <Button
-          onPress={() => go(tab().id)}
-          selected={selection() === tab().id}
-          class={`min-h-11 rounded-md px-2.5 py-2 hover:bg-muted active:bg-accent selected:bg-accent focus-visible:ring-2 focus-visible:ring-ring ${wide() ? "items-start" : "flex-1 items-center justify-center"}`}
-        >
-          <Text
-            class={
-              selection() === tab().id
-                ? "text-sm font-semibold text-accent-foreground"
-                : "text-sm text-foreground"
-            }
+      {(tab) => {
+        const selected = () => selection() === tab().id;
+        return (
+          <Button
+            onPress={() => go(tab().id)}
+            selected={selected()}
+            class={`min-h-11 rounded-sm items-center hover:bg-muted active:bg-accent focus-visible:ring-2 focus-visible:ring-ring ${wide() ? "flex-row gap-2.5 border-l-2 px-2.5 py-2" : "flex-1 justify-center gap-0.5 border-b-2 px-1 py-1"} ${selected() ? "border-primary" : "border-transparent"}`}
           >
-            {tab().title()}
-            {badge(tab().id) ? ` (${badge(tab().id)})` : ""}
-          </Text>
-        </Button>
-      )}
+            <Image
+              src={tab().icon}
+              class="size-6 shrink-0"
+              fadeDuration={0}
+              accessibilityElementsHidden
+            />
+            <Text
+              class={`text-sm ${selected() ? "font-semibold text-accent-foreground" : "text-foreground"}`}
+            >
+              {tab().title()}
+              {badge(tab().id) ? ` (${badge(tab().id)})` : ""}
+            </Text>
+          </Button>
+        );
+      }}
     </Each>
   );
 
@@ -285,22 +304,27 @@ function Workspace(props: {
             <Brand compact />
             <View class="gap-1">{links()}</View>
             <View class="flex-1" />
-            <View class="gap-1 px-2">
-              <Hint>{user?.username ?? t("shell.api_key_session")}</Hint>
-              <Text class="line-clamp-2 text-[13px] text-muted-foreground">
-                {api.origin}
-              </Text>
+            <View class="gap-1 border-t border-border pt-3">
+              <View class="gap-1 px-3 pb-2">
+                <Hint>{user?.username ?? t("shell.api_key_session")}</Hint>
+                <Text class="line-clamp-2 text-sm text-muted-foreground">
+                  {api.origin}
+                </Text>
+              </View>
+              <Action
+                label={t("preferences.title")}
+                icon={preferencesIcon}
+                onPress={openPreferences}
+                kind="quiet"
+                class="self-start"
+              />
+              <Action
+                label={t("shell.disconnect")}
+                onPress={() => props.onDisconnect()}
+                kind="quiet"
+                class="self-start"
+              />
             </View>
-            <Action
-              label={t("preferences.title")}
-              onPress={openPreferences}
-              kind="quiet"
-            />
-            <Action
-              label={t("shell.disconnect")}
-              kind="quiet"
-              onPress={() => props.onDisconnect()}
-            />
           </View>
         </If>
         <NavStack state={nav} class="min-w-0 flex-1">
@@ -522,6 +546,7 @@ function Workspace(props: {
               </Text>
               <Action
                 label={t("preferences.title")}
+                icon={preferencesIcon}
                 onPress={openPreferences}
                 kind="quiet"
               />

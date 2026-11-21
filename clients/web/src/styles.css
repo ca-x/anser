@@ -1,5 +1,6 @@
 :root {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --display-family: Charter, "Bitstream Charter", Georgia, "Times New Roman", serif;
   --surface: #fffdf9;
   --surface-tint: #faf4eb;
   --field-surface: #f8f6f2;
@@ -21,6 +22,10 @@
   color-scheme: light;
   color: var(--ink);
   background: var(--canvas);
+}
+
+:root:lang(zh-CN) {
+  --display-family: "Source Han Serif SC", "Noto Serif CJK SC", "Noto Serif SC", "Songti SC", STSong, SimSun, Georgia, serif;
 }
 
 :root[data-theme="dark"] {
@@ -88,7 +93,7 @@ code { overflow-wrap: anywhere; }
 .nav-group li { margin: 3px 0; }
 .nav-group a { display: flex; align-items: center; gap: 11px; padding: 10px 13px; min-height: 42px; border-radius: 8px; color: var(--muted); font-size: 14px; }
 .nav-group a[aria-current="page"] { background: var(--selected); color: var(--accent); font-weight: 700; }
-.nav-group a[aria-current="page"] .euiIcon { color: var(--accent); }
+.nav-icon { display: block; flex: none; width: 24px; height: 24px; }
 .shell-header .nav-trigger { display: none; }
 .skip { position: absolute; z-index: 10; top: -90px; left: 16px; padding: 10px; background: var(--surface); }
 .skip:focus { top: 10px; }
@@ -96,9 +101,16 @@ code { overflow-wrap: anywhere; }
 .workspace { width: 100%; max-width: 1400px; min-width: 0; padding: 43px clamp(22px,4.2vw,68px) 72px; margin: 0 auto; }
 .page-title { display: flex; justify-content: space-between; align-items: end; gap: 16px; margin-bottom: 28px; }
 .workspace > .page-title:not(:first-child) { margin-top: 12px; }
-.page-title h1 { font-size: clamp(27px, 4vw, 38px); line-height: 1.16; letter-spacing: -.035em; font-weight: 760; overflow-wrap: anywhere; }
-:lang(zh-CN) .page-title h1 { letter-spacing: -.015em; }
-.page-title p { margin-top: 8px; }
+.page-title h1 {
+  font-family: var(--display-family);
+  font-size: clamp(29px, 4vw, 42px);
+  line-height: 1.17;
+  letter-spacing: -.025em;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+:lang(zh-CN) .page-title h1 { letter-spacing: .01em; }
+.page-title p { max-width: 62ch; margin-top: 8px; line-height: 1.5; }
 .page-actions, .row-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .data-surface, .form-surface, .delivery, .detail-intro, .pair-code, .channel-settings, .security-settings {
   border: 1px solid var(--rule); background: var(--surface); border-radius: 12px; min-width: 0;
@@ -108,7 +120,12 @@ code { overflow-wrap: anywhere; }
 .form-surface { padding: 22px; }
 .form-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px 16px; }
 .section-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.section-header > h2, .channel-settings h2, .security-settings h2 { font-size: 20px; font-weight: 720; letter-spacing: -.012em; line-height: 1.25; }
+.section-header > h2, .channel-settings h2, .security-settings h2 {
+  font-family: var(--display-family);
+  font-size: 22px;
+  font-weight: 500;
+  line-height: 1.25;
+}
 .section-header > h3 { font-size: 15px; font-weight: 700; }
 .stack { display: flex; flex-direction: column; gap: 15px; min-width: 0; }
 .inset { margin-block: 12px 3px; }
@@ -176,12 +193,13 @@ code { overflow-wrap: anywhere; }
 .login, .checking { min-height: 100dvh; display: grid; place-items: center; padding: 22px; }
 .login-panel { width: min(100%,420px); padding: 22px 36px 34px; border: 1px solid var(--rule); border-radius: 16px; background: var(--surface); box-shadow: var(--overlay-elevation); }
 .login-logo { display: block; margin: 0 auto -4px; }
-.login-panel h1 { font-size: 30px; font-weight: 770; text-align: center; letter-spacing: -.025em; }
+.login-panel h1 { font-family: var(--display-family); font-size: 34px; font-weight: 500; text-align: center; line-height: 1.17; }
 .login-caption { color: var(--muted); font-size: 14px; text-align: center; margin: 5px 0 30px; }
 .login-panel button[type="submit"] { margin-top: 5px; min-height: 44px; }
 
 @media (max-width: 960px) {
-  .shell { grid-template-columns: 185px minmax(0,1fr); }
+  .shell { grid-template-columns: 196px minmax(0,1fr); }
+  .nav-group a { gap: 8px; padding-inline: 10px; }
   .workspace { padding: 30px 22px 56px; }
 }
 @media (max-width: 740px) {
@@ -208,6 +226,8 @@ code { overflow-wrap: anywhere; }
 }
 @media (prefers-reduced-motion: no-preference) {
   .nav-group a { transition: background-color 120ms ease, color 120ms ease; }
+  .nav-icon { transition: scale 120ms var(--ease-out); }
+  .nav-group a:active .nav-icon { scale: .93; }
   .shell :is(.euiButton, .preference-button) { transition: scale 120ms var(--ease-out); }
   .shell :is(.euiButton, .preference-button):not(:disabled):active { scale: .97; }
   .channel-settings > [role="status"] > * {

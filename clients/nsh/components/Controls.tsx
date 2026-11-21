@@ -1,5 +1,5 @@
 import { t } from "nsh/i18n";
-import { Text, View, type JSX } from "nsh";
+import { Image, Text, View, type ImageAsset, type JSX } from "nsh";
 import { AlertDialog, Button, Input, Select, Switch } from "nsh/base";
 
 type ButtonKind = "primary" | "secondary" | "quiet" | "danger";
@@ -25,6 +25,7 @@ export function Action(props: {
   class?: string;
   testID?: string;
   accessibilityLabel?: string;
+  icon?: ImageAsset;
 }) {
   return (
     <Button
@@ -32,8 +33,18 @@ export function Action(props: {
       disabled={props.disabled}
       testID={props.testID}
       accessibilityLabel={props.accessibilityLabel}
-      class={`min-h-11 items-center justify-center rounded-md px-3 py-2 focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 ${buttonSurfaces[props.kind ?? "secondary"]} ${props.class ?? ""}`}
+      class={`min-h-11 items-center justify-center rounded-md px-3 py-2 focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 ${buttonSurfaces[props.kind ?? "secondary"]} ${props.icon ? "flex-row gap-2" : ""} ${props.class ?? ""}`}
     >
+      <If when={props.icon}>
+        {(icon) => (
+          <Image
+            src={icon()}
+            class="size-6 shrink-0"
+            fadeDuration={0}
+            accessibilityElementsHidden
+          />
+        )}
+      </If>
       <Text
         class={`text-sm font-semibold ${buttonText[props.kind ?? "secondary"]}`}
       >

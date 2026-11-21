@@ -41,26 +41,28 @@ export function WorkspacePage(props: {
     <NavPage
       title={props.title}
       header={
-        <View class="min-h-14 flex-row items-center gap-3 border-b border-border bg-card px-4 md:px-6">
-          <If when={props.back}>
-            <Action
-              label={t("workspace.back")}
-              onPress={() => props.back?.()}
-              kind="quiet"
-            />
-          </If>
-          <Text
-            role="header"
-            class="flex-1 text-[22px] font-semibold text-foreground"
-          >
-            {props.title}
-          </Text>
+        <View class="border-b border-border bg-card">
+          <View class="min-h-14 w-full max-w-4xl flex-row items-center gap-3 self-center px-4 md:px-8">
+            <If when={props.back}>
+              <Action
+                label={t("workspace.back")}
+                onPress={() => props.back?.()}
+                kind="quiet"
+              />
+            </If>
+            <Text
+              role="header"
+              class="flex-1 text-2xl font-semibold text-foreground"
+            >
+              {props.title}
+            </Text>
+          </View>
         </View>
       }
     >
       <View class="flex-1 bg-background">
         <Scroll class="flex-1" keyboardDismissMode="on-drag">
-          <View class="w-full max-w-4xl self-center gap-5 px-4 pt-5 pb-8 md:px-8 md:pt-7">
+          <View class="w-full max-w-4xl self-center gap-6 px-4 pt-5 pb-8 md:px-8 md:pt-7">
             {props.children}
           </View>
         </Scroll>

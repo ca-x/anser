@@ -1,0 +1,24 @@
+<!--
+MIT License
+
+Copyright (c) 2026 Kubai087 and the Kubai Icons contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-1.4 -4.4 33.8 33.8" width="24" height="24" fill="none"><defs><linearGradient id="loS-anser-chart-bar" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#C79D86"/><stop offset="1" stop-color="#BD8A70"/></linearGradient><linearGradient id="upS-anser-chart-bar" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#E5D1C6"/><stop offset="1" stop-color="#D5B4A3"/></linearGradient><filter id="sh-anser-chart-bar" x="-40%" y="-40%" width="180%" height="190%" color-interpolation-filters="sRGB"><feFlood flood-opacity="0" result="BackgroundImageFix"/><feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha"/><feOffset dy="2"/><feGaussianBlur stdDeviation="2"/><feComposite in2="hardAlpha" operator="out"/><feColorMatrix type="matrix" values="0 0 0 0 0.7608 0 0 0 0 0.5882 0 0 0 0 0.4863 0 0 0 0.21 0"/><feBlend in2="BackgroundImageFix" mode="normal" result="shadow"/><feBlend in="SourceGraphic" in2="shadow" mode="normal"/></filter><filter id="hi-anser-chart-bar" x="-10%" y="-10%" width="120%" height="130%" color-interpolation-filters="sRGB"><feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="a"/><feOffset in="a" dy="0.7"/><feGaussianBlur stdDeviation="0.35"/><feComposite in2="a" operator="arithmetic" k2="-1" k3="1"/><feColorMatrix type="matrix" values="0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.5 0"/><feBlend in2="SourceGraphic" mode="overlay"/></filter><mask id="ol-anser-chart-bar-0" maskUnits="userSpaceOnUse" x="-40" y="-40" width="111" height="109"><rect x="-40" y="-40" width="111" height="109" fill="#fff"/><path d="M5.2 4.4Q5.2 2.2 7.4 2.2L23.6 2.2Q25.8 2.2 25.8 4.4L25.8 20.6Q25.8 22.8 23.6 22.8L7.4 22.8Q5.2 22.8 5.2 20.6Z" fill="#000"/></mask></defs><path d="M5.2 4.4Q5.2 2.2 7.4 2.2L23.6 2.2Q25.8 2.2 25.8 4.4L25.8 20.6Q25.8 22.8 23.6 22.8L7.4 22.8Q5.2 22.8 5.2 20.6Z" fill="none" stroke-width="1" stroke="url(#loS-anser-chart-bar)"/><g filter="url(#sh-anser-chart-bar)"><g filter="url(#hi-anser-chart-bar)"><path d="M5.2 4.4Q5.2 2.2 7.4 2.2L23.6 2.2Q25.8 2.2 25.8 4.4L25.8 20.6Q25.8 22.8 23.6 22.8L7.4 22.8Q5.2 22.8 5.2 20.6Z" fill="url(#loS-anser-chart-bar)"/></g></g><path d="M5.2 4.4Q5.2 2.2 7.4 2.2L23.6 2.2Q25.8 2.2 25.8 4.4L25.8 20.6Q25.8 22.8 23.6 22.8L7.4 22.8Q5.2 22.8 5.2 20.6Z" mask="url(#ol-anser-chart-bar-0)" fill="none" stroke-width="2" stroke="#A6633F"/><path fill="#fff" d="M8.4 15.6Q8.4 14.6 9.4 14.6L11 14.6Q12 14.6 12 15.6L12 19.6Q12 20 11.6 20L8.8 20Q8.4 20 8.4 19.6Z"/><path fill="#fff" d="M13.7 10.4Q13.7 9.4 14.7 9.4L16.3 9.4Q17.3 9.4 17.3 10.4L17.3 19.6Q17.3 20 16.9 20L14.1 20Q13.7 20 13.7 19.6Z"/><path fill="#fff" d="M19 13.4Q19 12.4 20 12.4L21.6 12.4Q22.6 12.4 22.6 13.4L22.6 19.6Q22.6 20 22.2 20L19.4 20Q19 20 19 19.6Z"/></svg>

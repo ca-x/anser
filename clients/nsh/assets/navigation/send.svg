@@ -1,0 +1,26 @@
+<!--
+Kubai Icons c583030f168294d0e1926e1e7a4fbcf4ee0676ae, static color export.
+
+MIT License
+
+Copyright (c) 2026 Kubai087 and the Kubai Icons contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-1.4 -4.4 33.8 33.8" width="24" height="24" fill="none"><defs><linearGradient id="loS-anser-send" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#C79D86"/><stop offset="1" stop-color="#BD8A70"/></linearGradient><linearGradient id="upS-anser-send" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#E5D1C6"/><stop offset="1" stop-color="#D5B4A3"/></linearGradient><filter id="sh-anser-send" x="-40%" y="-40%" width="180%" height="190%" color-interpolation-filters="sRGB"><feFlood flood-opacity="0" result="BackgroundImageFix"/><feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha"/><feOffset dy="2"/><feGaussianBlur stdDeviation="2"/><feComposite in2="hardAlpha" operator="out"/><feColorMatrix type="matrix" values="0 0 0 0 0.7608 0 0 0 0 0.5882 0 0 0 0 0.4863 0 0 0 0.21 0"/><feBlend in2="BackgroundImageFix" mode="normal" result="shadow"/><feBlend in="SourceGraphic" in2="shadow" mode="normal"/></filter><filter id="hi-anser-send" x="-10%" y="-10%" width="120%" height="130%" color-interpolation-filters="sRGB"><feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="a"/><feOffset in="a" dy="0.7"/><feGaussianBlur stdDeviation="0.35"/><feComposite in2="a" operator="arithmetic" k2="-1" k3="1"/><feColorMatrix type="matrix" values="0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.5 0"/><feBlend in2="SourceGraphic" mode="overlay"/></filter><mask id="ol-anser-send-0" maskUnits="userSpaceOnUse" x="-40" y="-40" width="111" height="109"><rect x="-40" y="-40" width="111" height="109" fill="#fff"/><path d="M4.798 12.382Q3.8 11.4 5.101 10.882L25.285 2.844Q26.4 2.4 25.904 3.493L17.178 22.725Q16.6 24 15.602 23.018Z" fill="#000"/></mask></defs><g transform="translate(-0.4 0.2)"><path d="M4.798 12.382Q3.8 11.4 5.101 10.882L25.285 2.844Q26.4 2.4 25.904 3.493L17.178 22.725Q16.6 24 15.602 23.018Z" fill="none" stroke-width="1" stroke="url(#loS-anser-send)"/><g filter="url(#sh-anser-send)"><g filter="url(#hi-anser-send)"><path d="M4.798 12.382Q3.8 11.4 5.101 10.882L25.285 2.844Q26.4 2.4 25.904 3.493L17.178 22.725Q16.6 24 15.602 23.018Z" fill="url(#loS-anser-send)"/></g></g><path d="M4.798 12.382Q3.8 11.4 5.101 10.882L25.285 2.844Q26.4 2.4 25.904 3.493L17.178 22.725Q16.6 24 15.602 23.018Z" mask="url(#ol-anser-send-0)" fill="none" stroke-width="2" stroke="#A6633F"/><g filter="url(#hi-anser-send)"><path d="M25.904 3.493Q26.4 2.4 25.491 3.183L14.006 13.078Q13.4 13.6 13.635 14.365L16.188 22.662Q16.6 24 17.178 22.725Z" fill="url(#upS-anser-send)"/></g><path d="M25.904 3.493Q26.4 2.4 25.491 3.183L14.006 13.078Q13.4 13.6 13.635 14.365L16.188 22.662Q16.6 24 17.178 22.725Z" fill="none"/></g></svg>

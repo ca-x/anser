@@ -1,34 +1,12 @@
-<p align="center"><img src="assets/logo.png" width="156" height="156" alt="Anser logo"></p>
+<img src="assets/logo.png" width="92" height="92" alt="Anser logo">
 
 # Anser
 
-[简体中文](README.md)
-
 Anser is a self-hosted notification hub. Use one API to send messages to topics, channel accounts, or the Anser client. The server embeds an Elastic UI console. The standalone NSH client uses native components for connecting, receiving, sending, and inspecting deliveries.
 
-Download the server binary, Docker image archive, or NSH client and verify it against `SHA256SUMS`. [GitHub Releases](https://github.com/ca-x/anser/releases/latest)
+[简体中文](README.md) · [Download](https://github.com/ca-x/anser/releases/latest) · [Screenshots](#screenshots) · [Configuration](#configuration)
 
-Choose English or Simplified Chinese and a light, dark, or system theme from the gear menu on the sign-in page or in the console. The NSH client has the same options in Preferences. Each browser or device remembers its own choices.
-
-## Screenshots
-
-### Server console
-
-The screenshots use the English interface and sample data.
-
-![Delivery overview](docs/screenshots/en/server-overview.png)
-
-![Channel plugin runtime and account settings](docs/screenshots/en/server-plugin.png)
-
-![Account security settings](docs/screenshots/en/server-security.png)
-
-### Native NSH client
-
-The send and plugin settings screens on Linux.
-
-![Sending a notification in the native client](docs/screenshots/en/nsh-compose.png)
-
-![Channel plugin settings in the native client](docs/screenshots/en/nsh-plugin.png)
+The server binary, Docker images, and NSH client come in separate archives. Verify downloads against the `SHA256SUMS` file for the same release.
 
 ## Run the server
 
@@ -67,6 +45,32 @@ Users can turn on two-factor authentication in their account security settings. 
 - [Build and package the NSH client](clients/nsh/README.md)
 - [Develop the server console](clients/web)
 - [SQLite, consistency, and recovery](docs/storage.md)
+
+## Screenshots
+
+The delivery overview shows the queue, successful deliveries, dead letters, and retries. These screenshots use the English interface and sample data.
+
+![Delivery overview](docs/screenshots/en/server-overview.png)
+
+<details>
+<summary>Server plugin and account security settings</summary>
+
+![Channel plugin runtime and account settings](docs/screenshots/en/server-plugin.png)
+
+![Account security settings](docs/screenshots/en/server-security.png)
+
+</details>
+
+<details>
+<summary>Native Linux client</summary>
+
+![Sending a notification in the native client](docs/screenshots/en/nsh-compose.png)
+
+![Channel plugin settings in the native client](docs/screenshots/en/nsh-plugin.png)
+
+</details>
+
+Choose English or Simplified Chinese and a light, dark, or system theme from the gear menu on the sign-in page or in the console. The NSH client has the same options in Preferences. Each browser or device remembers its own choices.
 
 ## API and channels
 

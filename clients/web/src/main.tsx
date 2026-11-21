@@ -2,12 +2,22 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } fro
 import { createRoot } from "react-dom/client";
 import {
   EuiAvatar, EuiButton, EuiButtonEmpty, EuiFieldPassword, EuiFieldText, EuiFormRow,
-  EuiIcon,
 } from "@elastic/eui";
 import { Api, ApiError, errorMessage, type SignIn, type User } from "./api";
 import { Failure, Progress } from "./components/Common";
 import { PreferenceMenu, Preferences, useT } from "./preferences";
 import logo from "./assets/logo.png";
+import overviewIcon from "./assets/icons/chart-bar.svg?no-inline";
+import sendIcon from "./assets/icons/send.svg?no-inline";
+import historyIcon from "./assets/icons/history.svg?no-inline";
+import accountsIcon from "./assets/icons/id-badge.svg?no-inline";
+import channelsIcon from "./assets/icons/plug.svg?no-inline";
+import topicsIcon from "./assets/icons/tag.svg?no-inline";
+import routingIcon from "./assets/icons/route.svg?no-inline";
+import usersIcon from "./assets/icons/user-group.svg?no-inline";
+import keysIcon from "./assets/icons/key.svg?no-inline";
+import pairIcon from "./assets/icons/scan-qr.svg?no-inline";
+import securityIcon from "./assets/icons/shield.svg?no-inline";
 import "./styles.css";
 
 const Accounts = lazy(() => import("./pages/Accounts").then(({ Accounts }) => ({ default: Accounts })));
@@ -27,17 +37,17 @@ const Security = lazy(() => import("./pages/Security").then(({ Security }) => ({
 const sessionKey = "anser.auth.session";
 const guest = new Api();
 const pages = [
-  { path: "/admin", label: "投递总览", icon: "dashboardApp" },
-  { path: "/admin/send", label: "发送通知", icon: "play" },
-  { path: "/admin/messages", label: "投递记录", icon: "listBullet" },
-  { path: "/admin/accounts", label: "渠道账号", icon: "database" },
-  { path: "/admin/channels", label: "渠道插件", icon: "plugs" },
-  { path: "/admin/topics", label: "主题与订阅", icon: "tag" },
-  { path: "/admin/routing", label: "默认路由", icon: "branch" },
-  { path: "/admin/users", label: "用户", icon: "users" },
-  { path: "/admin/api-keys", label: "API 密钥", icon: "key" },
-  { path: "/admin/pair", label: "配对客户端", icon: "link" },
-  { path: "/admin/security", label: "账号安全", icon: "shield" },
+  { path: "/admin", label: "投递总览", icon: overviewIcon },
+  { path: "/admin/send", label: "发送通知", icon: sendIcon },
+  { path: "/admin/messages", label: "投递记录", icon: historyIcon },
+  { path: "/admin/accounts", label: "渠道账号", icon: accountsIcon },
+  { path: "/admin/channels", label: "渠道插件", icon: channelsIcon },
+  { path: "/admin/topics", label: "主题与订阅", icon: topicsIcon },
+  { path: "/admin/routing", label: "默认路由", icon: routingIcon },
+  { path: "/admin/users", label: "用户", icon: usersIcon },
+  { path: "/admin/api-keys", label: "API 密钥", icon: keysIcon },
+  { path: "/admin/pair", label: "配对客户端", icon: pairIcon },
+  { path: "/admin/security", label: "账号安全", icon: securityIcon },
 ] as const;
 
 function pathName() {
@@ -158,7 +168,7 @@ function App() {
         const selected = path === item.path || (item.path !== "/admin" && path.startsWith(`${item.path}/`));
         return <li key={item.path}><a href={item.path} aria-current={selected ? "page" : undefined}
           onClick={(event) => { if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return; event.preventDefault(); navigate(item.path); }}>
-          <EuiIcon type={item.icon} color="inherit" /><span>{t(item.label)}</span>
+          <img className="nav-icon" src={item.icon} alt="" aria-hidden="true" width="24" height="24" /><span>{t(item.label)}</span>
         </a></li>;
       })}</ul>)}
     </nav>

@@ -1,34 +1,12 @@
-<p align="center"><img src="assets/logo.png" width="156" height="156" alt="雁字标志"></p>
+<img src="assets/logo.png" width="92" height="92" alt="雁字标志">
 
 # 雁字
 
-[English](README.en.md)
-
 雁字是自托管通知聚合与分发应用。用统一 API 将消息投递到主题、渠道账号或雁字原生客户端。服务端自带 Elastic UI 管理台，NSH 客户端独立安装，用原生组件处理连接、通知、发送和投递记录。
 
-服务端二进制、Docker 镜像归档与 NSH 客户端分别打包，可在 [GitHub Releases](https://github.com/ca-x/anser/releases/latest) 下载并用 `SHA256SUMS` 校验。
+[English](README.en.md) · [下载](https://github.com/ca-x/anser/releases/latest) · [界面截图](#界面截图) · [配置](#配置)
 
-网页端登录页和管理台的齿轮菜单，以及 NSH 客户端的设置页，均可切换简体中文或英文，以及浅色、深色或跟随系统的主题。偏好保存在当前浏览器或客户端设备。
-
-## 界面截图
-
-### 服务端管理台
-
-以下截图使用简体中文和演示数据。
-
-![投递总览](docs/screenshots/zh-CN/server-overview.png)
-
-![渠道插件的运行和账号设置](docs/screenshots/zh-CN/server-plugin.png)
-
-![账户安全设置](docs/screenshots/zh-CN/server-security.png)
-
-### NSH 原生客户端
-
-Linux 客户端的通知发送页与插件设置。
-
-![原生客户端发送通知](docs/screenshots/zh-CN/nsh-compose.png)
-
-![原生客户端的插件设置](docs/screenshots/zh-CN/nsh-plugin.png)
+服务端二进制、Docker 镜像归档与 NSH 客户端分别打包。下载后可用同版的 `SHA256SUMS` 校验。
 
 ## 启动服务端
 
@@ -67,6 +45,32 @@ ANSER_REQUIRE_WEB=1 cargo build --locked --release -p anser-server
 - [NSH 客户端构建、打包与通知支持](clients/nsh/README.md)
 - [Web 管理台开发](clients/web)
 - [SQLite、一致性与恢复](docs/storage.md)
+
+## 界面截图
+
+投递总览展示队列、送达、死信和重试。截图使用简体中文和演示数据。
+
+![投递总览](docs/screenshots/zh-CN/server-overview.png)
+
+<details>
+<summary>服务端的插件与账号安全设置</summary>
+
+![渠道插件的运行和账号设置](docs/screenshots/zh-CN/server-plugin.png)
+
+![账号安全设置](docs/screenshots/zh-CN/server-security.png)
+
+</details>
+
+<details>
+<summary>Linux 原生客户端</summary>
+
+![原生客户端发送通知](docs/screenshots/zh-CN/nsh-compose.png)
+
+![原生客户端的插件设置](docs/screenshots/zh-CN/nsh-plugin.png)
+
+</details>
+
+网页端登录页和管理台的齿轮菜单，以及 NSH 客户端的设置页，均可切换简体中文或英文，以及浅色、深色或跟随系统的主题。偏好保存在当前浏览器或客户端设备。
 
 ## API 与渠道
 
