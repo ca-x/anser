@@ -240,6 +240,31 @@ async fn does_not_follow_cross_origin_redirects() {
 }
 
 #[tokio::test]
+async fn discovers_devices_without_supplying_a_platform_identity() {
+    let (base, request) = mock::serve(
+        "200 OK",
+        "",
+        r#"{"user_id":"alice","devices":[{"device_id":"d1","name":"Laptop","online":true}]}"#,
+    )
+    .await;
+    let devices = fixture_client(base.as_str())
+        .lazycat_devices()
+        .await
+        .unwrap();
+    assert_eq!(devices.user_id, "alice");
+    assert_eq!(devices.devices[0].device_id, "d1");
+    assert!(devices.devices[0].online);
+    let request = request.await.unwrap();
+    assert!(
+        request
+            .headers
+            .starts_with("GET /v1/channels/lazycat/devices ")
+    );
+    assert!(header(&request, "x-anser-lazycat-uid").is_none());
+    assert!(header(&request, "x-anser-lazycat-proof").is_none());
+}
+
+#[tokio::test]
 async fn reads_inbox_items_and_encodes_cursor() {
     let (base, request) = mock::serve("200 OK", "", r#"{"items":[{"id":42,"from_username":"bob","topic":"alerts","title":"T","body":"B","format":"text","created_at":1000,"read_at":null}],"next_cursor":"43"}"#).await;
     let page = fixture_client(base.as_str())

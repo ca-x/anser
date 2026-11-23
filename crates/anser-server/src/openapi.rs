@@ -70,6 +70,12 @@ pub async fn document() -> Json<Value> {
             &["GET / List plugin schemas and capabilities"],
         ),
         (
+            "/v1/channels/lazycat/devices",
+            &[
+                "GET / List the signed-in LazyCat platform user's devices (global administrator and authenticated LazyCat ingress required)",
+            ],
+        ),
+        (
             "/v1/channels/{id}",
             &["GET / Read plugin schema and capabilities"],
         ),
@@ -190,6 +196,27 @@ pub async fn document() -> Json<Value> {
                     "Requires a user session. Confirming or disabling TOTP revokes other sessions and outstanding pairing codes."
                 );
             }
+            if path == "/v1/channels/lazycat/devices" {
+                operation["description"] = json!(
+                    "Device discovery uses the verified current platform identity from the LazyCat ingress. No user selector is accepted. Offline devices can be selected for future delivery."
+                );
+                for (code, description) in [
+                    (
+                        "403",
+                        "forbidden: global administrator access is required; lazycat_identity_required: open the application through your signed-in LazyCat ingress",
+                    ),
+                    (
+                        "503",
+                        "lazycat_identity_unavailable: no trusted ingress is configured; channel_unavailable: the plugin is disabled or unavailable",
+                    ),
+                    (
+                        "422",
+                        "channel_error: the LazyCat gateway could not list devices; details.provider_code identifies the provider error",
+                    ),
+                ] {
+                    operation["responses"][code] = json!({"description":description,"content":{"application/json":{"schema":reference("Error")}}});
+                }
+            }
             if method == "DELETE" && path == "/v1/proxies/{id}" {
                 operation["responses"]["409"] = json!({
                     "description":"proxy_in_use: one or more channel accounts reference this proxy",
@@ -271,6 +298,7 @@ fn success_schema(path: &str, method: &str) -> Option<(&'static str, Value)> {
         ("POST", "/v1/accounts") => ("201", reference("Account")),
         ("GET" | "PUT", "/v1/accounts/{id}") => ("200", reference("Account")),
         ("GET", "/v1/channels") => ("200", page("Channel")),
+        ("GET", "/v1/channels/lazycat/devices") => ("200", reference("LazycatDevices")),
         ("GET", "/v1/channels/{id}") => ("200", reference("Channel")),
         ("PUT", "/v1/channels/{id}/runtime") => ("200", reference("ChannelRuntime")),
         ("GET" | "PUT", "/v1/default-route") => ("200", reference("Policy")),
@@ -309,6 +337,8 @@ fn schemas() -> Value {
     let mut account_in = account_fields.clone();
     account_in["config"] =
         json!({"type":"object","writeOnly":true,"description":"See the channel's config_schema."});
+    let mut account_update = account_in.clone();
+    account_update["inline_proxy"] = json!({"type":"string","enum":["keep","clear"],"description":"Keep the stored inline proxy if the replacement config omits proxy. Clear removes the inline proxy even when it is supplied. Set proxy_id to null and inline_proxy to clear for a direct connection. Omit for legacy replacement behavior."});
     let mut account_out = account_fields.clone();
     account_out["id"] = string.clone();
     let proxy_input = json!({
@@ -359,10 +389,12 @@ fn schemas() -> Value {
             "Subscription":{"type":"object","properties":{"id":string,"user_id":string,"account_id":string,"subscriber_ref":string,"filter":strings,"created_at":time}},
             "Account":{"type":"object","properties":account_out},
             "AccountCreate":{"type":"object","required":["name","channel","config"],"properties":account_in},
-            "AccountUpdate":{"type":"object","properties":account_in},
+            "AccountUpdate":{"type":"object","properties":account_update},
             "Proxy":{"type":"object","required":["id","name","url","authenticated"],"properties":{"id":string,"name":string,"url":{"type":"string","format":"uri","description":"Credential-free HTTP(S) origin"},"authenticated":boolean}},
             "ProxyCreate":{"type":"object","required":["name","url"],"properties":proxy_input},
             "ProxyUpdate":{"type":"object","required":["name"],"properties":proxy_input},
+            "LazycatDevices":{"type":"object","required":["user_id","devices"],"properties":{"user_id":{"type":"string","description":"UID verified by the LazyCat ingress."},"devices":{"type":"array","items":reference("LazycatDevice")}}},
+            "LazycatDevice":{"type":"object","required":["device_id","name","online"],"properties":{"device_id":string,"name":string,"online":boolean}},
             "Channel":{"type":"object","required":["id","display_name","enabled","available","can_manage","config_schema","capabilities"],"properties":{"id":string,"display_name":string,"enabled":{"type":"boolean","description":"Persisted desired state"},"available":{"type":"boolean","description":"Current service availability"},"can_manage":{"type":"boolean","description":"Whether the requesting identity may manage global channel runtime"},"config_schema":{"type":"object"},"capabilities":{"type":"object"}}},
             "ChannelRuntime":{"type":"object","required":["id","enabled","available"],"properties":{"id":string,"enabled":{"type":"boolean","description":"Persisted desired state"},"available":{"type":"boolean","description":"Current service availability"}}},
             "ChannelChange":{"type":"object","properties":{"enabled":boolean,"reload":boolean},"oneOf":[{"required":["enabled"],"properties":{"reload":{"enum":[false]}}},{"required":["reload"],"properties":{"reload":{"enum":[true]}},"not":{"required":["enabled"]}}]},

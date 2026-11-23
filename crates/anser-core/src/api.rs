@@ -126,6 +126,20 @@ pub struct Page<T> {
     pub next_cursor: Option<String>,
 }
 
+/// Registered notification targets for the authenticated LazyCat platform user.
+#[derive(Debug, Deserialize, Serialize)]
+pub struct LazycatDevices {
+    pub user_id: String,
+    pub devices: Vec<LazycatDevice>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct LazycatDevice {
+    pub device_id: String,
+    pub name: String,
+    pub online: bool,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Topic {
     pub name: String,

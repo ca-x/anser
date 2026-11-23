@@ -3,6 +3,7 @@ mod auth;
 mod channel_runtime;
 mod cli;
 mod error;
+mod lazycat;
 mod openapi;
 mod proxies;
 mod totp;

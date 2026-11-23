@@ -39,6 +39,13 @@ impl Service {
         self.0.validate_config(&config)
     }
 
+    pub async fn devices(
+        &self,
+        user_id: String,
+    ) -> Result<Vec<anser_core::api::LazycatDevice>, SendError> {
+        self.0.devices(&user_id).await
+    }
+
     pub async fn send(
         &self,
         account: ChannelAccount,

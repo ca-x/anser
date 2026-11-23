@@ -33,12 +33,21 @@ impl EndDeviceService for GatewayFixture {
         assert_eq!(request.get_ref().uid, "alice");
         assert_eq!(request.metadata().get("x-hc-user-id").unwrap(), "alice");
         Ok(Response::new(ListEndDeviceReply {
-            devices: vec![EndDevice {
-                unique_deivce_id: "device-1".into(),
-                device_api_url: self.0.clone(),
-                is_online: true,
-                ..EndDevice::default()
-            }],
+            devices: vec![
+                EndDevice {
+                    unique_deivce_id: "offline".into(),
+                    model: "Tablet".into(),
+                    ..EndDevice::default()
+                },
+                EndDevice {
+                    unique_deivce_id: "device-1".into(),
+                    name: "Laptop".into(),
+                    remark_name: "Work laptop".into(),
+                    device_api_url: self.0.clone(),
+                    is_online: true,
+                    ..EndDevice::default()
+                },
+            ],
         }))
     }
 
@@ -191,6 +200,15 @@ async fn selects_a_device_and_sends_through_genuine_grpc_clients() {
             device_tls,
         })),
     };
+    let devices = channel.devices("alice").await.unwrap();
+    assert_eq!(
+        serde_json::to_value(&devices).unwrap(),
+        json!([
+            {"device_id":"device-1","name":"Work laptop","online":true},
+            {"device_id":"offline","name":"Tablet","online":false}
+        ])
+    );
+    assert_eq!(fixture.auth_requests.load(Ordering::Relaxed), 0);
     let account = ChannelAccount {
         config: json!({"user_id": "alice", "device_id": "device-1"}),
     };

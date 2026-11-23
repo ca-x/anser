@@ -246,19 +246,32 @@ impl Store {
     pub async fn update_account(
         &self,
         account: &Account,
+        previous: &StoredAccount,
         encrypted: Option<&[u8]>,
         proxy: Option<Option<&str>>,
     ) -> Result<Account> {
         let mut tx = self.0.begin_with("BEGIN IMMEDIATE").await?;
         super::proxies::ensure_proxy(&mut tx, proxy.flatten()).await?;
-        let updated: StoredAccount = sqlx::query_as("UPDATE accounts SET name=?,tags=?,weight=?,priority=?,enabled=?,rate_limit=?,encrypted_config=COALESCE(?,encrypted_config),proxy_id=CASE WHEN ? THEN ? ELSE proxy_id END,consecutive_failures=CASE WHEN ? IS NOT NULL OR (? AND proxy_id IS NOT ?) THEN 0 ELSE consecutive_failures END,circuit_until=CASE WHEN ? IS NOT NULL OR (? AND proxy_id IS NOT ?) THEN 0 ELSE circuit_until END WHERE id=? AND channel=? AND space_id='default' RETURNING id,channel,name,tags,weight,priority,enabled,rate_limit,proxy_id,encrypted_config,circuit_until")
+        // Detect writer conflicts on all editable state used to assemble this update.
+        // Workers may still update scheduling timestamps and circuit state independently.
+        let updated: StoredAccount = sqlx::query_as(
+            "UPDATE accounts SET name=?, tags=?, weight=?, priority=?, enabled=?, rate_limit=?,
+                 encrypted_config=COALESCE(?,encrypted_config), proxy_id=CASE WHEN ? THEN ? ELSE proxy_id END,
+                 consecutive_failures=CASE WHEN ? OR (? AND proxy_id IS NOT ?) THEN 0 ELSE consecutive_failures END,
+                 circuit_until=CASE WHEN ? OR (? AND proxy_id IS NOT ?) THEN 0 ELSE circuit_until END
+             WHERE id=? AND channel=? AND space_id='default' AND encrypted_config=? AND proxy_id IS ?
+                 AND name=? AND tags=? AND weight=? AND priority=? AND enabled=? AND rate_limit IS ?
+             RETURNING id,channel,name,tags,weight,priority,enabled,rate_limit,proxy_id,encrypted_config,circuit_until"
+        )
             .bind(&account.name).bind(serde_json::to_string(&account.tags)?).bind(account.weight)
             .bind(account.priority).bind(account.enabled).bind(account.rate_limit)
             .bind(encrypted).bind(proxy.is_some()).bind(proxy.flatten())
-            .bind(encrypted).bind(proxy.is_some()).bind(proxy.flatten())
-            .bind(encrypted).bind(proxy.is_some()).bind(proxy.flatten())
-            .bind(&account.id).bind(&account.channel)
-            .fetch_optional(&mut *tx).await.map_err(conflict)?.ok_or(DataError::Missing)?;
+            .bind(encrypted.is_some()).bind(proxy.is_some()).bind(proxy.flatten())
+            .bind(encrypted.is_some()).bind(proxy.is_some()).bind(proxy.flatten())
+            .bind(&account.id).bind(&account.channel).bind(&previous.encrypted_config).bind(&previous.proxy_id)
+            .bind(&previous.name).bind(&previous.tags).bind(previous.weight).bind(previous.priority)
+            .bind(previous.enabled).bind(previous.rate_limit)
+            .fetch_optional(&mut *tx).await.map_err(conflict)?.ok_or(DataError::Conflict)?;
         let public = updated.public()?;
         tx.commit().await?;
         Ok(public)
@@ -527,6 +540,51 @@ impl Store {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn account_edits_detect_concurrent_proxy_and_metadata_changes() {
+        let temp = tempfile::tempdir().unwrap();
+        let store = Store::open(&temp.path().join("accounts.db")).await.unwrap();
+        sqlx::raw_sql(
+            "INSERT INTO proxy_profiles(id,space_id,name,url,authenticated,encrypted_connection)
+                       VALUES('p','default','proxy','http://proxy.example',0,x'01');
+                       INSERT INTO accounts(id,space_id,name,channel,encrypted_config)
+                       VALUES('a','default','initial','ntfy',x'01');",
+        )
+        .execute(&store.0)
+        .await
+        .unwrap();
+        let before = store.account("a").await.unwrap();
+        let original = before.public().unwrap();
+        store
+            .update_account(&original, &before, None, Some(Some("p")))
+            .await
+            .unwrap();
+        assert!(matches!(
+            store
+                .update_account(&original, &before, Some(&[2]), None)
+                .await,
+            Err(DataError::Conflict)
+        ));
+
+        let current = store.account("a").await.unwrap();
+        let mut renamed = current.public().unwrap();
+        renamed.name = "changed".into();
+        store
+            .update_account(&renamed, &current, None, None)
+            .await
+            .unwrap();
+        assert!(matches!(
+            store
+                .update_account(&original, &current, None, Some(None))
+                .await,
+            Err(DataError::Conflict)
+        ));
+        let result = store.account("a").await.unwrap();
+        assert_eq!(result.name, "changed");
+        assert_eq!(result.proxy_id.as_deref(), Some("p"));
+        assert_eq!(result.encrypted_config, [1]);
+    }
 
     #[tokio::test]
     async fn channel_filter_is_applied_before_pagination() {

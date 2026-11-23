@@ -126,6 +126,16 @@ impl ChannelHost {
         Ok(self.channel(channel)?.description.config_schema.clone())
     }
 
+    pub async fn lazycat_devices(
+        &self,
+        user_id: &str,
+    ) -> Result<Vec<anser_core::api::LazycatDevice>, HostError> {
+        let _admission = self.channel("lazycat")?.lifecycle.admit()?;
+        call_service(&self.root, "anser.channel.lazycat", "devices", (user_id,))
+            .await
+            .map_err(channel_error)
+    }
+
     pub async fn test_send(
         &self,
         channel: &str,

@@ -7,6 +7,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
+use anser_core::api::LazycatDevice;
 use anser_core::{ChannelAccount, Message, MessageFormat};
 use anser_plugin_api::{Capabilities, ChannelService, SendError, SendFuture, SendOutcome};
 use lzc_sdk::proto::common::{EndDevice, ListEndDeviceRequest};
@@ -50,13 +51,15 @@ struct Config {
 impl Config {
     fn parse(value: &Value) -> Result<Self, SendError> {
         let config: Self = serde_json::from_value(value.clone()).map_err(|_| invalid_config())?;
-        if [&config.user_id, &config.device_id].iter().any(|id| {
-            id.is_empty() || id.len() > 256 || !id.bytes().all(|byte| byte.is_ascii_graphic())
-        }) {
+        if !valid_id(&config.user_id) || !valid_id(&config.device_id) {
             return Err(invalid_config());
         }
         Ok(config)
     }
+}
+
+fn valid_id(id: &str) -> bool {
+    (1..=256).contains(&id.len()) && id.bytes().all(|byte| byte.is_ascii_graphic())
 }
 
 fn invalid_config() -> SendError {
@@ -117,9 +120,45 @@ impl ChannelService for Lazycat {
 }
 
 impl Lazycat {
-    async fn deliver(&self, config: Config, request: NotifyRequest) -> Result<(), SendError> {
-        let runtime = self
-            .runtime
+    /// The caller supplies a platform UID authenticated by the application ingress.
+    pub async fn devices(&self, user_id: &str) -> Result<Vec<LazycatDevice>, SendError> {
+        if !valid_id(user_id) {
+            return Err(invalid_config());
+        }
+        let registered = tokio::time::timeout(TIMEOUT, async {
+            self.runtime().await?.registered_devices(user_id).await
+        })
+        .await
+        .map_err(|_| {
+            SendError::new("lazycat_timeout", "LazyCat device listing timed out", true)
+        })??;
+        let mut devices: Vec<_> = registered
+            .into_iter()
+            .filter(|device| valid_id(&device.unique_deivce_id))
+            .map(|device| {
+                let name = [&device.remark_name, &device.name, &device.model]
+                    .into_iter()
+                    .map(|label| limit(label, 128))
+                    .find(|label| !label.is_empty())
+                    .unwrap_or_else(|| device.unique_deivce_id.clone());
+                LazycatDevice {
+                    device_id: device.unique_deivce_id,
+                    name,
+                    online: device.is_online,
+                }
+            })
+            .collect();
+        devices.sort_by(|a, b| {
+            b.online
+                .cmp(&a.online)
+                .then_with(|| a.name.cmp(&b.name))
+                .then_with(|| a.device_id.cmp(&b.device_id))
+        });
+        Ok(devices)
+    }
+
+    async fn runtime(&self) -> Result<&Runtime, SendError> {
+        self.runtime
             .get_or_try_init(|| async {
                 let paths = CredentialPaths::runtime();
                 let legacy =
@@ -152,21 +191,12 @@ impl Lazycat {
                     device_tls,
                 })
             })
-            .await?;
-
-        let mut list_request = Request::new(ListEndDeviceRequest {
-            uid: config.user_id.clone(),
-        });
-        with_real_uid(&mut list_request, &config.user_id).map_err(sdk_error)?;
-        let devices = runtime
-            .gateway
-            .devices()
-            .list_end_devices(list_request)
             .await
-            .map_err(|status| grpc_error(status.code()))?
-            .into_inner()
-            .devices;
+    }
 
+    async fn deliver(&self, config: Config, request: NotifyRequest) -> Result<(), SendError> {
+        let runtime = self.runtime().await?;
+        let devices = runtime.registered_devices(&config.user_id).await?;
         let address = device_address(&devices, &config.device_id)?;
         let provider = runtime.provider(address).await?;
         if let Err(error) = notify(&provider, request.clone()).await {
@@ -210,6 +240,19 @@ async fn notify(provider: &TokenProvider, request: NotifyRequest) -> Result<(), 
 }
 
 impl Runtime {
+    async fn registered_devices(&self, user_id: &str) -> Result<Vec<EndDevice>, SendError> {
+        let mut request = Request::new(ListEndDeviceRequest {
+            uid: user_id.to_owned(),
+        });
+        with_real_uid(&mut request, user_id).map_err(sdk_error)?;
+        self.gateway
+            .devices()
+            .list_end_devices(request)
+            .await
+            .map(|reply| reply.into_inner().devices)
+            .map_err(|status| grpc_error(status.code()))
+    }
+
     async fn provider(&self, address: &str) -> Result<Arc<TokenProvider>, SendError> {
         if let Some(provider) = self.devices.lock().await.get(address).cloned() {
             return Ok(provider);

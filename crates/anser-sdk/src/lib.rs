@@ -7,8 +7,8 @@
 use std::time::Duration;
 
 pub use anser_core::api::{
-    Attempt, Delivery, MessageDetail, Page, Policy, Publish, Receipt, Retry, Selector, Strategy,
-    Subscription, SubscriptionInput, Target, Topic,
+    Attempt, Delivery, LazycatDevice, LazycatDevices, MessageDetail, Page, Policy, Publish,
+    Receipt, Retry, Selector, Strategy, Subscription, SubscriptionInput, Target, Topic,
 };
 pub use anser_core::routing::{Backoff, Mode, SuccessCriteria};
 pub use anser_core::{Attachment, Message, MessageFormat};
@@ -239,6 +239,15 @@ impl Client {
     pub async fn message(&self, id: &str) -> Result<MessageDetail, Error> {
         let request = self.request(Method::GET, &["messages", id], true)?;
         self.execute(request, true).await
+    }
+
+    /// Lists notification targets through an authenticated LazyCat ingress for a global admin.
+    pub async fn lazycat_devices(&self) -> Result<LazycatDevices, Error> {
+        self.execute(
+            self.request(Method::GET, &["channels", "lazycat", "devices"], true)?,
+            true,
+        )
+        .await
     }
 
     pub async fn messages(&self, options: &PageOptions) -> Result<Page<MessageDetail>, Error> {

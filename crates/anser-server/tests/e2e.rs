@@ -29,6 +29,10 @@ impl Server {
     }
 
     fn with_outbound_hosts(database: &Path, outbound_hosts: &str) -> Self {
+        Self::with_environment(database, outbound_hosts, &[])
+    }
+
+    fn with_environment(database: &Path, outbound_hosts: &str, extra: &[(&str, &str)]) -> Self {
         let mut child = Command::new(env!("CARGO_BIN_EXE_anser"))
             .args(["serve", "--bind", "127.0.0.1:0", "--workers", "1"])
             .arg("--database")
@@ -39,6 +43,7 @@ impl Server {
             .env("ANSER_BOOTSTRAP_API_KEY", BOOTSTRAP_KEY)
             .env("ANSER_ALLOW_PRIVATE_NETWORK", "1")
             .env("ANSER_OUTBOUND_ALLOW_HOSTS", outbound_hosts)
+            .envs(extra.iter().copied())
             .env("RUST_LOG", "warn")
             .stdout(Stdio::null())
             .stderr(Stdio::piped())
@@ -170,6 +175,98 @@ fn json_string<'a>(value: &'a Value, key: &str) -> &'a str {
     value[key]
         .as_str()
         .unwrap_or_else(|| panic!("missing string field {key}"))
+}
+
+#[tokio::test]
+async fn lazycat_discovery_requires_a_global_admin_and_an_authenticated_ingress() {
+    const DEVICES: &str = "/v1/channels/lazycat/devices";
+    const PROOF: &str = "a6d39ee0db05f98202dd601619ce6717617ffaa4c03f4f7bfa8e32c6b6ac9f73";
+    let temp = tempfile::tempdir().unwrap();
+    let database = temp.path().join("anser.sqlite3");
+    let local = Server::start(&database);
+    let error: Value = checked_json(
+        local
+            .request(Method::GET, DEVICES, Some(BOOTSTRAP_KEY))
+            .header("x-hc-user-id", "alice")
+            .header("x-anser-lazycat-uid", "alice")
+            .header("x-anser-lazycat-proof", PROOF)
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::SERVICE_UNAVAILABLE,
+    )
+    .await;
+    assert_eq!(error["code"], "lazycat_identity_unavailable");
+    drop(local);
+
+    let server =
+        Server::with_environment(&database, "", &[("ANSER_LAZYCAT_INGRESS_SECRET", PROOF)]);
+    let request = |token| {
+        server
+            .request(Method::GET, DEVICES, token)
+            .header("x-hc-user-id", "untrusted")
+            .header("x-anser-lazycat-uid", "alice")
+    };
+    assert_eq!(
+        request(None)
+            .header("x-anser-lazycat-proof", PROOF)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+    for forged in [
+        request(Some(BOOTSTRAP_KEY)),
+        request(Some(BOOTSTRAP_KEY)).header("x-anser-lazycat-proof", "wrong"),
+        request(Some(BOOTSTRAP_KEY))
+            .header("x-anser-lazycat-uid", "different")
+            .header("x-anser-lazycat-proof", PROOF),
+    ] {
+        let error: Value = checked_json(forged.send().await.unwrap(), StatusCode::FORBIDDEN).await;
+        assert_eq!(error["code"], "lazycat_identity_required");
+    }
+    server
+        .json::<Value>(
+            Method::POST,
+            "/v1/users",
+            Some(BOOTSTRAP_KEY),
+            json!({"username":"reader","password":ACCOUNT_PASSWORD}),
+            StatusCode::CREATED,
+        )
+        .await;
+    let reader = server.login("reader", ACCOUNT_PASSWORD).await;
+    let error: Value = checked_json(
+        request(Some(&reader))
+            .header("x-anser-lazycat-proof", PROOF)
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::FORBIDDEN,
+    )
+    .await;
+    assert_eq!(error["code"], "forbidden");
+
+    #[cfg(all(unix, feature = "lazycat"))]
+    server
+        .json::<Value>(
+            Method::PUT,
+            "/v1/channels/lazycat/runtime",
+            Some(BOOTSTRAP_KEY),
+            json!({"enabled":false}),
+            StatusCode::OK,
+        )
+        .await;
+    let error: Value = checked_json(
+        request(Some(BOOTSTRAP_KEY))
+            .header("x-anser-lazycat-proof", PROOF)
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::SERVICE_UNAVAILABLE,
+    )
+    .await;
+    assert_eq!(error["code"], "channel_unavailable");
 }
 
 #[tokio::test]
@@ -1256,6 +1353,7 @@ async fn totp_enrollment_login_recovery_and_disable_preserve_session_boundaries(
     assert_eq!(bob_status, json!({"enabled":false}));
 }
 
+#[cfg(all(feature = "ntfy", feature = "email"))]
 mod outbound_proxy {
     use super::*;
     use axum::Router;
@@ -1512,9 +1610,49 @@ mod outbound_proxy {
             .await;
         assert!(detached["proxy_id"].is_null());
         let _: Value = server
-            .json(Method::POST, &test_path, admin, test_body, StatusCode::OK)
+            .json(
+                Method::POST,
+                &test_path,
+                admin,
+                test_body.clone(),
+                StatusCode::OK,
+            )
             .await;
         assert_eq!(fallback_mock.hits.load(Ordering::SeqCst), 2);
+
+        // A credential edit keeps the old inline proxy without disclosing it to the UI.
+        let _: Value = server.json(Method::PUT, &account_path, admin,
+            json!({"inline_proxy":"keep","config":{"server_url":DESTINATION,"topic":"updated"}}),
+            StatusCode::OK).await;
+        let _: Value = server
+            .json(
+                Method::POST,
+                &test_path,
+                admin,
+                test_body.clone(),
+                StatusCode::OK,
+            )
+            .await;
+        assert_eq!(fallback_mock.hits.load(Ordering::SeqCst), 3);
+
+        // Explicitly choosing Direct removes both the reference and the encrypted fallback.
+        let _: Value = server
+            .json(
+                Method::PUT,
+                &account_path,
+                admin,
+                json!({"inline_proxy":"clear","proxy_id":null}),
+                StatusCode::OK,
+            )
+            .await;
+        let result = server
+            .request(Method::POST, &test_path, admin)
+            .json(&test_body)
+            .send()
+            .await
+            .unwrap();
+        assert!(!result.status().is_success());
+        assert_eq!(fallback_mock.hits.load(Ordering::SeqCst), 3);
 
         let list: Value = server.get("/v1/proxies?limit=1", admin).await;
         assert_eq!(list["items"], json!([replacement]));

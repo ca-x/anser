@@ -95,6 +95,7 @@ pub fn router() -> Router<Arc<App>> {
                 .delete(crate::proxies::delete),
         )
         .route("/v1/channels", get(channels))
+        .route("/v1/channels/lazycat/devices", get(crate::lazycat::devices))
         .route("/v1/channels/{id}", get(channel))
         .route(
             "/v1/channels/{id}/runtime",
@@ -254,8 +255,16 @@ fn enabled() -> bool {
     true
 }
 
+#[derive(Clone, Copy, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+enum InlineProxy {
+    Keep,
+    Clear,
+}
+
 #[derive(Deserialize)]
 struct AccountUpdate {
+    inline_proxy: Option<InlineProxy>,
     name: Option<String>,
     channel: Option<String>,
     config: Option<Value>,
@@ -353,25 +362,40 @@ async fn update_account(
         account.proxy_id.clone_from(proxy_id);
     }
     validate_account(&account)?;
+    let clear_inline = input.inline_proxy == Some(InlineProxy::Clear);
+    let keep_inline = input.inline_proxy == Some(InlineProxy::Keep) || account.proxy_id.is_some();
     let encrypted = match input.config {
         Some(mut config) => {
-            if account.proxy_id.is_some()
-                && let Some(config) = config.as_object_mut()
-                && !config.contains_key("proxy")
-            {
-                let mut old = app.cipher.open(&id, &previous.encrypted_config)?;
-                if let Some(proxy) = old.as_object_mut().and_then(|value| value.remove("proxy")) {
-                    config.insert("proxy".into(), proxy);
+            if let Some(fields) = config.as_object_mut() {
+                if clear_inline {
+                    fields.remove("proxy");
+                } else if keep_inline && !fields.contains_key("proxy") {
+                    let mut old = app.cipher.open(&id, &previous.encrypted_config)?;
+                    if let Some(proxy) = old.as_object_mut().and_then(|old| old.remove("proxy")) {
+                        fields.insert("proxy".into(), proxy);
+                    }
                 }
             }
             Some(seal_account(&app, &account, &config).await?)
+        }
+        None if clear_inline => {
+            let mut old = app.cipher.open(&id, &previous.encrypted_config)?;
+            if old
+                .as_object_mut()
+                .and_then(|old| old.remove("proxy"))
+                .is_some()
+            {
+                Some(app.cipher.seal(&id, &old)?)
+            } else {
+                None
+            }
         }
         None => None,
     };
     let proxy = input.proxy_id.as_ref().map(|id| id.as_deref());
     Ok(Json(
         app.store
-            .update_account(&account, encrypted.as_deref(), proxy)
+            .update_account(&account, &previous, encrypted.as_deref(), proxy)
             .await?,
     ))
 }

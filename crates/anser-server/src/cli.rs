@@ -23,7 +23,10 @@ enum Resource {
         #[arg(long, requires = "channel")]
         action: Option<ChannelAction>,
     },
-    /// Manage channel accounts.
+    /// List devices for the signed-in LazyCat platform user through its authenticated ingress.
+    LazycatDevices,
+    /// Manage channel accounts. In update JSON, select a saved proxy with proxy_id.
+    /// Set proxy_id to null and inline_proxy to "clear" to connect directly.
     Accounts {
         #[command(subcommand)]
         action: AccountAction,
@@ -132,6 +135,11 @@ pub async fn run(remote: Remote) -> anyhow::Result<()> {
             }
             None => command(Method::GET, "channels", channel),
         },
+        Resource::LazycatDevices => command(
+            Method::GET,
+            "channels",
+            ["lazycat".into(), "devices".into()],
+        ),
         Resource::Accounts { action } => match action {
             AccountAction::Manage(action) => resource("accounts", action).await?,
             AccountAction::Test { id, file } => {
