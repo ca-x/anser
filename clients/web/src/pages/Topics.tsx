@@ -7,6 +7,8 @@ import {
 import { Api, segment, type Account, type Channel, type JsonObject, type Page, type Policy, type Subscription, type Topic } from "../api";
 import { baselinePolicy, modes, PolicyFields } from "../components/PolicyFields";
 import { Confirm, useDate, Drawer, Empty, Failure, JsonInput, More, object, PageTitle, Progress, split, Tags } from "../components/Common";
+import { LazycatDeviceField, useDeviceDirectory } from "../components/LazycatDeviceField";
+import type { DeviceTarget } from "../form-values";
 import { useMutation, usePage, useResource } from "../resources";
 
 export function Topics({ api }: { api: Api }) {
@@ -120,6 +122,11 @@ function Subscriptions({ api, topic, accounts, close, moreAccounts }: {
   const [account, setAccount] = useState("");
   const [filter, setFilter] = useState("");
   const [target, setTarget] = useState("");
+  const [device, setDevice] = useState<DeviceTarget>();
+  const selectedAccount = accounts.find((item) => item.id === account);
+  const lazycat = selectedAccount?.channel === "lazycat";
+  const devices = useDeviceDirectory(api, showForm && lazycat);
+  const targetReady = (!account || !!selectedAccount) && (!lazycat || !device || devices.accepts(device));
   const [password, setPassword] = useState("");
   const task = useMutation();
   const remove = useMutation();
@@ -131,27 +138,29 @@ function Subscriptions({ api, topic, accounts, close, moreAccounts }: {
         <Failure message={list.error} retry={list.reload} />
         {showForm && <form className="stack form-surface" onSubmit={(event) => {
           event.preventDefault();
+          if (!targetReady) return;
           void task.run(async () => {
             await api.write(path, "POST", {
               subscriber_ref: reference.trim(), account_id: account || undefined,
-              filter: split(filter), target: target.trim() ? object(target) : undefined,
+              filter: split(filter), target: lazycat ? device : account && target.trim() ? object(target) : undefined,
               password: password || undefined,
             });
-            setReference(""); setAccount(""); setFilter(""); setTarget(""); setPassword(""); setShowForm(false);
+            setReference(""); setAccount(""); setFilter(""); setTarget(""); setDevice(undefined); setPassword(""); setShowForm(false);
             list.reload();
           });
         }}>
           <Failure message={task.error} />
           <EuiFormRow label={t("订阅者标识")} fullWidth><EuiFieldText required fullWidth value={reference} onChange={(event) => setReference(event.target.value)} /></EuiFormRow>
           <EuiFormRow label={t("专属渠道账号")} fullWidth><EuiSelect fullWidth value={account}
-            options={[{ value: "", text: t("使用主题路由") }, ...accounts.map(({ id, name }) => ({ value: id, text: name }))]}
-            onChange={(event) => { setAccount(event.target.value); if (!event.target.value) setTarget(""); }} /></EuiFormRow>
+            options={[{ value: "", text: t("使用主题路由") }, ...(account && !selectedAccount ? [{ value: account, text: account, disabled: true }] : []), ...accounts.map(({ id, name }) => ({ value: id, text: name }))]}
+            onChange={(event) => { setAccount(event.target.value); setTarget(""); setDevice(undefined); task.clear(); }} /></EuiFormRow>
           {moreAccounts && <EuiButtonEmpty size="xs" onClick={moreAccounts}>{t("加载更多可选账号")}</EuiButtonEmpty>}
           <EuiFormRow label={t("消息标签过滤")} fullWidth><EuiFieldText fullWidth value={filter} placeholder={t("逗号分隔")} onChange={(event) => setFilter(event.target.value)} /></EuiFormRow>
-          {account && <JsonInput label={t("账号接收目标覆盖")} value={target} set={setTarget} help={t("可选 JSON 对象，例如 Telegram 的 chat_id。")} />}
+          {lazycat && <LazycatDeviceField state={devices} target={device} optionalLabel={t("使用账号设备")} choose={setDevice} />}
+          {selectedAccount && !lazycat && <JsonInput label={t("账号接收目标覆盖")} value={target} set={setTarget} help={t("可选 JSON 对象，例如 Telegram 的 chat_id。")} />}
           {topic.protected && <EuiFormRow label={t("主题密码（如需要）")} fullWidth><EuiFieldPassword type="password" fullWidth value={password}
             onChange={(event) => setPassword(event.target.value)} /></EuiFormRow>}
-          <EuiButton type="submit" fill isLoading={task.busy}>{t("保存订阅")}</EuiButton>
+          <EuiButton type="submit" fill disabled={!targetReady} isLoading={task.busy}>{t("保存订阅")}</EuiButton>
         </form>}
         {list.loading ? <Progress /> : list.items.length ? <EuiBasicTable<Subscription> rowHeader="subscriber_ref" tableCaption={t("主题订阅")} items={list.items} itemId="id" columns={[
           { field: "subscriber_ref", name: t("订阅者") },

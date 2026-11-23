@@ -8,7 +8,9 @@ import { Api, segment, type Account, type Channel, type JsonObject, type Outboun
 import { useMutation, usePage, useResource } from "../resources";
 import { Confirm, Drawer, Empty, Failure, More, PageTitle, Progress, split, Tags } from "../components/Common";
 import { blankMessage, Composer } from "../components/Composer";
-import { ChannelFields, serializeConfig } from "../components/ChannelFields";
+import { LazycatDeviceField, useDeviceDirectory } from "../components/LazycatDeviceField";
+import { initialProxyChoice, proxySettings, serializeConfig, type DeviceTarget } from "../form-values";
+import { ChannelFields } from "../components/ChannelFields";
 
 export function Accounts({ api }: { api: Api }) {
   const channels = useResource<Page<Channel>>(api, "/channels");
@@ -91,8 +93,8 @@ export function AccountEditor({ api, account, channels, close, onDone }: {
   const [limit, setLimit] = useState<number | "">(account?.rate_limit ?? "");
   const [enabled, setEnabled] = useState(account?.enabled ?? true);
   const [replace, setReplace] = useState(false);
-  const previousProxy = account?.proxy_id ?? "";
-  const [proxyId, setProxyId] = useState(previousProxy);
+  const [proxyChoice, setProxyChoice] = useState(() => initialProxyChoice(account));
+  const [device, setDevice] = useState<DeviceTarget>();
   const [config, setConfig] = useState<JsonObject>({});
   const formId = useId();
   const advancedId = useId();
@@ -101,37 +103,50 @@ export function AccountEditor({ api, account, channels, close, onDone }: {
   const properties = channel?.config_schema.properties;
   const supportsProxy = !!properties && typeof properties === "object" && Object.hasOwn(properties, "proxy");
   const proxies = usePage<OutboundProxy>(api, supportsProxy ? "/proxies" : undefined);
-  const useSharedProxy = supportsProxy && proxyId !== "";
+  const selectedProxyId = proxyChoice.startsWith("profile:") ? proxyChoice.slice("profile:".length) : undefined;
+  const unlistedProxy = selectedProxyId && !proxies.items.some(({ id }) => id === selectedProxyId) ? selectedProxyId : undefined;
+  const proxyPath = supportsProxy && unlistedProxy && !proxies.loading ? `/proxies/${segment(unlistedProxy)}` : undefined;
+  const proxyDetail = useResource<OutboundProxy>(api, proxyPath);
+  const lazycat = channelId === "lazycat";
+  const discover = lazycat && channelAvailable(channel);
+  const devices = useDeviceDirectory(api, discover);
+  const deviceRequired = lazycat && (!account || !!device);
+  const deviceReady = !deviceRequired || devices.accepts(device);
 
   const save = () => task.run(async () => {
     const payload: JsonObject = { name: name.trim(), tags: split(tags), weight, priority, enabled };
     if (limit !== "" || account?.rate_limit != null) payload.rate_limit = limit === "" ? null : limit;
     if (!account) payload.channel = channelId;
-    if (supportsProxy && proxyId !== previousProxy) payload.proxy_id = proxyId || null;
-    if (!account || replace) {
+    if (!deviceReady) throw new Error("请先选择接收设备。");
+    if (supportsProxy) Object.assign(payload, proxySettings(proxyChoice, account));
+    if (lazycat && device) payload.config = { ...device };
+    if (!lazycat && (!account || replace)) {
       if (!channel) throw new Error("此渠道当前不可用。");
-      payload.config = serializeConfig(channel, config, useSharedProxy);
+      payload.config = serializeConfig(channel, config);
     }
     const saved = await api.write<Account>(account ? `/accounts/${segment(account.id)}` : "/accounts", account ? "PUT" : "POST", payload);
     onDone(saved);
   });
   return <Drawer title={account ? t("编辑账号") : t("新增渠道账号")} close={close}
-    footer={<><EuiButtonEmpty onClick={close}>{t("取消")}</EuiButtonEmpty><EuiButton form={formId} type="submit" fill isLoading={task.busy}>{t("保存账号")}</EuiButton></>}>
+    footer={<><EuiButtonEmpty onClick={close}>{t("取消")}</EuiButtonEmpty><EuiButton form={formId} type="submit" fill isLoading={task.busy} disabled={!deviceReady}>{t("保存账号")}</EuiButton></>}>
     <form id={formId} className="stack" onSubmit={(event) => { event.preventDefault(); void save(); }}>
       <Failure message={task.error} />
       <EuiFormRow label={t("账号名称")} fullWidth><EuiFieldText required fullWidth value={name} onChange={(event) => setName(event.target.value)} /></EuiFormRow>
       <EuiFormRow label={t("渠道")} fullWidth><EuiSelect fullWidth required disabled={!!account || channels.length === 1} value={channelId}
         options={channels.map(({ id, display_name }) => ({ value: id, text: channelName(id, display_name) }))}
-        onChange={(event) => { setChannel(event.target.value); setConfig({}); setProxyId(""); }} /></EuiFormRow>
+        onChange={(event) => { setChannel(event.target.value); setConfig({}); setProxyChoice(initialProxyChoice(account)); setDevice(undefined); }} /></EuiFormRow>
+      {discover && <LazycatDeviceField state={devices} target={device} optionalLabel={account ? t("保留已配置的设备") : undefined} choose={setDevice} />}
       {supportsProxy && <>
-        <EuiFormRow label={t("代理配置")} helpText={t("未选择共享代理时，使用账号内设置的出站代理，未设置则直连。")} fullWidth>
-          <EuiSelect fullWidth value={proxyId} disabled={proxies.loading}
+        <EuiFormRow label={t("出站代理")} helpText={!proxies.loading && !proxies.items.length && !proxies.error ? t("可在「出站代理」中添加共享代理配置。") : undefined} fullWidth>
+          <EuiSelect fullWidth value={proxyChoice}
             options={[
-              { value: "", text: t("使用账号配置") },
-              ...(proxyId && !proxies.items.some(({ id }) => id === proxyId) ? [{ value: proxyId, text: t("当前代理配置") }] : []),
-              ...proxies.items.map(({ id, name }) => ({ value: id, text: name })),
+              ...(account && !account.proxy_id ? [{ value: "keep", text: t("保留当前连接") }] : []),
+              { value: "direct", text: t("直连") },
+              ...(unlistedProxy ? [{ value: `profile:${unlistedProxy}`,
+                text: (proxyDetail.path === proxyPath && proxyDetail.data?.name) || t("当前代理配置") }] : []),
+              ...proxies.items.map(({ id, name }) => ({ value: `profile:${id}`, text: name })),
             ]}
-            onChange={(event) => setProxyId(event.target.value)} />
+            onChange={(event) => setProxyChoice(event.target.value)} />
         </EuiFormRow>
         <Failure message={proxies.error} retry={proxies.reload} />
         {proxies.next && <EuiButtonEmpty size="xs" flush="left" isLoading={proxies.busy} onClick={() => { void proxies.loadMore(); }}>
@@ -151,10 +166,10 @@ export function AccountEditor({ api, account, channels, close, onDone }: {
           </EuiFormRow>
         </div>
       </EuiAccordion>
-      <EuiHorizontalRule margin="xs" />
-      {account && <EuiSwitch label={t("替换渠道配置")} disabled={!channelAvailable(channel)} checked={replace} onChange={(event) => setReplace(event.target.checked)} />}
-      {account && replace && <EuiText size="s" color="subdued"><p>{t("请填写整套新配置。原有凭据只在服务器端使用。")}</p></EuiText>}
-      {(!account || replace) && channel && <ChannelFields value={config} channel={channel} update={setConfig} useSharedProxy={useSharedProxy} />}
+      {!lazycat && <EuiHorizontalRule margin="xs" />}
+      {!lazycat && account && <EuiSwitch label={t("替换渠道配置")} disabled={!channelAvailable(channel)} checked={replace} onChange={(event) => setReplace(event.target.checked)} />}
+      {!lazycat && account && replace && <EuiText size="s" color="subdued"><p>{t("请填写整套新配置。原有凭据只在服务器端使用。")}</p></EuiText>}
+      {!lazycat && (!account || replace) && channel && <ChannelFields value={config} channel={channel} update={setConfig} />}
     </form>
   </Drawer>;
 }

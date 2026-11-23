@@ -12,6 +12,8 @@ npm test
 npm run build
 ```
 
+在装有 Chrome 的机器上，运行 `CHROME_BIN="$(command -v google-chrome)" npm run test:browser` 验证生产构建的桌面、缩放及手机路由表单。
+
 生成的 `dist/index.html` 用于 Anser 的 `/login` 和 `/admin/*`。Vite 资源前缀为 `/assets/anser/`，相对路径必须与 `dist/` 中的目录一致。
 
 开发时运行 `npm run dev`。默认代理到 `http://127.0.0.1:8080`，可用 `ANSER_DEV_API` 指向另一台 Anser 服务器。

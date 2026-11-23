@@ -165,7 +165,10 @@ function App() {
         <EuiAvatar size="s" name={user.username} />
         <span>{user.username}</span>
         <PreferenceMenu />
-        <EuiButtonEmpty size="s" onClick={() => { void api.write("/auth/logout", "POST").catch(() => undefined).finally(signOut); }}>{t("退出")}</EuiButtonEmpty>
+        <EuiButtonEmpty size="s" onClick={() => {
+          initialPath.current = "/admin";
+          void api.write("/auth/logout", "POST").catch(() => undefined).finally(signOut);
+        }}>{t("退出")}</EuiButtonEmpty>
       </div>
     </header>
     {compact ? menuOpen && <EuiFlyout id="compact-navigation" className="console-navigation-flyout"

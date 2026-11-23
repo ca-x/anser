@@ -1,7 +1,6 @@
 import { useLanguage, useT } from "../preferences";
 import { EuiFieldNumber, EuiFieldPassword, EuiFieldText, EuiFormRow, EuiSelect } from "@elastic/eui";
 import type { Channel, JsonObject } from "../api";
-import { split } from "./Common";
 import { channelConfigOptionName } from "../locale";
 
 interface Property {
@@ -19,7 +18,7 @@ interface Property {
 const fieldNames: Record<string, string> = {
   host: "主机", port: "端口", encryption: "加密方式", username: "用户名", password: "密码",
   from: "发件地址", to: "收件地址", server_url: "服务器地址", topic: "主题", token: "令牌",
-  priority: "优先级", proxy: "账号出站代理", device_key: "设备密钥", device_keys: "设备密钥列表",
+  priority: "优先级", device_key: "设备密钥", device_keys: "设备密钥列表",
   user_id: "用户 ID", device_id: "设备 ID", group: "分组", sound: "提示音", level: "通知级别",
   bot_token: "机器人令牌", chat_id: "聊天 ID", parse_mode: "解析模式", sendkey: "SendKey",
   signing_secret: "签名密钥", webhook: "Webhook 地址", app_id: "应用 ID", app_secret: "应用密钥",
@@ -28,8 +27,8 @@ const fieldNames: Record<string, string> = {
   title_field: "标题字段", body_field: "正文字段", touser: "成员 ID", mode: "接入方式",
 };
 
-export function ChannelFields({ channel, value, update, useSharedProxy = false }: {
-  channel: Channel; value: JsonObject; update: (value: JsonObject) => void; useSharedProxy?: boolean;
+export function ChannelFields({ channel, value, update }: {
+  channel: Channel; value: JsonObject; update: (value: JsonObject) => void;
 }) {
   const t = useT();
   const language = useLanguage();
@@ -50,11 +49,11 @@ export function ChannelFields({ channel, value, update, useSharedProxy = false }
   }
 
   return <div className="stack">{Object.entries(fields).filter(([field]) =>
-    !(useSharedProxy && field === "proxy") && (channel.id !== "feishu" || visible(field, value.mode))).map(([key, field]) => {
+    field !== "proxy" && (channel.id !== "feishu" || visible(field, value.mode))).map(([key, field]) => {
     const entry = value[key] ?? "";
     const label = t(field.title || fieldNames[key] || key);
     const placeholder = typeof field.default === "string" || typeof field.default === "number" ? String(field.default) : undefined;
-    const secret = field.writeOnly || field.format === "password" || /password|token|secret|sendkey|webhook|proxy/.test(key);
+    const secret = field.writeOnly || field.format === "password" || /password|token|secret|sendkey|webhook/.test(key);
     const isRequired = required.has(key);
     let control;
     if (field.enum) {
@@ -83,15 +82,8 @@ export function ChannelFields({ channel, value, update, useSharedProxy = false }
   })}</div>;
 }
 
-export function serializeConfig(channel: Channel, value: JsonObject, useSharedProxy = false) {
-  const fields = channel.config_schema.properties as Record<string, Property> | undefined;
-  return Object.fromEntries(Object.entries(value).filter(([key]) => !(useSharedProxy && key === "proxy")).map(([key, entry]) => [
-    key, fields?.[key]?.type === "array" && typeof entry === "string" ? split(entry) : entry,
-  ]));
-}
-
 function visible(field: string, mode: unknown) {
-  if (["mode", "proxy"].includes(field)) return true;
+  if (field === "mode") return true;
   if (mode === "webhook") return ["webhook", "signing_secret"].includes(field);
   if (mode === "app") return ["app_id", "app_secret", "receive_id", "receive_id_type", "region"].includes(field);
   return false;

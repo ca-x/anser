@@ -29,6 +29,11 @@ export interface Channel {
   config_schema: JsonObject;
   capabilities: { formats: Format[]; attachments: boolean; user_target: boolean };
 }
+export interface LazycatDevices {
+  user_id: string;
+  devices: { device_id: string; name: string; online: boolean }[];
+}
+
 export interface ChannelRuntime {
   id: string;
   enabled?: boolean;
@@ -206,6 +211,8 @@ export class Api {
 }
 
 export function errorMessage(error: unknown) {
+  if (error instanceof ApiError && error.code === "lazycat_identity_unavailable") return "此服务器未接入懒猫设备服务。";
+  if (error instanceof ApiError && error.code === "lazycat_identity_required") return "请通过懒猫微服登录后刷新设备。";
   if (error instanceof ApiError && error.code === "invalid_totp") return "验证码无效或已使用，请输入新代码。";
   if (error instanceof ApiError && error.code === "invalid_password") return "当前密码不正确。";
   if (error instanceof ApiError && error.code === "totp_setup_expired") return "设置已过期，请输入当前密码重新开始。";

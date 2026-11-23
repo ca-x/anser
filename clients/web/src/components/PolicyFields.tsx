@@ -16,6 +16,12 @@ export const modes = [
   { value: "weighted", text: "按权重分流" }, { value: "weighted_failover", text: "加权故障转移" },
 ];
 
+function options(current: string | undefined, empty: string, choices: { value: string; text: string }[]) {
+  // A selected account may be beyond the loaded page, or its plugin temporarily absent.
+  if (current && !choices.some(({ value }) => value === current)) choices.unshift({ value: current, text: current });
+  return [{ value: "", text: empty }, ...choices];
+}
+
 export function PolicyFields({ value, update, channels, accounts }: {
   value: Policy; update: (value: Policy) => void; channels: Channel[]; accounts: Account[];
 }) {
@@ -43,11 +49,11 @@ export function PolicyFields({ value, update, channels, accounts }: {
       <div className="form-grid">
         <EuiFormRow label={t("渠道")} fullWidth><EuiSelect fullWidth
           value={target.channel ?? ""}
-          options={[{ value: "", text: t("不限渠道") }, ...channels.map(({ id, display_name }) => ({ value: id, text: channelName(id, display_name) }))]}
+          options={options(target.channel, t("不限渠道"), channels.map(({ id, display_name }) => ({ value: id, text: channelName(id, display_name) })))}
           onChange={(event) => updateTarget(index, { ...target, channel: event.target.value || undefined, account_id: undefined })} />
         </EuiFormRow>
         <EuiFormRow label={t("账号")} fullWidth><EuiSelect fullWidth value={target.account_id ?? ""}
-          options={[{ value: "", text: t("不限账号") }, ...accounts.filter(({ channel }) => !target.channel || channel === target.channel).map(({ id, name }) => ({ value: id, text: name }))]}
+          options={options(target.account_id, t("不限账号"), accounts.filter(({ channel }) => !target.channel || channel === target.channel).map(({ id, name }) => ({ value: id, text: name })))}
           onChange={(event) => updateTarget(index, { ...target, account_id: event.target.value || undefined })} />
         </EuiFormRow>
       </div>

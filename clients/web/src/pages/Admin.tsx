@@ -58,18 +58,19 @@ function DefaultRouteForm({ api, initial, channels, accounts, onMore }: {
 }) {
   const t = useT();
   const [value, setValue] = useState(initial);
-  const [saved, setSaved] = useState(false);
+  const [saved, setSaved] = useState<Policy>();
   const task = useMutation();
   return <form className="compose-form form-surface stack" onSubmit={(event) => {
-    event.preventDefault(); setSaved(false);
+    event.preventDefault(); setSaved(undefined);
     void task.run(async () => {
       const result = await api.write<Policy>("/default-route", "PUT", value);
-      setValue(result); setSaved(true);
+      setValue((current) => current === value ? result : current);
+      setSaved(result);
     });
   }}>
     <Failure message={task.error} />
-    {saved && <EuiCallOut title={t("默认路由已保存")} color="success" iconType="check" announceOnMount size="s" />}
-    <PolicyFields value={value} update={(next) => { setValue(next); setSaved(false); }} channels={channels} accounts={accounts} />
+    {saved === value && <EuiCallOut title={t("默认路由已保存")} color="success" iconType="check" announceOnMount size="s" />}
+    <PolicyFields value={value} update={setValue} channels={channels} accounts={accounts} />
     {onMore && <EuiButtonEmpty size="xs" onClick={onMore}>{t("加载更多可选账号")}</EuiButtonEmpty>}
     <div className="form-actions"><EuiButton fill type="submit" isLoading={task.busy}>{t("保存默认路由")}</EuiButton></div>
   </form>;

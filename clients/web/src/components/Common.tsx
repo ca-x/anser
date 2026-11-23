@@ -67,9 +67,7 @@ export function Tags({ values }: { values?: string[] }) {
   return values?.length ? <span className="tags">{values.map((value) => <EuiBadge key={value}>{value}</EuiBadge>)}</span> : <span className="muted">—</span>;
 }
 
-export function split(value: string) {
-  return [...new Set(value.split(/[,，\n]/).map((item) => item.trim()).filter(Boolean))];
-}
+export { split } from "../form-values";
 
 export function object(value: string): JsonObject {
   let parsed: unknown;
