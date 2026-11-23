@@ -34,6 +34,7 @@ const chineseEui = {
     "euiFieldPassword.showPassword": "显示明文密码",
     "euiFieldPassword.maskPassword": "隐藏密码",
     "euiModal.closeModal": "关闭",
+    "euiFilePicker.removeSelectedAriaLabel": "清除所选文件",
     "euiPopover.screenReaderAnnouncement": "按 Esc 或点击面板外部可关闭。",
     "euiModal.screenReaderModalDialog": "按 Esc 或点击对话框外部可关闭。",
   },

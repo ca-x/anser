@@ -1,4 +1,5 @@
 import { t } from "nsh/i18n";
+import { AboutContent } from "./About";
 import { cleanup, effect, Scroll, signal, Text, View } from "nsh";
 import { AnserApi, ApiError } from "../api";
 import type { Channel, User } from "../contracts";
@@ -35,6 +36,7 @@ export function Connection(props: {
   const pair = signal<Pairing | undefined>(undefined);
   const showImport = signal(false);
   const showPreferences = signal(false);
+  const showAbout = signal(false);
   const connect = operation();
   let pending: AnserApi | undefined;
   cleanup(() => pending?.close());
@@ -318,6 +320,15 @@ export function Connection(props: {
         />
         <If when={showPreferences()}>
           <PreferenceControls preferences={props.preferences} />
+          <Action
+            label={t("about.title")}
+            kind="quiet"
+            class="self-start"
+            onPress={() => showAbout.update((value) => !value)}
+          />
+          <If when={showAbout()}>
+            <AboutContent />
+          </If>
         </If>
       </View>
     </Scroll>

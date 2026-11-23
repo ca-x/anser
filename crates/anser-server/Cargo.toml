@@ -11,6 +11,13 @@ name = "anser"
 path = "src/main.rs"
 
 [features]
+chanify = ["anser-host/chanify"]
+dingtalk = ["anser-host/dingtalk"]
+discord = ["anser-host/discord"]
+gotify = ["anser-host/gotify"]
+ifttt = ["anser-host/ifttt"]
+qqbot = ["anser-host/qqbot"]
+slack = ["anser-host/slack"]
 wecom = ["anser-host/wecom"]
 wechat-mp = ["anser-host/wechat-mp"]
 telegram = ["anser-host/telegram"]
@@ -19,7 +26,7 @@ ntfy = ["anser-host/ntfy"]
 feishu = ["anser-host/feishu"]
 email = ["anser-host/email"]
 bark = ["anser-host/bark"]
-default = ["bark", "email", "feishu", "lazycat", "ntfy", "serverchan", "telegram", "wechat-mp", "wecom"]
+default = ["bark", "chanify", "dingtalk", "discord", "email", "feishu", "gotify", "ifttt", "lazycat", "ntfy", "qqbot", "serverchan", "slack", "telegram", "wechat-mp", "wecom"]
 lazycat = ["anser-host/lazycat"]
 
 [dependencies]
@@ -32,6 +39,7 @@ anser-queue = { path = "../anser-queue" }
 anyhow.workspace = true
 base64.workspace = true
 data-encoding = "2.11"
+image = { version = "=0.25.10", default-features = false, features = ["jpeg", "png", "webp"] }
 hmac = { version = "0.13", features = ["zeroize"] }
 rand.workspace = true
 sha1 = { version = "0.11", default-features = false, features = ["zeroize"] }

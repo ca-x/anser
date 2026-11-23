@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { channelDisplayName, chooseLanguage, chooseTheme, resolveTheme, translate } from "../src/locale.ts";
+import { channelConfigOptionName, channelDisplayName, chooseLanguage, chooseTheme, resolveTheme, translate } from "../src/locale.ts";
 
 test("saved language outranks the browser default", () => {
   assert.equal(chooseLanguage("zh-CN", "en-US"), "zh-CN");
@@ -40,6 +40,15 @@ test("each interface language uses one brand and channel display name", () => {
   assert.equal(channelDisplayName("zh-CN", "email", "SMTP 邮件"), "邮件");
   assert.equal(channelDisplayName("en", "email", "SMTP 邮件"), "Email");
   assert.equal(channelDisplayName("en", "serverchan", "Server酱"), "ServerChan");
+  assert.equal(channelDisplayName("en", "qqbot", "QQ 机器人"), "QQ Bot");
+  assert.equal(channelDisplayName("zh-CN", "dingtalk", "DingTalk"), "钉钉");
+  for (const brand of ["Chanify", "Discord", "Gotify", "IFTTT", "Slack"]) {
+    for (const language of ["en", "zh-CN"] as const) {
+      assert.equal(channelDisplayName(language, brand.toLowerCase()), brand);
+    }
+  }
+  assert.equal(channelConfigOptionName("zh-CN", "guild_channel"), "子频道");
+  assert.equal(channelConfigOptionName("en", "group"), "Group chat");
   assert.equal(channelDisplayName("en", "custom", "Provider name"), "Provider name");
   assert.equal(channelDisplayName("zh-CN", "__proto__"), "__proto__");
 });

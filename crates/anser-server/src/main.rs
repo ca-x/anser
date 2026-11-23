@@ -5,6 +5,7 @@ mod cli;
 mod error;
 mod lazycat;
 mod openapi;
+mod profile;
 mod proxies;
 mod totp;
 mod web;

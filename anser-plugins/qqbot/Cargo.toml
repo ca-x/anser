@@ -1,0 +1,19 @@
+[package]
+name = "anser-plugin-qqbot"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+anser-core.workspace = true
+anser-plugin-api.workspace = true
+anser-channel-http = { path = "../http" }
+serde.workspace = true
+serde_json.workspace = true
+sha2 = "=0.10.9"
+
+[dev-dependencies]
+anser-channel-http = { path = "../http", features = ["test-support"] }
+tokio = { workspace = true, features = ["io-util", "net"] }

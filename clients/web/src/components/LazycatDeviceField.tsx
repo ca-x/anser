@@ -1,4 +1,4 @@
-import { EuiButtonEmpty, EuiFormRow, EuiSelect } from "@elastic/eui";
+import { EuiButtonEmpty, EuiFormRow, EuiScreenReaderOnly, EuiSuperSelect } from "@elastic/eui";
 import { Api, type LazycatDevices } from "../api";
 import { useResource } from "../resources";
 import { currentDevice, type DeviceTarget } from "../form-values";
@@ -33,18 +33,27 @@ export function LazycatDeviceField({ state, target, optionalLabel, choose }: {
   return <div className="stack">
     <EuiFormRow label={t("接收设备")} fullWidth helpText={help} isInvalid={stale}
       error={stale ? t("所选设备已不在当前设备列表中，请重新选择。") : undefined}>
-      <EuiSelect fullWidth required={!optionalLabel} isInvalid={stale} disabled={loading || (!devices.length && !target)}
-        value={target ? current ? `device:${current.device_id}` : "unlisted" : ""} options={[
-          { value: "", text: optionalLabel ?? t("选择设备") },
-          ...(target && !current ? [{ value: "unlisted", text: t("之前选择的设备"), disabled: true }] : []),
-          ...devices.map(({ device_id, name, online }) => ({
-            value: `device:${device_id}`, text: t(online ? "{name}（在线）" : "{name}（离线）", {
-              name: (counts.get(name) ?? 0) > 1 ? `${name} · ${device_id}` : name || device_id,
-            }),
-          })),
-        ]} onChange={(event) => {
-          const selection = event.target.value;
-          choose(selection && directory ? { user_id: directory.user_id, device_id: selection.slice("device:".length) } : undefined);
+      <EuiSuperSelect fullWidth isInvalid={stale} disabled={loading || (!devices.length && !target)}
+        placeholder={t("选择设备")} popoverProps={{ repositionOnScroll: true }}
+        valueOfSelected={target ? current ? `device:${current.device_id}` : "unlisted" : optionalLabel ? "" : undefined} options={[
+          ...(optionalLabel ? [{ value: "", inputDisplay: optionalLabel }] : []),
+          ...(target && !current ? [{ value: "unlisted", inputDisplay: t("之前选择的设备"), disabled: true }] : []),
+          ...devices.map(({ device_id, name, online }) => {
+            const status = t(online ? "设备在线" : "设备离线");
+            return {
+              value: `device:${device_id}`,
+              inputDisplay: <span className="device-option">
+                <span className="device-status-dot" data-online={online} aria-hidden="true" title={status} />
+                <span className="device-option-name">{(counts.get(name) ?? 0) > 1 ? `${name} · ${device_id}` : name || device_id}</span>
+                <EuiScreenReaderOnly><span>{status}</span></EuiScreenReaderOnly>
+              </span>,
+            };
+          }),
+        ]} onChange={(selection) => {
+          if (!selection) choose(undefined);
+          else if (directory && selection.startsWith("device:")) {
+            choose({ user_id: directory.user_id, device_id: selection.slice("device:".length) });
+          }
         }} />
     </EuiFormRow>
     <Failure message={error} />

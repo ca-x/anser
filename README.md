@@ -63,13 +63,17 @@ ANSER_REQUIRE_WEB=1 cargo build --locked --release -p anser-server
 
 ![投递和发送尝试详情](docs/screenshots/zh-CN/server-delivery.png)
 
-![从列表选择懒猫通知设备（演示设备）](docs/screenshots/zh-CN/server-account-device.png)
+![选择懒猫通知设备，绿色圆点表示在线，灰色表示离线（演示设备）](docs/screenshots/zh-CN/server-account-device.png)
 
 ![渠道插件的运行和账号设置](docs/screenshots/zh-CN/server-plugin.png)
 
 ![出站代理设置](docs/screenshots/zh-CN/server-proxies.png)
 
 ![账号安全设置](docs/screenshots/zh-CN/server-security.png)
+
+![关于雁字，可查看服务端版本、发布说明和标志的由来](docs/screenshots/zh-CN/server-about.png)
+
+![个人设置弹窗，可编辑昵称和头像](docs/screenshots/zh-CN/server-profile.png)
 
 </details>
 
@@ -103,6 +107,10 @@ ANSER_REQUIRE_WEB=1 cargo build --locked --release -p anser-server
 
 ![原生客户端的代理设置](docs/screenshots/zh-CN/nsh-proxies.png)
 
+![原生客户端的关于页](docs/screenshots/zh-CN/nsh-about.png)
+
+![原生客户端的个人设置弹窗](docs/screenshots/zh-CN/nsh-profile.png)
+
 </details>
 
 网页端登录页和管理台的齿轮菜单，以及 NSH 客户端的设置页，均可切换简体中文或英文，以及浅色、深色或跟随系统的主题。偏好保存在当前浏览器或客户端设备。
@@ -115,6 +123,8 @@ ANSER_REQUIRE_WEB=1 cargo build --locked --release -p anser-server
 
 ## API 与渠道
 
+从头像菜单打开「个人设置」，可在管理台或客户端更新昵称和头像。同一账号的资料会在两端显示，登录和直发通知仍使用登录用户名。
+
 从已登录的懒猫微服入口打开雁字，在「渠道账号」选择「懒猫微服通知」，即可按名称选择自己的设备。离线设备也可以保存。回到账号列表可测试发送。
 
 - API 文档由服务端提供在 `/v1/openapi.json`。健康检查在 `/healthz`。
@@ -123,7 +133,7 @@ ANSER_REQUIRE_WEB=1 cargo build --locked --release -p anser-server
 - `POST /v1/inbox/send` 按用户名直发，支持 `Idempotency-Key`。回执中的 `id` 用于操作收件箱条目，`message_id` 用于查询发送结果。升级前的直发消息仍保留在收件人的收件箱中。
 - `GET /v1/messages/{id}` 查看路由投递和历史尝试。管理台可配置广播、有序故障转移、按权重选择、加权首选再故障转移、限流和退避。
 - [Rust SDK](crates/anser-sdk) 支持类型化发送、主题订阅、查询、登录及收件箱。CLI 用 `anser api --help` 查看管理命令，例如 `anser api channels ntfy --action disable`。
-- 支持 [ntfy](anser-plugins/ntfy)、[Server酱](anser-plugins/serverchan)、[Bark](anser-plugins/bark)、[SMTP 邮件](anser-plugins/email)、[懒猫通知](docs/lazycat.md)、[微信公众号](anser-plugins/wechat-mp)、[企业微信应用](anser-plugins/wecom)、[飞书](anser-plugins/feishu)和 [Telegram](anser-plugins/telegram)。PushPlus 和 gorush 用作设计参考。
+- 支持 ntfy、Server酱、Bark、SMTP 邮件、懒猫通知、微信公众号、企业微信应用、飞书、Telegram、Gotify、QQ 机器人、钉钉、Slack、Discord、IFTTT 和 Chanify。PushPlus 和 gorush 用作设计参考。[渠道配置](anser-plugins) · [懒猫通知配置](docs/lazycat.md)
 
 ## 配置
 

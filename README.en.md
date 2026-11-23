@@ -63,13 +63,17 @@ The delivery overview shows the queue, successful deliveries, dead letters, and 
 
 ![Delivery and attempt details](docs/screenshots/en/server-delivery.png)
 
-![Choosing a LazyCat notification device (sample devices)](docs/screenshots/en/server-account-device.png)
+![Choosing a LazyCat notification device. Green dots indicate online devices and gray dots indicate offline devices (sample devices).](docs/screenshots/en/server-account-device.png)
 
 ![Channel plugin runtime and account settings](docs/screenshots/en/server-plugin.png)
 
 ![Outbound proxy settings](docs/screenshots/en/server-proxies.png)
 
 ![Account security settings](docs/screenshots/en/server-security.png)
+
+![About Anser, with the running server version, release notes, and the story behind the logo](docs/screenshots/en/server-about.png)
+
+![Personal settings dialog for editing a nickname and avatar](docs/screenshots/en/server-profile.png)
 
 </details>
 
@@ -103,6 +107,10 @@ The delivery overview shows the queue, successful deliveries, dead letters, and 
 
 ![Outbound proxy settings in the native client](docs/screenshots/en/nsh-proxies.png)
 
+![About in the native client](docs/screenshots/en/nsh-about.png)
+
+![Personal settings dialog in the native client](docs/screenshots/en/nsh-profile.png)
+
 </details>
 
 Choose English or Simplified Chinese and a light, dark, or system theme from the gear menu on the sign-in page or in the console. The NSH client has the same options in Preferences. Each browser or device remembers its own choices.
@@ -115,6 +123,8 @@ List both the proxy host and the notification destination host in `ANSER_OUTBOUN
 
 ## API and channels
 
+Open Personal settings from the avatar menu to update your nickname and avatar. Both interfaces display the same profile. Sign-in and direct notifications still use your username.
+
 Open Anser through your signed-in LazyCat app and create a LazyCat channel account. Pick your device by name from the list, including offline devices. You can send a test notification from the accounts page.
 
 - The server exposes OpenAPI at `/v1/openapi.json` and a health check at `/healthz`.
@@ -123,7 +133,7 @@ Open Anser through your signed-in LazyCat app and create a LazyCat channel accou
 - `POST /v1/inbox/send` sends directly to a username and accepts an `Idempotency-Key`. The receipt contains the recipient’s inbox item `id` and a sender-visible `message_id` for delivery history. Direct messages sent before the upgrade remain in their recipients’ inboxes.
 - `GET /v1/messages/{id}` shows deliveries and their attempts. The console supports broadcast, priority failover, weighted selection, weighted failover, rate limits, and retry backoff.
 - The Rust SDK covers typed message submission, topic subscriptions, status queries, sign-in, and the inbox. Use `anser api --help` to find commands such as `anser api channels ntfy --action disable`. [Rust SDK](crates/anser-sdk)
-- Available channels include ntfy, ServerChan, Bark, SMTP email, LazyCat, WeChat Official Account, WeCom, Lark, and Telegram. PushPlus and gorush served as design references. [Channel setup](anser-plugins) · [LazyCat setup](docs/lazycat.md)
+- Available channels include ntfy, ServerChan, Bark, SMTP email, LazyCat, WeChat Official Account, WeCom, Lark, Telegram, Gotify, QQ Bot, DingTalk, Slack, Discord, IFTTT, and Chanify. PushPlus and gorush served as design references. [Channel setup](anser-plugins) · [LazyCat setup](docs/lazycat.md)
 
 ## Configuration
 

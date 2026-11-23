@@ -6,7 +6,7 @@ import { channelConfigOptionName } from "../locale";
 interface Property {
   type?: string;
   title?: string;
-  enum?: string[];
+  enum?: (string | number)[];
   default?: unknown;
   format?: string;
   writeOnly?: boolean;
@@ -25,6 +25,8 @@ const fieldNames: Record<string, string> = {
   receive_id: "接收目标", receive_id_type: "接收目标类型", region: "区域", appid: "公众号 AppID",
   encryption_key: "加密密钥", secret: "应用密钥", template_id: "模板 ID", openid: "OpenID", corpid: "企业 ID", agentid: "应用 ID",
   title_field: "标题字段", body_field: "正文字段", touser: "成员 ID", mode: "接入方式",
+  channel_id: "频道 ID", app_token: "应用令牌", event_name: "事件名称", webhook_key: "Webhook 密钥",
+  recipient_kind: "接收目标类型", recipient_id: "接收目标 ID", sandbox: "沙箱模式",
 };
 
 export function ChannelFields({ channel, value, update }: {
@@ -57,13 +59,16 @@ export function ChannelFields({ channel, value, update }: {
     const isRequired = required.has(key);
     let control;
     if (field.enum) {
-      const labelFor = (option: string) => channelConfigOptionName(language, option);
-      control = <EuiSelect fullWidth required={isRequired} value={String(entry)} onChange={(event) => change(key, event.target.value)}
+      const options = field.enum;
+      const labelFor = (option: string | number) => channelConfigOptionName(language, String(option));
+      control = <EuiSelect fullWidth required={isRequired} value={String(entry)} onChange={(event) =>
+        change(key, options.find((option) => String(option) === event.target.value) ?? "")}
         options={[{ value: "", text: placeholder ? t("默认 · {value}", { value: labelFor(placeholder) }) : t("请选择") },
-          ...field.enum.map((value) => ({ value, text: labelFor(value) }))]} />;
+          ...options.map((value) => ({ value: String(value), text: labelFor(value) }))]} />;
     } else if (field.type === "boolean") {
       control = <EuiSelect fullWidth value={String(entry)} onChange={(event) => change(key, event.target.value === "" ? "" : event.target.value === "true")}
-        options={[{ value: "", text: t("默认") }, { value: "true", text: t("是") }, { value: "false", text: t("否") }]} />;
+        options={[{ value: "", text: typeof field.default === "boolean" ? t("默认 · {value}", { value: t(field.default ? "是" : "否") }) : t("默认") },
+          { value: "true", text: t("是") }, { value: "false", text: t("否") }]} />;
     } else if (field.type === "number" || field.type === "integer") {
       control = <EuiFieldNumber fullWidth required={isRequired} min={field.minimum} max={field.maximum} value={entry as number | string}
         step={field.type === "integer" ? 1 : "any"} placeholder={placeholder}

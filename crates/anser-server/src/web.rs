@@ -53,6 +53,7 @@ async fn asset(Path(path): Path<String>) -> Response {
         Some("woff") => "font/woff",
         Some("ttf") => "font/ttf",
         Some("json") => "application/json",
+        Some("txt" | "md") => "text/plain; charset=utf-8",
         _ => "application/octet-stream",
     };
     (

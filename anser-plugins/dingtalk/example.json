@@ -1,0 +1,4 @@
+{
+  "webhook": "https://oapi.dingtalk.com/robot/send?access_token=replace-with-access-token",
+  "signing_secret": "replace-with-signing-secret"
+}

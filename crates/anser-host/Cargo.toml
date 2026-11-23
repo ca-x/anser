@@ -7,6 +7,13 @@ license.workspace = true
 repository.workspace = true
 
 [features]
+chanify = ["dep:anser-plugin-chanify"]
+dingtalk = ["dep:anser-plugin-dingtalk"]
+discord = ["dep:anser-plugin-discord"]
+gotify = ["dep:anser-plugin-gotify"]
+ifttt = ["dep:anser-plugin-ifttt"]
+qqbot = ["dep:anser-plugin-qqbot"]
+slack = ["dep:anser-plugin-slack"]
 wecom = ["dep:anser-plugin-wecom"]
 wechat-mp = ["dep:anser-plugin-wechat-mp"]
 telegram = ["dep:anser-plugin-telegram"]
@@ -18,6 +25,13 @@ bark = ["dep:anser-plugin-bark"]
 lazycat = ["dep:anser-plugin-lazycat"]
 
 [dependencies]
+anser-plugin-chanify = { path = "../../anser-plugins/chanify", optional = true }
+anser-plugin-dingtalk = { path = "../../anser-plugins/dingtalk", optional = true }
+anser-plugin-discord = { path = "../../anser-plugins/discord", optional = true }
+anser-plugin-gotify = { path = "../../anser-plugins/gotify", optional = true }
+anser-plugin-ifttt = { path = "../../anser-plugins/ifttt", optional = true }
+anser-plugin-qqbot = { path = "../../anser-plugins/qqbot", optional = true }
+anser-plugin-slack = { path = "../../anser-plugins/slack", optional = true }
 anser-plugin-wecom = { path = "../../anser-plugins/wecom", optional = true }
 anser-plugin-wechat-mp = { path = "../../anser-plugins/wechat-mp", optional = true }
 anser-plugin-telegram = { path = "../../anser-plugins/telegram", optional = true }

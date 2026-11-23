@@ -63,6 +63,7 @@ pub fn router() -> Router<Arc<App>> {
     Router::new()
         .route("/healthz", get(health))
         .route("/v1/health", get(health))
+        .route("/v1/info", get(info))
         .route("/v1/openapi.json", get(crate::openapi::document))
         .route("/v1/auth/login", post(auth::login))
         .route("/v1/auth/totp", get(crate::totp::status))
@@ -70,6 +71,10 @@ pub fn router() -> Router<Arc<App>> {
         .route("/v1/auth/totp/confirm", post(crate::totp::confirm))
         .route("/v1/auth/totp/disable", post(crate::totp::disable))
         .route("/v1/auth/me", get(auth::me))
+        .route(
+            "/v1/auth/profile",
+            get(crate::profile::get).put(crate::profile::update),
+        )
         .route("/v1/auth/logout", post(auth::logout))
         .route("/v1/auth/pair", post(auth::pair))
         .route("/v1/auth/pair/exchange", post(auth::exchange))
@@ -134,6 +139,10 @@ pub fn router() -> Router<Arc<App>> {
             )
         })
         .fallback(|| async { ApiError::from(DataError::Missing) })
+}
+
+async fn info() -> Json<Value> {
+    Json(json!({"version": env!("CARGO_PKG_VERSION")}))
 }
 
 async fn health(State(app): State<Arc<App>>) -> (StatusCode, Json<Value>) {
@@ -675,6 +684,8 @@ fn validate_target_override(channel: &str, target: &Value, config: &mut Value) -
         "feishu" => &["receive_id", "receive_id_type"],
         "lazycat" => &["user_id", "device_id"],
         "ntfy" => &["topic"],
+        "qqbot" => &["recipient_id", "recipient_kind"],
+        "slack" => &["channel_id"],
         "telegram" => &["chat_id"],
         "wechat-mp" => &["openid"],
         "wecom" => &["touser"],

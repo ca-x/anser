@@ -10,6 +10,7 @@ import type {
   LazycatDevices,
   Message,
   Page,
+  PersonalProfile,
   Policy,
   ProxyProfile,
   ProxyProfileInput,
@@ -84,6 +85,8 @@ const authErrors = new Map([
   ["totp_setup_expired", "security.setup_expired"],
   ["totp_already_enabled", "security.already_enabled"],
   ["totp_not_enabled", "security.not_enabled"],
+  ["invalid_nickname", "profile.nickname_limit"],
+  ["invalid_avatar", "profile.avatar_rejected"],
 ]);
 
 export class AnserApi {
@@ -140,7 +143,9 @@ export class AnserApi {
       if (
         !response.ok &&
         payload?.code &&
-        (path === "/auth/login" || path.startsWith("/auth/totp"))
+        (path === "/auth/login" ||
+          path === "/auth/profile" ||
+          path.startsWith("/auth/totp"))
       ) {
         const message = authErrors.get(payload.code);
         if (message)
@@ -224,6 +229,23 @@ export class AnserApi {
 
   me(signal?: AbortSignal) {
     return this.request<User>("/auth/me", "GET", undefined, signal);
+  }
+
+  profile(signal?: AbortSignal) {
+    return this.request<PersonalProfile>(
+      "/auth/profile",
+      "GET",
+      undefined,
+      signal,
+    );
+  }
+
+  saveProfile(profile: PersonalProfile) {
+    return this.request<PersonalProfile>("/auth/profile", "PUT", profile);
+  }
+
+  info(signal?: AbortSignal) {
+    return this.request<{ version: string }>("/info", "GET", undefined, signal);
   }
 
   logout() {

@@ -171,6 +171,11 @@ export interface User {
   admin: boolean;
 }
 
+export interface PersonalProfile {
+  nickname: string | null;
+  avatar: string | null;
+}
+
 export interface SignIn {
   token: string;
   user: User;

@@ -1,0 +1,5 @@
+{
+  "server_url": "https://gotify.example.com/notify",
+  "app_token": "replace-with-app-token",
+  "priority": 5
+}

@@ -48,6 +48,7 @@ function baseNetwork(): Exclude<
       return { body: page([channel]) };
     },
     [`${endpoints}/accounts`]: { body: page() },
+    [`${endpoints}/auth/profile`]: { body: { nickname: null, avatar: null } },
     [`${endpoints}/topics`]: { body: page([topic]) },
     [`${endpoints}/inbox`]: { body: page([], "0") },
     [`${endpoints}/inbox?*`]: { body: page([], "0") },
@@ -822,7 +823,7 @@ test("sets up and disables two-factor authentication for the signed-in user", as
     },
   });
   await login(app);
-  await app.press("偏好设置");
+  await app.press("label:个人菜单");
   await app.press("账号安全");
   await app.press("设置双重验证");
   await app.type("label:当前密码", "fixture-password");
@@ -837,6 +838,7 @@ test("sets up and disables two-factor authentication for the signed-in user", as
   await app.press("复制恢复码");
   expect(app.clipboard()).toBe(recoveryCodes.join("\n"));
   await app.press("返回");
+  await app.press("label:个人菜单");
   await app.press("账号安全");
   await app.waitFor("停用双重验证");
   expect(app.shows("复制恢复码")).toBe(false);
@@ -1392,4 +1394,104 @@ test("tests a saved channel account and replays a dead letter from delivery hist
   await app.waitFor("已送达 1 个收件箱");
   expect(tested).toBe(true);
   expect(replayed).toBe(true);
+});
+
+test("opens the native account menu and saves a nickname and avatar in its dialog", async () => {
+  const png =
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jNUkAAAAASUVORK5CYII=";
+  const image = `data:image/png;base64,${png}`;
+  let avatar = false;
+  let saves = 0;
+  const app = await open("./App.tsx", {
+    platform: "linux",
+    storage: chinesePreferences,
+    width: 1120,
+    height: 760,
+    network: {
+      ...baseNetwork(),
+      [`${endpoints}/auth/profile`]: {
+        body: { nickname: null, avatar: null },
+      },
+      [`PUT ${endpoints}/auth/profile`]: ({ body }) => {
+        const value = JSON.parse(body ?? "{}");
+        expect(value).toEqual(
+          ++saves === 1
+            ? { nickname: "值班同事", avatar: image }
+            : { nickname: null, avatar: null },
+        );
+        return { body: value };
+      },
+    },
+  });
+  app.onPick((request) => {
+    expect(request.kind).toBe("files");
+    expect(request.filters[0].extensions).toEqual([
+      "png",
+      "jpg",
+      "jpeg",
+      "webp",
+    ]);
+    return avatar
+      ? [
+          {
+            name: "avatar.png",
+            type: "image/png",
+            data: Uint8Array.from(atob(png), (value) => value.charCodeAt(0)),
+          },
+        ]
+      : [
+          {
+            name: "avatar.svg",
+            type: "image/svg+xml",
+            data: new Uint8Array([60, 115, 118, 103, 62]),
+          },
+        ];
+  });
+  await login(app);
+  await app.press("label:个人菜单");
+  await app.press("个人资料");
+  await app.waitFor("role:dialog[个人资料]");
+  await app.type("label:昵称", " 值班同事 ");
+  await app.press("选择头像");
+  await app.waitFor("请选择 PNG、JPEG 或 WebP 图片。");
+  avatar = true;
+  await app.press("选择头像");
+  await app.waitFor("移除头像");
+  await app.press("保存资料");
+  await app.waitFor("role:dialog[个人资料]", { state: "gone" });
+  await app.waitFor("值班同事");
+
+  await app.press("label:个人菜单");
+  await app.press("个人资料");
+  await app.clear("label:昵称");
+  await app.press("移除头像");
+  await app.press("保存资料");
+  await app.waitFor("role:dialog[个人资料]", { state: "gone" });
+  await app.waitFor("alice");
+  expect(saves).toBe(2);
+});
+
+test("shows local and connected server versions in About", async () => {
+  const app = await open("./App.tsx", {
+    platform: "linux",
+    storage: chinesePreferences,
+    width: 1120,
+    height: 850,
+    network: {
+      ...baseNetwork(),
+      [`${endpoints}/info`]: { body: { version: "9.8.7" } },
+    },
+  });
+  await app.press("偏好设置");
+  await app.press("关于");
+  await app.waitFor("客户端版本");
+  expect(app.shows("服务端版本")).toBe(false);
+  expect(app.texts().some((value) => /^\d+\.\d+\.\d+$/.test(value))).toBe(true);
+
+  await login(app);
+  await app.press("偏好设置");
+  await app.press("关于");
+  await app.waitFor("客户端版本");
+  await app.waitFor("服务端版本");
+  await app.waitFor("9.8.7");
 });

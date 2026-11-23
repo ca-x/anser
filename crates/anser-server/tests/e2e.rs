@@ -1666,3 +1666,179 @@ mod outbound_proxy {
         fallback_task.abort();
     }
 }
+
+#[tokio::test]
+async fn personal_profile_requires_a_session_and_persists_independently_of_login() {
+    use base64::Engine as _;
+    use base64::engine::general_purpose::STANDARD;
+
+    const PROFILE: &str = "/v1/auth/profile";
+    let temp = tempfile::tempdir().unwrap();
+    let database = temp.path().join("anser.sqlite3");
+    let server = Server::start(&database);
+    let info: Value = server.get("/v1/info", None).await;
+    assert_eq!(info["version"], env!("CARGO_PKG_VERSION"));
+
+    let forbidden: Value = server
+        .json(
+            Method::PUT,
+            PROFILE,
+            Some(BOOTSTRAP_KEY),
+            json!({"nickname":"No"}),
+            StatusCode::FORBIDDEN,
+        )
+        .await;
+    assert_eq!(forbidden["code"], "forbidden");
+    let _: Value = server
+        .json(
+            Method::POST,
+            "/v1/users",
+            Some(BOOTSTRAP_KEY),
+            json!({"username":"reader","password":ACCOUNT_PASSWORD}),
+            StatusCode::CREATED,
+        )
+        .await;
+    let reader = server.login("reader", ACCOUNT_PASSWORD).await;
+    let mut encoded = std::io::Cursor::new(Vec::new());
+    image::DynamicImage::new_rgb8(2, 2)
+        .write_to(&mut encoded, image::ImageFormat::Png)
+        .unwrap();
+    let avatar = format!(
+        "data:image/png;base64,{}",
+        STANDARD.encode(encoded.into_inner())
+    );
+    let saved: Value = server
+        .json(
+            Method::PUT,
+            PROFILE,
+            Some(&reader),
+            json!({"nickname":"  雁友  ","avatar":avatar}),
+            StatusCode::OK,
+        )
+        .await;
+    assert_eq!(saved["nickname"], "雁友");
+    assert!(json_string(&saved, "avatar").starts_with("data:image/png;base64,"));
+
+    for avatar in [
+        "https://example.org/portrait.jpg",
+        "data:image/svg+xml;base64,PHN2Zy8+",
+        "data:image/png;base64,aGVsbG8=",
+    ] {
+        let error: Value = server
+            .json(
+                Method::PUT,
+                PROFILE,
+                Some(&reader),
+                json!({"nickname":"Overwrite","avatar":avatar}),
+                StatusCode::BAD_REQUEST,
+            )
+            .await;
+        assert_eq!(error["code"], "invalid_avatar");
+    }
+    let admin = server.login(BOOTSTRAP_USER, BOOTSTRAP_PASSWORD).await;
+    assert_eq!(
+        server.get::<Value>(PROFILE, Some(&admin)).await,
+        json!({"nickname":null,"avatar":null})
+    );
+    drop(server);
+
+    let server = Server::start(&database);
+    let other_session = server.login("reader", ACCOUNT_PASSWORD).await;
+    let response = server
+        .request(Method::GET, PROFILE, Some(&other_session))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.headers()["cache-control"], "no-store");
+    assert_eq!(checked_json::<Value>(response, StatusCode::OK).await, saved);
+    let cleared: Value = server
+        .json(
+            Method::PUT,
+            PROFILE,
+            Some(&other_session),
+            json!({"nickname":null,"avatar":null}),
+            StatusCode::OK,
+        )
+        .await;
+    assert_eq!(cleared, json!({"nickname":null,"avatar":null}));
+}
+
+#[cfg(all(
+    feature = "chanify",
+    feature = "dingtalk",
+    feature = "discord",
+    feature = "gotify",
+    feature = "ifttt",
+    feature = "qqbot",
+    feature = "slack"
+))]
+#[tokio::test]
+async fn new_channel_schemas_are_discoverable_and_accept_the_packaged_examples() {
+    let temp = tempfile::tempdir().unwrap();
+    let server = Server::start(&temp.path().join("anser.sqlite3"));
+    let channels: Value = server.get("/v1/channels", Some(BOOTSTRAP_KEY)).await;
+    let channels = channels["items"].as_array().unwrap();
+
+    for (id, config, secret) in [
+        (
+            "chanify",
+            include_str!("../../../anser-plugins/chanify/example.json"),
+            "token",
+        ),
+        (
+            "dingtalk",
+            include_str!("../../../anser-plugins/dingtalk/example.json"),
+            "webhook",
+        ),
+        (
+            "discord",
+            include_str!("../../../anser-plugins/discord/example.json"),
+            "webhook",
+        ),
+        (
+            "gotify",
+            include_str!("../../../anser-plugins/gotify/example.json"),
+            "app_token",
+        ),
+        (
+            "ifttt",
+            include_str!("../../../anser-plugins/ifttt/example.json"),
+            "webhook_key",
+        ),
+        (
+            "qqbot",
+            include_str!("../../../anser-plugins/qqbot/example.json"),
+            "app_secret",
+        ),
+        (
+            "slack",
+            include_str!("../../../anser-plugins/slack/example.json"),
+            "bot_token",
+        ),
+    ] {
+        let channel = channels
+            .iter()
+            .find(|channel| channel["id"] == id)
+            .unwrap_or_else(|| panic!("missing {id}"));
+        assert_eq!(channel["available"], true, "{id}");
+        assert_eq!(
+            channel["config_schema"]["properties"][secret]["writeOnly"], true,
+            "{id}"
+        );
+        let config: Value = serde_json::from_str(config).unwrap();
+        let account: Value = server
+            .json(
+                Method::POST,
+                "/v1/accounts",
+                Some(BOOTSTRAP_KEY),
+                json!({"channel":id,"name":format!("my-{id}"),"config":config}),
+                StatusCode::CREATED,
+            )
+            .await;
+        assert_eq!(account["channel"], id);
+        assert!(
+            !account.to_string().contains(json_string(&config, secret)),
+            "{id}"
+        );
+    }
+}

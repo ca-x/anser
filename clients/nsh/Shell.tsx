@@ -4,6 +4,7 @@ import {
   effect,
   Image,
   platform,
+  resource,
   signal,
   Text,
   UrlScheme,
@@ -22,6 +23,7 @@ import preferencesIcon from "./assets/navigation/settings.svg";
 import sendIcon from "./assets/navigation/send.svg";
 import tagIcon from "./assets/navigation/tag.svg";
 import { Action, confirm, Hint } from "./components/Controls";
+import { AccountMenu } from "./components/AccountMenu";
 import { Brand, WorkspacePage } from "./components/Workspace";
 import { PreferenceControls } from "./components/Preferences";
 import { createPreferences, type Preferences } from "./preferences";
@@ -30,12 +32,14 @@ import { inboxState } from "./inbox";
 import type { Pairing } from "./pairing";
 import { parsePairing } from "./pairing";
 import { AccountEditor, Accounts } from "./pages/Accounts";
+import { About } from "./pages/About";
 import { Compose, composeDraft } from "./pages/Compose";
 import { Connection } from "./pages/Connection";
 import { DefaultRoute } from "./pages/DefaultRoute";
 import { History, MessageDetail } from "./pages/History";
 import { Inbox, inboxDraft, InboxDetail, InboxSend } from "./pages/Inbox";
 import { PluginSettings, Plugins } from "./pages/Plugins";
+import { Profile } from "./pages/Profile";
 import { ProxyEditor, ProxyProfiles } from "./pages/Proxies";
 import { Security } from "./pages/Security";
 import { TopicDetail, TopicEditor, Topics } from "./pages/Topics";
@@ -51,6 +55,7 @@ type Route =
   | { name: "topic-editor"; topic?: Topic }
   | { name: "default-route" }
   | { name: "preferences" }
+  | { name: "about" }
   | { name: "security" }
   | { name: "accounts" }
   | { name: "account-editor"; account?: Account; presetChannel?: string }
@@ -202,6 +207,11 @@ function Workspace(props: {
   onDismissPairing: () => void;
 }) {
   const { api, user } = props.session;
+  const profile = resource(Boolean(user), (_, { signal }) =>
+    api.profile(signal),
+  );
+  const showProfile = signal(false);
+  const displayName = () => profile()?.nickname || user?.username || "";
   const serverName = api.origin.replace(/^https:\/\//, "");
   const channels = signal(props.session.channels);
   const accountsRevision = signal(0);
@@ -225,7 +235,7 @@ function Workspace(props: {
   const back = () => nav.pop();
   const openPreferences = () => {
     const current = nav.routes().at(-1)?.name;
-    if (current === "security") back();
+    if (current === "about") back();
     else if (current !== "preferences") open({ name: "preferences" });
   };
   const finishAccountEdit = () => {
@@ -324,15 +334,28 @@ function Workspace(props: {
             <View class="gap-1">{links()}</View>
             <View class="flex-1" />
             <View class="gap-1 border-t border-border pt-3">
-              <View class="gap-1 px-3 pb-2">
-                <Hint>{user?.username ?? t("shell.api_key_session")}</Hint>
-                <Text
-                  accessibilityLabel={api.origin}
-                  class="line-clamp-2 text-sm text-muted-foreground"
-                >
-                  {serverName}
-                </Text>
-              </View>
+              <If
+                when={user}
+                else={
+                  <View class="gap-1 px-3 pb-2">
+                    <Hint>{t("shell.api_key_session")}</Hint>
+                    <Text
+                      accessibilityLabel={api.origin}
+                      class="line-clamp-2 text-sm text-muted-foreground"
+                    >
+                      {serverName}
+                    </Text>
+                  </View>
+                }
+              >
+                <AccountMenu
+                  name={displayName()}
+                  avatar={profile()?.avatar}
+                  server={serverName}
+                  onProfile={() => showProfile.set(true)}
+                  onSecurity={() => open({ name: "security" })}
+                />
+              </If>
               <Action
                 label={t("preferences.title")}
                 icon={preferencesIcon}
@@ -519,17 +542,17 @@ function Workspace(props: {
                 return (
                   <WorkspacePage title={t("preferences.title")} back={back}>
                     <PreferenceControls preferences={props.preferences} />
-                    <If when={user}>
-                      <Action
-                        label={t("security.title")}
-                        class="self-start"
-                        onPress={() => open({ name: "security" })}
-                      />
-                    </If>
+                    <Action
+                      label={t("about.title")}
+                      class="self-start"
+                      onPress={() => open({ name: "about" })}
+                    />
                   </WorkspacePage>
                 );
               case "security":
                 return user && <Security api={api} onBack={back} />;
+              case "about":
+                return <About api={api} onBack={back} />;
               case "default-route":
                 return (
                   <DefaultRoute
@@ -620,9 +643,21 @@ function Workspace(props: {
               />
             </If>
             <View class="flex-row items-center gap-2 px-3">
-              <Text class="line-clamp-1 flex-1 text-[13px] text-muted-foreground">
-                {user?.username ?? serverName}
-              </Text>
+              <If
+                when={user}
+                else={
+                  <Text class="line-clamp-1 flex-1 text-[13px] text-muted-foreground">
+                    {serverName}
+                  </Text>
+                }
+              >
+                <AccountMenu
+                  name={displayName()}
+                  avatar={profile()?.avatar}
+                  onProfile={() => showProfile.set(true)}
+                  onSecurity={() => open({ name: "security" })}
+                />
+              </If>
               <Action
                 label={t("preferences.title")}
                 icon={preferencesIcon}
@@ -638,6 +673,14 @@ function Workspace(props: {
           </View>
         </If>
       </View>
+      <If when={user && showProfile()}>
+        <Profile
+          api={api}
+          username={user!.username}
+          profile={profile}
+          onBack={() => showProfile.set(false)}
+        />
+      </If>
     </View>
   );
 }

@@ -1,0 +1,7 @@
+{
+  "app_id": "123456789",
+  "app_secret": "replace-with-app-secret",
+  "recipient_kind": "group",
+  "recipient_id": "replace-with-group-openid",
+  "sandbox": false
+}

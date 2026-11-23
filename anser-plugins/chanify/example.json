@@ -1,0 +1,6 @@
+{
+  "server_url": "https://api.chanify.net",
+  "token": "replace-with-chanify-token",
+  "sound": false,
+  "priority": 10
+}

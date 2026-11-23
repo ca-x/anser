@@ -1,5 +1,5 @@
 import { t } from "nsh/i18n";
-import { effect, resource, View } from "nsh";
+import { effect, resource, Text, View } from "nsh";
 import { ApiError, messageFor, type AnserApi } from "../api";
 import type { LazycatTarget } from "../contracts";
 import { Action, Choice, Hint, Problem } from "./Controls";
@@ -45,6 +45,8 @@ export function LazycatDevicePicker(props: {
         : name || device.device_id;
       return {
         value: device.device_id,
+        label,
+        online: device.online,
         title: t(device.online ? "devices.online" : "devices.offline", {
           name: label,
         }),
@@ -88,6 +90,13 @@ export function LazycatDevicePicker(props: {
           !(props.useAccountDevice && props.selected) &&
           (busy() || Boolean(devices.error()) || !devices()?.devices.length)
         }
+        renderLabel={(value, title) => {
+          const option = options().find((device) => device.value === value);
+          return <View class="flex-1 flex-row items-center gap-2">
+            {option && <View class={option.online ? "size-2 rounded-full bg-success" : "size-2 rounded-full bg-device-offline"} />}
+            <Text class="flex-1 text-sm text-foreground">{option?.label ?? title}</Text>
+          </View>;
+        }}
         onChange={(id) => {
           const list = devices();
           if (!id) props.onChange(undefined);

@@ -64,8 +64,8 @@ function fields(channel?: Channel) {
         required: required.includes(name),
         label: channelText(
           isBuiltIn,
-          `config_field.${name}`,
-          schema.title ?? name,
+          `config_field.${id}.${name}`,
+          channelText(isBuiltIn, `config_field.${name}`, schema.title ?? name),
         ),
         hint: channelText(
           isBuiltIn,

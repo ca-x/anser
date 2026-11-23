@@ -102,7 +102,9 @@ export function Choice(props: {
   onChange: (value: string | null) => void;
   placeholder?: string;
   disabled?: boolean;
+  renderLabel?: (value: string, title: string) => JSX.Element;
 }) {
+  const selectedItem = () => props.items.find((item) => item.value === props.value);
   return (
     <View class="gap-1.5">
       <Text class="text-sm font-semibold text-foreground">{props.label}</Text>
@@ -119,19 +121,22 @@ export function Choice(props: {
         popupClass="rounded-xl border border-border bg-popover p-1.5 shadow-sm"
         backdropClass="bg-foreground/30"
         itemClass="min-h-12 rounded-md px-3 py-2 text-sm text-popover-foreground focus:bg-muted selected:bg-accent disabled:opacity-50"
+        renderItem={props.renderLabel ? (entry) => props.renderLabel!(entry.value, entry.title) : undefined}
         trigger={
           <View class="min-h-12 flex-row items-center justify-between gap-2 rounded-md border border-input bg-card px-3 py-2.5">
-            <Text
+            <If when={props.renderLabel && selectedItem()} else={<Text
               class={
                 props.value == null
                   ? "flex-1 text-sm text-muted-foreground"
                   : "flex-1 text-sm text-foreground"
               }
             >
-              {props.items.find((item) => item.value === props.value)?.title ??
+              {selectedItem()?.title ??
                 props.placeholder ??
                 t("controls.select_an_option")}
-            </Text>
+            </Text>}>
+              {(item) => props.renderLabel?.(item().value, item().title)}
+            </If>
             <Text class="text-sm text-muted-foreground">⌄</Text>
           </View>
         }

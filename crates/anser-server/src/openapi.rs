@@ -5,6 +5,14 @@ pub async fn document() -> Json<Value> {
     let mut paths = Map::new();
     for (path, operations) in [
         ("/v1/health", &["GET / Health check"][..]),
+        ("/v1/info", &["GET / Server version"]),
+        (
+            "/v1/auth/profile",
+            &[
+                "GET / Read your personal profile",
+                "PUT / Replace your personal profile",
+            ],
+        ),
         ("/v1/auth/login", &["POST / Create a login session"]),
         ("/v1/auth/me", &["GET / Current user"]),
         ("/v1/auth/logout", &["POST / Revoke current login session"]),
@@ -129,7 +137,7 @@ pub async fn document() -> Json<Value> {
             let (method, summary) = spec.split_once(" / ").unwrap();
             let public = matches!(
                 path,
-                "/v1/health" | "/v1/auth/login" | "/v1/auth/pair/exchange"
+                "/v1/health" | "/v1/info" | "/v1/auth/login" | "/v1/auth/pair/exchange"
             );
             let mut method_params: Vec<_> = path.split('/').filter_map(|segment| segment.strip_prefix('{')?.strip_suffix('}'))
                 .map(|name| json!({"name":name,"in":"path","required":true,"schema":{"type":"string"}})).collect();
@@ -196,6 +204,11 @@ pub async fn document() -> Json<Value> {
                     "Requires a user session. Confirming or disabling TOTP revokes other sessions and outstanding pairing codes."
                 );
             }
+            if path == "/v1/auth/profile" {
+                operation["description"] = json!(
+                    "Requires a login session. Updates replace both fields. Send null to clear a field."
+                );
+            }
             if path == "/v1/channels/lazycat/devices" {
                 operation["description"] = json!(
                     "Device discovery uses the verified current platform identity from the LazyCat ingress. No user selector is accepted. Offline devices can be selected for future delivery."
@@ -260,6 +273,7 @@ fn request_schema(path: &str, method: &str) -> Option<&'static str> {
         ("POST", "/v1/auth/pair/exchange") => Some("PairCode"),
         ("POST", "/v1/users") => Some("UserInput"),
         ("PUT", "/v1/users/{id}") => Some("UserUpdate"),
+        ("PUT", "/v1/auth/profile") => Some("UserProfile"),
         ("POST", "/v1/api-keys") => Some("KeyInput"),
         ("POST", "/v1/proxies") => Some("ProxyCreate"),
         ("PUT", "/v1/proxies/{id}") => Some("ProxyUpdate"),
@@ -284,6 +298,11 @@ fn success_schema(path: &str, method: &str) -> Option<(&'static str, Value)> {
         }
         ("POST", "/v1/auth/totp/setup") => ("200", reference("TotpSetup")),
         ("POST", "/v1/auth/totp/confirm") => ("200", reference("TotpConfirmation")),
+        ("GET", "/v1/info") => (
+            "200",
+            json!({"type":"object","required":["version"],"properties":{"version":{"type":"string","example":env!("CARGO_PKG_VERSION")}}}),
+        ),
+        ("GET" | "PUT", "/v1/auth/profile") => ("200", reference("UserProfile")),
         ("GET", "/v1/auth/me") | ("PUT", "/v1/users/{id}") => ("200", reference("User")),
         ("POST", "/v1/auth/pair") => ("200", reference("PairResult")),
         ("POST", "/v1/users") => ("201", reference("User")),
@@ -403,6 +422,10 @@ fn schemas() -> Value {
             "Attempt":{"type":"object","properties":{"n":integer,"started_at":time,"finished_at":time,"error_code":string,"error_msg":string,"latency":integer}},
         }),
         json!({
+            "UserProfile":{"type":"object","additionalProperties":false,"properties":{
+                "nickname":{"type":"string","nullable":true,"maxLength":64},
+                "avatar":{"type":"string","nullable":true,"description":"PNG, JPEG, or WebP data URL. Maximum 256 KiB decoded and 1024 pixels on either axis. The service returns a normalized PNG."}
+            }},
             "User":{"type":"object","properties":{"id":string,"username":string,"admin":boolean,"enabled":boolean,"created_at":time}},
             "UserInput":{"type":"object","required":["username","password"],"properties":{"username":string,"password":secret,"admin":boolean}},
             "UserUpdate":{"type":"object","properties":{"password":secret,"admin":boolean,"enabled":boolean}},

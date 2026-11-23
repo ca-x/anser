@@ -1,11 +1,12 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
-  EuiAvatar, EuiButton, EuiButtonEmpty, EuiFieldPassword, EuiFieldText, EuiFlyout, EuiFlyoutBody, EuiFlyoutHeader, EuiFormRow, EuiTitle,
+  EuiButton, EuiButtonEmpty, EuiFieldPassword, EuiFieldText, EuiFlyout, EuiFlyoutBody, EuiFlyoutHeader, EuiFormRow, EuiTitle,
 } from "@elastic/eui";
 import { Api, ApiError, errorMessage, type SignIn, type User } from "./api";
 import { SendSession } from "./send-draft";
 import { Failure, Progress } from "./components/Common";
+import { ProfileMenu } from "./components/ProfileMenu";
 import { PreferenceMenu, Preferences, useT } from "./preferences";
 import logo from "./assets/logo.png";
 import overviewIcon from "./assets/icons/chart-bar.svg?no-inline";
@@ -20,6 +21,7 @@ import usersIcon from "./assets/icons/user-group.svg?no-inline";
 import keysIcon from "./assets/icons/key.svg?no-inline";
 import pairIcon from "./assets/icons/scan-qr.svg?no-inline";
 import securityIcon from "./assets/icons/shield.svg?no-inline";
+import aboutIcon from "./assets/icons/info.svg?no-inline";
 import "./styles.css";
 
 const Accounts = lazy(() => import("./pages/Accounts").then(({ Accounts }) => ({ default: Accounts })));
@@ -36,6 +38,7 @@ const MessageView = lazy(() => import("./pages/Delivery").then(({ MessageView })
 const Send = lazy(() => import("./pages/Delivery").then(({ Send }) => ({ default: Send })));
 const Security = lazy(() => import("./pages/Security").then(({ Security }) => ({ default: Security })));
 const Proxies = lazy(() => import("./pages/Proxies").then(({ Proxies }) => ({ default: Proxies })));
+const About = lazy(() => import("./pages/About"));
 
 const sessionKey = "anser.auth.session";
 const guest = new Api();
@@ -53,6 +56,7 @@ const pages = [
   { path: "/admin/api-keys", label: "API 密钥", icon: keysIcon },
   { path: "/admin/pair", label: "配对客户端", icon: pairIcon },
   { path: "/admin/security", label: "账号安全", icon: securityIcon },
+  { path: "/admin/about", label: "关于", icon: aboutIcon },
 ] as const;
 
 function pathName() {
@@ -162,13 +166,11 @@ function App() {
         <img src={logo} alt="" width="44" height="44" /><strong>{t("雁字")}</strong>
       </a>
       <div className="profile">
-        <EuiAvatar size="s" name={user.username} />
-        <span>{user.username}</span>
         <PreferenceMenu />
-        <EuiButtonEmpty size="s" onClick={() => {
+        <ProfileMenu key={user.id} api={api} username={user.username} security={() => navigate("/admin/security")} signOut={() => {
           initialPath.current = "/admin";
           void api.write("/auth/logout", "POST").catch(() => undefined).finally(signOut);
-        }}>{t("退出")}</EuiButtonEmpty>
+        }} />
       </div>
     </header>
     {compact ? menuOpen && <EuiFlyout id="compact-navigation" className="console-navigation-flyout"
@@ -290,6 +292,7 @@ function Workspace({ path, api, username, sendSession, navigate }: { path: strin
     case "/admin/api-keys": return <Keys api={api} />;
     case "/admin/pair": return <Pair api={api} username={username} />;
     case "/admin/security": return <Security api={api} />;
+    case "/admin/about": return <About api={api} />;
     default: return <Dashboard api={api} navigate={navigate} />;
   }
 }

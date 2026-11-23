@@ -20,6 +20,7 @@
       "primary": "#8B4C28",
       "primary-foreground": "#FFFFFF",
       "success": "#236249",
+      "device-offline": "#6C737E",
       "waiting": "#795316",
       "destructive": "#9B3438"
     },
@@ -42,6 +43,7 @@
       "primary": "#E7AE80",
       "primary-foreground": "#231813",
       "success": "#91D2B3",
+      "device-offline": "#A0A6AE",
       "waiting": "#E8C181",
       "destructive": "#FFA3A4"
     }

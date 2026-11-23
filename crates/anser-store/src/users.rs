@@ -2,10 +2,11 @@
 
 use anser_core::Message;
 use anser_core::api::Page;
-use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
-use serde::Serialize;
+use sea_orm::sea_query::OnConflict;
+use sea_orm::{ActiveValue::Set, ColumnTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
+use serde::{Deserialize, Serialize};
 
-use crate::entities::{topic, user};
+use crate::entities::{topic, user, user_profile};
 use crate::totp::{FactorProof, consume_factor};
 use crate::{DataError, Result, Store, affected, new_id, now_ms};
 
@@ -18,6 +19,13 @@ pub struct User {
     pub admin: bool,
     pub enabled: bool,
     pub created_at: i64,
+}
+
+#[derive(Default, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct UserProfile {
+    pub nickname: Option<String>,
+    pub avatar: Option<String>,
 }
 
 #[derive(Serialize, sqlx::FromRow)]
@@ -39,6 +47,34 @@ pub struct InboxReceipt {
 }
 
 impl Store {
+    pub async fn profile(&self, user_id: &str) -> Result<UserProfile> {
+        let profile = user_profile::Entity::find_by_id(user_id)
+            .one(self.business_db())
+            .await?;
+        Ok(
+            profile.map_or_else(UserProfile::default, |profile| UserProfile {
+                nickname: profile.nickname,
+                avatar: profile.avatar,
+            }),
+        )
+    }
+
+    pub async fn set_profile(&self, user_id: &str, profile: &UserProfile) -> Result<()> {
+        user_profile::Entity::insert(user_profile::ActiveModel {
+            user_id: Set(user_id.to_owned()),
+            nickname: Set(profile.nickname.clone()),
+            avatar: Set(profile.avatar.clone()),
+        })
+        .on_conflict(
+            OnConflict::column(user_profile::Column::UserId)
+                .update_columns([user_profile::Column::Nickname, user_profile::Column::Avatar])
+                .to_owned(),
+        )
+        .exec_without_returning(self.business_db())
+        .await?;
+        Ok(())
+    }
+
     pub async fn create_user(
         &self,
         username: &str,

@@ -1,0 +1,66 @@
+.about-sheet {
+  max-width: 660px;
+  border: 1px solid var(--rule);
+  border-radius: var(--surface-radius);
+  background: var(--surface);
+  box-shadow: var(--elevation);
+  overflow: hidden;
+}
+.about-intro {
+  display: flex;
+  align-items: center;
+  gap: clamp(16px, 4vw, 36px);
+  padding: clamp(20px, 4vw, 38px);
+}
+.about-intro .page-title { margin: 0; }
+.about-intro .page-title p { max-width: 38ch; font-size: 15px; color: var(--muted); }
+.about-mark {
+  flex: none;
+  display: grid;
+  justify-items: center;
+  background: none;
+  border: 0;
+  border-radius: 8px;
+  padding: 0 4px 6px;
+  color: var(--accent);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.about-mark > img { display: block; width: clamp(78px, 13vw, 116px); height: auto; transform-origin: 40% 70%; }
+.about-mark span { font-size: 13px; font-weight: 600; line-height: 1.5; }
+.about-mark:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.about-story {
+  margin: 0 clamp(20px, 4vw, 38px) 24px;
+  padding-inline-start: 14px;
+  border-inline-start: 2px solid var(--accent);
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.6;
+}
+.about-facts { padding: 0 clamp(20px, 4vw, 38px) 12px; }
+.about-facts > div {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px 16px;
+  border-block-start: 1px solid var(--rule);
+  padding: 17px 0;
+  font-size: 14px;
+}
+.about-facts dt { color: var(--muted); }
+.about-facts dd { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
+.about-facts .loading { padding: 0; min-height: 0; }
+.about-version { font-variant-numeric: tabular-nums; user-select: all; }
+@media (max-width: 420px) {
+  .about-intro { flex-direction: column; align-items: flex-start; gap: 18px; }
+  .about-mark { justify-self: start; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .about-mark > img { transition: transform 200ms var(--ease-out); }
+  .about-mark[aria-expanded="true"] > img { transform: translate(4px, -5px) rotate(-4deg); }
+  @media (hover: hover) and (pointer: fine) {
+    .about-mark[aria-expanded="false"]:hover > img { transform: translate(1px, -2px) rotate(-2deg); }
+  }
+  .about-mark[aria-expanded]:active > img { transform: scale(.96); transition-duration: 100ms; }
+}

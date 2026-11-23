@@ -529,6 +529,22 @@ pub fn plain_body(message: &Message, max: usize) -> String {
     truncate(text.trim(), max)
 }
 
+/// Joins the title and rendered body, optionally including a validated HTTP(S) link.
+pub fn plain_notification(message: &Message, max: usize) -> Result<String, SendError> {
+    let body = plain_body(message, max);
+    let link = message.url.as_deref().map(link).transpose()?;
+    let text = [
+        message.title.trim(),
+        body.trim(),
+        link.as_ref().map_or("", Url::as_str),
+    ]
+    .into_iter()
+    .filter(|part| !part.is_empty())
+    .collect::<Vec<_>>()
+    .join("\n\n");
+    Ok(truncate(&text, max))
+}
+
 fn html_text(html: &str) -> String {
     // Converting to text is a display fallback. It does not pass HTML to a renderer.
     let mut output = String::new();
