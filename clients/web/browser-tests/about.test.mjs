@@ -40,11 +40,13 @@ test("About loads the running version and its logo disclosure works with keyboar
   await page.emulateMedia({ reducedMotion: "reduce", colorScheme: "dark" });
   await page.setViewportSize({ width: 320, height: 690 });
   await logo.click();
-  assert.ok(await logo.locator(":scope > img").evaluate((el) => {
-    const style = getComputedStyle(el);
-    const transform = style.transform === "none" ? new DOMMatrixReadOnly() : new DOMMatrixReadOnly(style.transform);
-    return transform.isIdentity && style.transitionDuration === "0s";
-  }));
+  await page.waitForFunction(() => {
+    const image = document.querySelector(".about-mark[aria-expanded=true] > img");
+    if (!image || !matchMedia("(prefers-reduced-motion: reduce)").matches) return false;
+    const style = getComputedStyle(image);
+    return style.transform === "none" && style.transitionProperty === "none";
+  });
+  assert.equal(await page.locator("#about-story").isVisible(), true);
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
   await page.getByRole("button", { name: "Menu", exact: true }).click();
   assert.equal(await page.getByRole("link", { name: "About", exact: true }).getAttribute("aria-current"), "page");

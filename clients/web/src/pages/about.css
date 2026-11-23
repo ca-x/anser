@@ -64,3 +64,7 @@
   }
   .about-mark[aria-expanded]:active > img { transform: scale(.96); transition-duration: 100ms; }
 }
+
+@media (prefers-reduced-motion: reduce) {
+  .about-mark > img { transform: none; transition: none; }
+}
