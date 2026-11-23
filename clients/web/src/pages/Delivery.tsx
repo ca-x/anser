@@ -77,7 +77,7 @@ export function MessageView({ api, id, navigate }: { api: Api; id: string; navig
       </section>
       <section className="stack">
         <div className="section-header"><h2>{t("投递结果")}</h2></div>
-        {!!detail.inbox_deliveries && <EuiCallOut size="s" color="success" iconType="checkInCircleFilled"
+        {!!detail.inbox_deliveries && <EuiCallOut size="s" color="success" iconType="checkCircleFill"
           title={detail.inbox_recipient ? t("已存入 {name} 的个人收件箱", { name: detail.inbox_recipient })
             : detail.inbox_deliveries === 1 ? t("已存入 1 个个人收件箱") : t("已存入 {count} 个个人收件箱", { count: detail.inbox_deliveries })} />}
         {detail.deliveries?.length ? detail.deliveries.map((delivery) => <Delivery key={delivery.id} delivery={delivery} />)

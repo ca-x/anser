@@ -17,7 +17,7 @@ export function Dashboard({ api, navigate }: { api: Api; navigate: (path: string
   const latest = useResource<Page<MessageDetail>>(api, "/messages?limit=8");
   const numbers = [
     ["queue_depth", t("队列中"), t("等待分发的路由"), "waiting", "clock"],
-    ["delivery_success", t("已送达"), t("成功的渠道投递"), "success", "checkInCircleFilled"],
+    ["delivery_success", t("已送达"), t("成功的渠道投递"), "success", "checkCircleFill"],
     ["delivery_dead", t("死信"), t("超出重试有效期"), "danger", "warning"],
     ["retries", t("重试"), t("已记录的重试次数"), "neutral", "refresh"],
   ] as const;
