@@ -127,7 +127,7 @@ impl NotificationService for DeviceFixture {
     }
 }
 
-fn fixture_tls(temp: &tempfile::TempDir) -> (CredentialPaths, ServerTlsConfig) {
+fn fixture_tls(temp: &tempfile::TempDir, server_name: &str) -> (CredentialPaths, ServerTlsConfig) {
     let ca_key = KeyPair::generate().unwrap();
     let mut ca_params = CertificateParams::default();
     ca_params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
@@ -136,7 +136,7 @@ fn fixture_tls(temp: &tempfile::TempDir) -> (CredentialPaths, ServerTlsConfig) {
     let issuer = Issuer::new(ca_params, ca_key);
 
     let server_key = KeyPair::generate().unwrap();
-    let mut server_params = CertificateParams::new(["127.0.0.1".into()]).unwrap();
+    let mut server_params = CertificateParams::new([server_name.into()]).unwrap();
     server_params.extended_key_usages = vec![ExtendedKeyUsagePurpose::ServerAuth];
     let server = server_params.signed_by(&server_key, &issuer).unwrap();
     let tls = ServerTlsConfig::new()
@@ -165,7 +165,7 @@ fn fixture_tls(temp: &tempfile::TempDir) -> (CredentialPaths, ServerTlsConfig) {
 async fn selects_a_device_and_sends_through_genuine_grpc_clients() {
     let _ = rustls::crypto::ring::default_provider().install_default();
     let temp = tempfile::tempdir().unwrap();
-    let (paths, tls) = fixture_tls(&temp);
+    let (paths, tls) = fixture_tls(&temp, "127.0.0.1");
     let device_tls = Some(verified_tls(&paths, &paths.box_certificate).await.unwrap());
     let credentials = ClientCredentials::load(paths).await.unwrap();
 
@@ -243,4 +243,46 @@ async fn selects_a_device_and_sends_through_genuine_grpc_clients() {
     assert_eq!(received[0].body, "a test");
     device_server.abort();
     gateway_server.abort();
+}
+
+#[tokio::test]
+async fn sdk_device_transport_handles_a_certificate_for_another_hostname() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    let temp = tempfile::tempdir().unwrap();
+    let (paths, server_tls) = fixture_tls(&temp, "device.fixture.invalid");
+    let strict_tls = verified_tls(&paths, &paths.box_certificate).await.unwrap();
+    let credentials = ClientCredentials::load(paths).await.unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("https://{}", listener.local_addr().unwrap());
+    let fixture = Arc::new(DeviceFixture::default());
+    let server = Server::builder()
+        .tls_config(server_tls)
+        .unwrap()
+        .add_service(PermissionManagerServer::from_arc(fixture.clone()))
+        .add_service(NotificationServiceServer::from_arc(fixture.clone()));
+    let task = tokio::spawn(server.serve_with_incoming(TcpListenerStream::new(listener)));
+
+    assert!(
+        verified_endpoint(&url, strict_tls)
+            .unwrap()
+            .connect()
+            .await
+            .is_err()
+    );
+    assert_eq!(fixture.auth_requests.load(Ordering::Relaxed), 0);
+
+    let provider = TokenProvider::connect(&url, credentials).await.unwrap();
+    notify(
+        &provider,
+        NotifyRequest {
+            title: "Test".into(),
+            body: "SDK transport".into(),
+            deeplink_url: None,
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(fixture.auth_requests.load(Ordering::Relaxed), 1);
+    assert_eq!(fixture.received.lock().await.len(), 1);
+    task.abort();
 }

@@ -15,9 +15,11 @@ anser test-send lazycat --config examples/lazycat.json --title '雁字测试' --
 
 插件使用应用运行时挂载的 `/lzcapp/run/certs/{box.crt,app.crt,app.key}` 调用本机网关。网关按用户列出设备，插件从返回结果选择指定在线设备，使用 SDK 签名换取设备令牌，再调用 `NotificationService.Notify`。令牌由 SDK 缓存及刷新。账号 JSON 只保存接收人和设备标识。
 
-微服运行环境可自动注入 `LZCAPP_API_GATEWAY_ADDRESS`，安装雁字时无需填写。SDK 有地址时使用容器内的明文 TCP gRPC 网关，未提供时使用微服本机的 Unix socket。设备 API 默认用 `box.crt` 校验证书链和主机名，使用其他 CA 的设备可通过 `ANSER_LAZYCAT_DEVICE_CA` 指定 PEM 证书路径。
+微服运行环境可自动注入 `LZCAPP_API_GATEWAY_ADDRESS`，安装雁字时无需填写。SDK 有地址时使用容器内的明文 TCP gRPC 网关，未提供时使用微服本机的 Unix socket。
 
-旧版微服若没有可验证的设备证书，仅在可信网络内可设置 `ANSER_LAZYCAT_LEGACY_TLS=1`，沿用 Neko 的 SDK 兼容传输。该模式跳过设备端证书链和主机名校验。测试发送返回成功表示设备 API 已接收通知。
+懒猫安装包使用与 Neko 一致的 SDK 设备连接方式，兼容网关地址与设备证书不匹配的情况。该模式使用应用证书和设备令牌，但跳过设备服务端的证书链和主机名校验。设备地址由微服的已注册设备列表提供。测试发送返回成功表示设备 API 已接收通知。
+
+独立部署默认使用 `box.crt` 校验设备服务端证书链和主机名，可通过 `ANSER_LAZYCAT_DEVICE_CA` 指定其他 PEM CA。需要兼容微服设备时，可在可信部署中显式设置 `ANSER_LAZYCAT_LEGACY_TLS=1`。
 
 ## 设备发现与身份
 
