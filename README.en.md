@@ -63,6 +63,8 @@ The delivery overview shows the queue, successful deliveries, dead letters, and 
 
 ![Delivery and attempt details](docs/screenshots/en/server-delivery.png)
 
+![Choosing a LazyCat notification device (sample devices)](docs/screenshots/en/server-account-device.png)
+
 ![Channel plugin runtime and account settings](docs/screenshots/en/server-plugin.png)
 
 ![Outbound proxy settings](docs/screenshots/en/server-proxies.png)
@@ -95,6 +97,8 @@ The delivery overview shows the queue, successful deliveries, dead letters, and 
 
 ![Sending a notification in the native client](docs/screenshots/en/nsh-compose.png)
 
+![Choosing a LazyCat device in the native client (sample devices)](docs/screenshots/en/nsh-account-device.png)
+
 ![Channel plugin settings in the native client](docs/screenshots/en/nsh-plugin.png)
 
 ![Outbound proxy settings in the native client](docs/screenshots/en/nsh-proxies.png)
@@ -105,11 +109,13 @@ Choose English or Simplified Chinese and a light, dark, or system theme from the
 
 ## Outbound proxies
 
-Administrators can save named HTTP or HTTPS proxies with optional credentials. Each channel account that supports HTTP proxies can select a saved profile. Changes apply to the next delivery attempt for every account using that profile. Select **Use account settings** to return to the account's inline proxy or direct connection.
+Administrators can save named HTTP or HTTPS proxies with optional credentials. Each channel account that supports HTTP proxies can select a saved profile. Changes apply to the next delivery attempt for every account using that profile. Existing accounts can keep their current connection. Choosing **Direct** and saving detaches the shared profile and clears any legacy inline proxy on that account.
 
 List both the proxy host and the notification destination host in `ANSER_OUTBOUND_ALLOW_HOSTS`. Enter hostnames or IP addresses separated by commas. Detach a profile from its accounts before deleting it. SMTP and LazyCat use their own transports. For terminal commands, run `anser api proxies --help`.
 
 ## API and channels
+
+Open Anser through your signed-in LazyCat app and create a LazyCat channel account. Pick your device by name from the list, including offline devices. You can send a test notification from the accounts page.
 
 - The server exposes OpenAPI at `/v1/openapi.json` and a health check at `/healthz`.
 - Administrators can open a plugin's settings in the console or NSH client to enable it, disable it, reload it, or configure its accounts. Disabled plugins stay disabled after restart, and new deliveries skip their accounts.

@@ -63,6 +63,8 @@ ANSER_REQUIRE_WEB=1 cargo build --locked --release -p anser-server
 
 ![投递和发送尝试详情](docs/screenshots/zh-CN/server-delivery.png)
 
+![从列表选择懒猫通知设备（演示设备）](docs/screenshots/zh-CN/server-account-device.png)
+
 ![渠道插件的运行和账号设置](docs/screenshots/zh-CN/server-plugin.png)
 
 ![出站代理设置](docs/screenshots/zh-CN/server-proxies.png)
@@ -95,6 +97,8 @@ ANSER_REQUIRE_WEB=1 cargo build --locked --release -p anser-server
 
 ![原生客户端发送通知](docs/screenshots/zh-CN/nsh-compose.png)
 
+![原生客户端选择懒猫设备（演示设备）](docs/screenshots/zh-CN/nsh-account-device.png)
+
 ![原生客户端的插件设置](docs/screenshots/zh-CN/nsh-plugin.png)
 
 ![原生客户端的代理设置](docs/screenshots/zh-CN/nsh-proxies.png)
@@ -105,11 +109,13 @@ ANSER_REQUIRE_WEB=1 cargo build --locked --release -p anser-server
 
 ## 出站代理
 
-管理员可在代理设置中保存多个 HTTP 或 HTTPS 代理，也可填写代理的登录凭据。支持 HTTP 代理的渠道账号可以选择其中一个配置。修改代理后，引用它的账号会在下一次发送尝试时使用新配置。选择使用账号配置后，账号会改用其原有代理或直连。
+管理员可在代理设置中保存多个 HTTP 或 HTTPS 代理，也可填写代理的登录凭据。支持 HTTP 代理的渠道账号可以选择其中一个配置。修改代理后，引用它的账号会在下一次发送尝试时使用新配置。已有账号可以保留原连接设置。主动选择「直连」并保存，会解除共享配置并清除这个账号旧有的内嵌代理。
 
 部署时将代理主机和通知目标主机都加入 `ANSER_OUTBOUND_ALLOW_HOSTS`。列表以逗号分隔，只填主机名或 IP。删除配置前，先解除账号引用。SMTP 邮件和懒猫通知使用各自的传输方式。终端管理命令见 `anser api proxies --help`。
 
 ## API 与渠道
+
+从已登录的懒猫微服入口打开雁字，在「渠道账号」选择「懒猫微服通知」，即可按名称选择自己的设备。离线设备也可以保存。回到账号列表可测试发送。
 
 - API 文档由服务端提供在 `/v1/openapi.json`。健康检查在 `/healthz`。
 - 管理员可在管理台和 NSH 客户端打开各渠道插件的设置页，启用、禁用或重载插件，并用该插件专属的表单配置账号。禁用状态重启后仍然生效，该插件的账号会从新投递的候选集中跳过。

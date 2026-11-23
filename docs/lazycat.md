@@ -4,7 +4,9 @@
 
 ## 配置与测试发送
 
-复制 [账号配置示例](../examples/lazycat.json)，填写微服用户 ID 和该用户名下的客户端设备 ID。
+在懒猫微服中打开雁字，以雁字管理员登录。创建懒猫通知账号时，从设备列表选择接收端。列表属于当前登录微服的用户，显示设备备注名、名称或型号，以及在线状态。离线设备可以保存为目标，发送时按账号的重试策略处理。已有账号保留原来的用户与设备 ID 配置。
+
+使用本地 CLI 时，可复制 [账号配置示例](../examples/lazycat.json)，填写已知的微服用户 ID 和该用户名下的客户端设备 ID。
 
 ```sh
 anser channel-schema lazycat
@@ -16,6 +18,18 @@ anser test-send lazycat --config examples/lazycat.json --title '雁字测试' --
 默认使用微服本机 Unix socket 访问网关，并用 `box.crt` 校验设备 API 的证书链和主机名。设备使用其他 CA 时，可通过 `ANSER_LAZYCAT_DEVICE_CA` 指定 PEM 证书路径。
 
 旧版微服若没有可验证的设备证书，仅在可信网络内可设置 `ANSER_LAZYCAT_LEGACY_TLS=1`，沿用 Neko 的 SDK 兼容传输。该模式跳过设备端证书链和主机名校验，也允许 SDK 使用可能为明文的 `LZCAPP_API_GATEWAY_ADDRESS` 网关覆盖。测试发送返回成功表示设备 API 已接收通知。
+
+## 设备发现与身份
+
+`GET /v1/channels/lazycat/devices` 需要雁字全局管理权限和当前请求的微服身份。接口使用懒猫 SDK 的 `EndDeviceService.ListEndDevices`，只读当前微服用户名下的设备。返回值可直接生成通知账号配置。
+
+```json
+{"user_id":"alice","devices":[{"device_id":"work-laptop","name":"工作电脑","online":true}]}
+```
+
+喵喵商店与官方商店使用同一个微服安装包。安装包在设备发现请求上使用懒猫的 request 阶段注入，读取已经认证的 `ctx.safe_uid`。网关覆盖 `X-Anser-Lazycat-Uid` 和 `X-Anser-Lazycat-Proof`，后者与后端的 `ANSER_LAZYCAT_INGRESS_SECRET` 共用该应用独立生成的 64 位十六进制凭据。平台用户信息和凭据只在网关至 Anser 的内部连接上传递。直接连接服务端或提供自定义 `x-hc-user-id` 无法获得设备目录。
+
+遇到 `403 lazycat_identity_required` 时，先登录微服，再从微服入口进入管理台。服务器未配置可信入口时，API 返回 `503 lazycat_identity_unavailable`。设备目录不需要枚举盒子上的用户。设备 API 地址有效期较短，插件在每次发送前按保存的设备 ID 重新解析。
 
 ## 消息与错误
 
