@@ -166,21 +166,14 @@ impl Lazycat {
                 let device_tls = if legacy {
                     None
                 } else {
-                    if std::env::var_os("LZCAPP_API_GATEWAY_ADDRESS")
-                        .is_some_and(|value| !value.is_empty())
-                    {
-                        return Err(SendError::new(
-                            "lazycat_insecure_gateway",
-                            "the LazyCat gateway address override requires legacy compatibility",
-                            false,
-                        ));
-                    }
                     let ca = std::env::var_os("ANSER_LAZYCAT_DEVICE_CA")
                         .map(std::path::PathBuf::from)
                         .unwrap_or_else(|| paths.box_certificate.clone());
                     Some(verified_tls(&paths, &ca).await?)
                 };
                 let credentials = ClientCredentials::load(paths).await.map_err(sdk_error)?;
+                // Some LazyCat runtimes supply an internal TCP gateway address.
+                // The SDK selects the gateway transport independently of device TLS.
                 let gateway = ApiGateway::connect_with(credentials.clone())
                     .await
                     .map_err(sdk_error)?;
