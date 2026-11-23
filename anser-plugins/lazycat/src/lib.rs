@@ -7,9 +7,10 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use anser_core::api::LazycatDevice;
+use anser_core::api::{LAZYCAT_DEVICE_LIMIT, LazycatDevice};
 use anser_core::{ChannelAccount, Message, MessageFormat};
 use anser_plugin_api::{Capabilities, ChannelService, SendError, SendFuture, SendOutcome};
+use futures_util::future::join_all;
 use lzc_sdk::proto::common::{EndDevice, ListEndDeviceRequest};
 use lzc_sdk::proto::localdevice::NotifyRequest;
 use lzc_sdk::{ApiGateway, ClientCredentials, CredentialPaths, TokenProvider, with_real_uid};
@@ -39,20 +40,46 @@ struct Runtime {
     device_tls: Option<ClientTlsConfig>,
 }
 
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct Config {
     user_id: String,
-    device_id: String,
+    device_ids: Vec<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ConfigInput {
+    user_id: String,
+    device_id: Option<String>,
+    device_ids: Option<Vec<String>>,
 }
 
 impl Config {
     fn parse(value: &Value) -> Result<Self, SendError> {
-        let config: Self = serde_json::from_value(value.clone()).map_err(|_| invalid_config())?;
-        if !valid_id(&config.user_id) || !valid_id(&config.device_id) {
+        if value.get("device_id").is_some() && value.get("device_ids").is_some() {
             return Err(invalid_config());
         }
-        Ok(config)
+        let input: ConfigInput =
+            serde_json::from_value(value.clone()).map_err(|_| invalid_config())?;
+        let device_ids = match (input.device_id, input.device_ids) {
+            (Some(id), None) => vec![id],
+            (None, Some(ids)) => ids,
+            _ => return Err(invalid_config()),
+        };
+        if !valid_id(&input.user_id)
+            || !(1..=LAZYCAT_DEVICE_LIMIT).contains(&device_ids.len())
+            || !device_ids.iter().all(|id| valid_id(id))
+            || device_ids
+                .iter()
+                .collect::<std::collections::HashSet<_>>()
+                .len()
+                != device_ids.len()
+        {
+            return Err(invalid_config());
+        }
+        Ok(Self {
+            user_id: input.user_id,
+            device_ids,
+        })
     }
 }
 
@@ -63,7 +90,7 @@ fn valid_id(id: &str) -> bool {
 fn invalid_config() -> SendError {
     SendError::new(
         "lazycat_invalid_config",
-        "provide a valid user_id and device_id",
+        "provide a valid user_id and either device_id or 1 to 16 distinct device_ids",
         false,
     )
 }
@@ -82,8 +109,13 @@ impl ChannelService for Lazycat {
         json!({
             "$schema": "https://json-schema.org/draft/2020-12/schema",
             "type": "object",
-            "properties": {"user_id": id, "device_id": id},
-            "required": ["user_id", "device_id"],
+            "properties": {
+                "user_id": id,
+                "device_id": id,
+                "device_ids": {"type":"array", "items":id, "minItems":1, "maxItems":LAZYCAT_DEVICE_LIMIT, "uniqueItems":true}
+            },
+            "required": ["user_id"],
+            "oneOf":[{"required":["device_id"]},{"required":["device_ids"]}],
             "additionalProperties": false
         })
     }
@@ -188,23 +220,33 @@ impl Lazycat {
     async fn deliver(&self, config: Config, request: NotifyRequest) -> Result<(), SendError> {
         let runtime = self.runtime().await?;
         let devices = runtime.registered_devices(&config.user_id).await?;
-        let address = device_address(&devices, &config.device_id)?;
-        let provider = runtime.provider(address).await?;
-        if let Err(error) = notify(&provider, request.clone()).await {
-            if error.code != "lazycat_auth_expired" {
-                return Err(error);
-            }
-            let mut devices = runtime.devices.lock().await;
-            if devices
-                .get(address)
-                .is_some_and(|current| Arc::ptr_eq(current, &provider))
-            {
-                devices.remove(address);
-            }
-            drop(devices);
-            // Retry only an explicit authentication rejection, which did not send a notification.
-            let provider = runtime.provider(address).await?;
-            notify(&provider, request).await?;
+        if let [id] = config.device_ids.as_slice() {
+            return runtime
+                .send_to_device(device_address(&devices, id)?, request)
+                .await;
+        }
+        let results = join_all(config.device_ids.iter().map(|id| async {
+            runtime
+                .send_to_device(device_address(&devices, id)?, request.clone())
+                .await
+        }))
+        .await;
+        let mut failures = 0;
+        let mut retryable = false;
+        for error in results.into_iter().filter_map(Result::err) {
+            failures += 1;
+            retryable |= error.retryable;
+        }
+        if failures > 0 {
+            return Err(SendError::new(
+                "lazycat_group_delivery",
+                &format!(
+                    "LazyCat delivered to {} of {} devices",
+                    config.device_ids.len() - failures,
+                    config.device_ids.len()
+                ),
+                retryable,
+            ));
         }
         Ok(())
     }
@@ -243,6 +285,27 @@ impl Runtime {
             .await
             .map(|reply| reply.into_inner().devices)
             .map_err(|status| grpc_error(status.code()))
+    }
+
+    async fn send_to_device(&self, address: &str, request: NotifyRequest) -> Result<(), SendError> {
+        let provider = self.provider(address).await?;
+        if let Err(error) = notify(&provider, request.clone()).await {
+            if error.code != "lazycat_auth_expired" {
+                return Err(error);
+            }
+            let mut devices = self.devices.lock().await;
+            if devices
+                .get(address)
+                .is_some_and(|current| Arc::ptr_eq(current, &provider))
+            {
+                devices.remove(address);
+            }
+            drop(devices);
+            // The rejected request did not send a notification.
+            let provider = self.provider(address).await?;
+            notify(&provider, request).await?;
+        }
+        Ok(())
     }
 
     async fn provider(&self, address: &str) -> Result<Arc<TokenProvider>, SendError> {
@@ -489,6 +552,26 @@ mod tests {
                 .validate_config(&json!({"user_id": "alice\n", "device_id": "device-1"}))
                 .is_err()
         );
+    }
+
+    #[test]
+    fn validates_distinct_device_groups_and_accepts_legacy_targets() {
+        let sample = json!({"user_id":"alice", "device_ids":["phone","laptop"]});
+        assert_eq!(
+            Config::parse(&sample).unwrap().device_ids,
+            ["phone", "laptop"]
+        );
+        for ids in [
+            json!([]),
+            json!(["phone", "phone"]),
+            json!([""]),
+            json!(vec!["phone"; 17]),
+        ] {
+            let bad = json!({"user_id":"alice", "device_ids":ids});
+            assert!(Config::parse(&bad).is_err());
+        }
+        let mixed = json!({"user_id":"alice","device_id":"old","device_ids":["new"]});
+        assert!(Config::parse(&mixed).is_err());
     }
 
     #[test]

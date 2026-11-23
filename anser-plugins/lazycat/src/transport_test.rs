@@ -47,6 +47,13 @@ impl EndDeviceService for GatewayFixture {
                     is_online: true,
                     ..EndDevice::default()
                 },
+                EndDevice {
+                    unique_deivce_id: "device-2".into(),
+                    name: "Workshop tablet".into(),
+                    device_api_url: self.0.clone(),
+                    is_online: true,
+                    ..EndDevice::default()
+                },
             ],
         }))
     }
@@ -205,6 +212,7 @@ async fn selects_a_device_and_sends_through_genuine_grpc_clients() {
         serde_json::to_value(&devices).unwrap(),
         json!([
             {"device_id":"device-1","name":"Work laptop","online":true},
+            {"device_id":"device-2","name":"Workshop tablet","online":true},
             {"device_id":"offline","name":"Tablet","online":false}
         ])
     );
@@ -241,6 +249,24 @@ async fn selects_a_device_and_sends_through_genuine_grpc_clients() {
     assert_eq!(received[3].body, format!("{} 第二段", "雁".repeat(85)));
     assert_eq!(received[0].title, "雁字");
     assert_eq!(received[0].body, "a test");
+    drop(received);
+
+    let group = ChannelAccount {
+        config: json!({"user_id":"alice", "device_ids":["device-1", "device-2"]}),
+    };
+    assert_eq!(
+        channel.send(&group, &message).await.unwrap(),
+        SendOutcome::Delivered
+    );
+    assert_eq!(fixture.received.lock().await.len(), 6);
+    let partial = ChannelAccount {
+        config: json!({"user_id":"alice", "device_ids":["offline", "device-1"]}),
+    };
+    let error = channel.send(&partial, &message).await.unwrap_err();
+    assert_eq!(error.code, "lazycat_group_delivery");
+    assert_eq!(error.message, "LazyCat delivered to 1 of 2 devices");
+    assert!(error.retryable);
+    assert_eq!(fixture.received.lock().await.len(), 7);
     device_server.abort();
     gateway_server.abort();
 }

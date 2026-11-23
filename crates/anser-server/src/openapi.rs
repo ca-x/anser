@@ -175,6 +175,9 @@ pub async fn document() -> Json<Value> {
             if method == "GET" && path == "/v1/accounts" {
                 method_params.push(json!({"name":"channel","in":"query","description":"Filter by channel plugin ID","schema":{"type":"string"}}));
             }
+            if path == "/v1/channels/lazycat/devices" {
+                method_params.push(json!({"name":"account_id","in":"query","description":"Optionally preselect a LazyCat account's devices belonging to the current LazyCat identity","schema":{"type":"string"}}));
+            }
             let mut operation = json!({
                 "summary": summary,
                 "security": if public { json!([]) } else { json!([{"bearerAuth":[]}]) },
@@ -211,7 +214,7 @@ pub async fn document() -> Json<Value> {
             }
             if path == "/v1/channels/lazycat/devices" {
                 operation["description"] = json!(
-                    "Device discovery uses the verified current platform identity from the LazyCat ingress. No user selector is accepted. Offline devices can be selected for future delivery."
+                    "Device discovery uses the verified current platform identity from the LazyCat ingress. No user selector is accepted. Offline devices can be selected for future delivery. An optional account ID returns its saved device selections only when the configured UID matches the verified identity."
                 );
                 for (code, description) in [
                     (
@@ -412,7 +415,7 @@ fn schemas() -> Value {
             "Proxy":{"type":"object","required":["id","name","url","authenticated"],"properties":{"id":string,"name":string,"url":{"type":"string","format":"uri","description":"Credential-free HTTP(S) origin"},"authenticated":boolean}},
             "ProxyCreate":{"type":"object","required":["name","url"],"properties":proxy_input},
             "ProxyUpdate":{"type":"object","required":["name"],"properties":proxy_input},
-            "LazycatDevices":{"type":"object","required":["user_id","devices"],"properties":{"user_id":{"type":"string","description":"UID verified by the LazyCat ingress."},"devices":{"type":"array","items":reference("LazycatDevice")}}},
+            "LazycatDevices":{"type":"object","required":["user_id","devices"],"properties":{"user_id":{"type":"string","description":"UID verified by the LazyCat ingress."},"devices":{"type":"array","items":reference("LazycatDevice")},"max_selection":{"type":"integer"},"configured_device_ids":{"type":"array","items":{"type":"string"}}}},
             "LazycatDevice":{"type":"object","required":["device_id","name","online"],"properties":{"device_id":string,"name":string,"online":boolean}},
             "Channel":{"type":"object","required":["id","display_name","enabled","available","can_manage","config_schema","capabilities"],"properties":{"id":string,"display_name":string,"enabled":{"type":"boolean","description":"Persisted desired state"},"available":{"type":"boolean","description":"Current service availability"},"can_manage":{"type":"boolean","description":"Whether the requesting identity may manage global channel runtime"},"config_schema":{"type":"object"},"capabilities":{"type":"object"}}},
             "ChannelRuntime":{"type":"object","required":["id","enabled","available"],"properties":{"id":string,"enabled":{"type":"boolean","description":"Persisted desired state"},"available":{"type":"boolean","description":"Current service availability"}}},

@@ -8,7 +8,7 @@ import { Api, segment, type Account, type Channel, type JsonObject, type Page, t
 import { baselinePolicy, modes, PolicyFields } from "../components/PolicyFields";
 import { Confirm, useDate, Drawer, Empty, Failure, JsonInput, More, object, PageTitle, Progress, split, Tags } from "../components/Common";
 import { LazycatDeviceField, useDeviceDirectory } from "../components/LazycatDeviceField";
-import type { DeviceTarget } from "../form-values";
+import { serializeDeviceTarget, type DeviceTarget } from "../form-values";
 import { useMutation, usePage, useResource } from "../resources";
 
 export function Topics({ api }: { api: Api }) {
@@ -142,7 +142,7 @@ function Subscriptions({ api, topic, accounts, close, moreAccounts }: {
           void task.run(async () => {
             await api.write(path, "POST", {
               subscriber_ref: reference.trim(), account_id: account || undefined,
-              filter: split(filter), target: lazycat ? device : account && target.trim() ? object(target) : undefined,
+              filter: split(filter), target: lazycat ? serializeDeviceTarget(device) : account && target.trim() ? object(target) : undefined,
               password: password || undefined,
             });
             setReference(""); setAccount(""); setFilter(""); setTarget(""); setDevice(undefined); setPassword(""); setShowForm(false);
@@ -156,7 +156,7 @@ function Subscriptions({ api, topic, accounts, close, moreAccounts }: {
             onChange={(event) => { setAccount(event.target.value); setTarget(""); setDevice(undefined); task.clear(); }} /></EuiFormRow>
           {moreAccounts && <EuiButtonEmpty size="xs" onClick={moreAccounts}>{t("加载更多可选账号")}</EuiButtonEmpty>}
           <EuiFormRow label={t("消息标签过滤")} fullWidth><EuiFieldText fullWidth value={filter} placeholder={t("逗号分隔")} onChange={(event) => setFilter(event.target.value)} /></EuiFormRow>
-          {lazycat && <LazycatDeviceField state={devices} target={device} optionalLabel={t("使用账号设备")} choose={setDevice} />}
+          {lazycat && <LazycatDeviceField state={devices} target={device} optionalLabel={t("使用账号设备")} inherited choose={setDevice} />}
           {selectedAccount && !lazycat && <JsonInput label={t("账号接收目标覆盖")} value={target} set={setTarget} help={t("可选 JSON 对象，例如 Telegram 的 chat_id。")} />}
           {topic.protected && <EuiFormRow label={t("主题密码（如需要）")} fullWidth><EuiFieldPassword type="password" fullWidth value={password}
             onChange={(event) => setPassword(event.target.value)} /></EuiFormRow>}

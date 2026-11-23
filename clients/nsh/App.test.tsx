@@ -1026,6 +1026,7 @@ const lazycat = {
 };
 const discovered = {
   user_id: "box-owner",
+  max_selection: 16,
   devices: [
     { device_id: "mobile", name: "随身手机", online: true },
     { device_id: "laptop", name: "书房电脑", online: false },
@@ -1064,12 +1065,15 @@ test("chooses discovered LazyCat devices on creation and preserves or replaces t
           return { body: { user_id: "box-owner", devices: [] } };
         return { body: discovered };
       },
+      [`${endpoints}/channels/lazycat/devices?account_id=cat-a1`]: {
+        body: { ...discovered, configured_device_ids: ["mobile", "laptop"] },
+      },
       [`${endpoints}/accounts`]: () => ({ body: page(saved ? [saved] : []) }),
       [`POST ${endpoints}/accounts`]: ({ body }) => {
         const data = JSON.parse(body ?? "{}");
         expect(data.config).toEqual({
           user_id: "box-owner",
-          device_id: "mobile",
+          device_ids: ["mobile", "laptop"],
         });
         saved = lazycatAccount;
         return { status: 201, body: saved };
@@ -1096,8 +1100,8 @@ test("chooses discovered LazyCat devices on creation and preserves or replaces t
   await app.press("刷新设备");
   await app.waitFor("正在查找设备…", { state: "gone" });
   expect(app.enabled("保存账号")).toBe(false);
-  await app.press("label:接收设备");
   await app.press("随身手机 · 在线");
+  await app.press("书房电脑 · 离线");
   await app.press("保存账号");
   await app.waitFor("个人设备");
   await app.press("查看");
@@ -1110,8 +1114,8 @@ test("chooses discovered LazyCat devices on creation and preserves or replaces t
   await app.press("查看");
   await app.press("更换接收设备");
   await app.waitFor("正在查找设备…", { state: "gone" });
-  await app.press("label:接收设备");
-  await app.press("书房电脑 · 离线");
+  await app.waitFor("已选 2 台 · 最多 16 台");
+  await app.press("随身手机 · 在线");
   await app.press("保存账号");
   await app.waitFor("办公提醒");
   expect(updates[1].config).toEqual({
@@ -1152,13 +1156,11 @@ test("uses a LazyCat device picker for a subscription recipient override", async
   await app.press("个人设备");
   await app.waitFor("使用账号的接收设备");
   expect(app.shows("label:接收目标（可选 JSON）")).toBe(false);
-  await app.press("label:接收设备");
   await app.press("书房电脑 · 离线");
   owner = "other-owner";
   await app.press("刷新设备");
   await app.waitFor("所选设备已不在当前列表，请重新选择接收目标。");
   expect(app.enabled("保存订阅")).toBe(false);
-  await app.press("label:接收设备");
   await app.press("书房电脑 · 离线");
   await app.type("label:主题密码", "fixture");
   await app.press("保存订阅");

@@ -38,11 +38,13 @@ export interface Account {
 
 export interface LazycatTarget {
   user_id: string;
-  device_id: string;
+  device_ids: string[];
 }
 
 export interface LazycatDevices {
   user_id: string;
+  max_selection?: number;
+  configured_device_ids?: string[];
   devices: { device_id: string; name: string; online: boolean }[];
 }
 

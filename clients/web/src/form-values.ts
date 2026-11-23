@@ -12,11 +12,18 @@ export function serializeConfig(channel: Channel, value: JsonObject) {
   ]));
 }
 
-export interface DeviceTarget { user_id: string; device_id: string }
+export interface DeviceTarget { user_id: string; device_ids: string[] }
 
-export function currentDevice(directory: LazycatDevices | undefined, target: DeviceTarget | undefined) {
-  if (!target || directory?.user_id !== target.user_id) return undefined;
-  return directory.devices.find((device) => device.device_id === target.device_id);
+export function currentDevices(directory: LazycatDevices | undefined, target: DeviceTarget | undefined) {
+  return !!(directory && target && target.user_id === directory.user_id && target.device_ids.length
+    && target.device_ids.length <= (directory.max_selection ?? 1)
+    && target.device_ids.every((id) => directory.devices.some((device) => device.device_id === id)));
+}
+
+export function serializeDeviceTarget(target: DeviceTarget | undefined) {
+  if (!target) return undefined;
+  const { user_id, device_ids } = target;
+  return device_ids.length === 1 ? { user_id, device_id: device_ids[0] } : { user_id, device_ids };
 }
 
 // Option values use a prefix so a stored profile ID cannot collide with the two actions.

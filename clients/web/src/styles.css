@@ -346,3 +346,10 @@ code { overflow-wrap: anywhere; }
   .profile-trigger { min-width: 44px; justify-content: center; }
   .profile-name, .profile-chevron { display: none; }
 }
+
+.device-field { min-inline-size: 0; padding: 0; border: 0; display: flex; flex-direction: column; gap: 7px; }
+.device-field legend { font-size: 14px; font-weight: 600; margin-bottom: 6px; }
+.device-checklist { display: grid; max-height: 240px; overflow: auto; border: 1px solid var(--rule); border-radius: 8px; background: var(--field-surface); }
+.device-checklist .device-checkbox { min-height: 44px; align-items: center; padding: 6px 10px; }
+.device-checklist .device-checkbox + .device-checkbox { border-top: 1px solid var(--rule); }
+.device-checklist .device-checkbox label { flex: 1; min-width: 0; }

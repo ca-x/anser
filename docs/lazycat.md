@@ -4,16 +4,16 @@
 
 ## 配置与测试发送
 
-在懒猫微服中打开雁字，以雁字管理员登录。创建懒猫通知账号时，从设备列表选择接收端。列表属于当前登录微服的用户，显示设备备注名、名称或型号，以及在线状态。离线设备可以保存为目标，发送时按账号的重试策略处理。已有账号保留原来的用户与设备 ID 配置。
+在懒猫微服中打开雁字，以雁字管理员登录。创建懒猫通知账号时，从设备列表勾选最多 16 台接收设备。编辑账号时会勾回当前微服用户之前保存的设备。订阅可选择自己的设备组合，也可以沿用账号的配置。列表属于当前登录微服的用户，显示设备备注名、名称或型号，以及在线状态。离线设备可以保存为目标，发送时按账号的重试策略处理。已有单设备配置可继续使用。
 
-使用本地 CLI 时，可复制 [账号配置示例](../examples/lazycat.json)，填写已知的微服用户 ID 和该用户名下的客户端设备 ID。
+使用本地 CLI 时，可复制 [账号配置示例](../examples/lazycat.json)，填写微服用户 ID 和该用户名下的客户端设备 ID。单设备用 `device_id`，多设备用 `device_ids` 字符串数组，两者任选其一。
 
 ```sh
 anser channel-schema lazycat
 anser test-send lazycat --config examples/lazycat.json --title '雁字测试' --body '这是一条测试通知'
 ```
 
-插件使用应用运行时挂载的 `/lzcapp/run/certs/{box.crt,app.crt,app.key}` 调用本机网关。网关按用户列出设备，插件从返回结果选择指定在线设备，使用 SDK 签名换取设备令牌，再调用 `NotificationService.Notify`。令牌由 SDK 缓存及刷新。账号 JSON 只保存接收人和设备标识。
+插件使用应用运行时挂载的 `/lzcapp/run/certs/{box.crt,app.crt,app.key}` 调用本机网关。网关按用户列出设备，插件并发尝试组合中所有已选设备。在线设备使用 SDK 签名换取设备令牌，再调用 `NotificationService.Notify`。令牌由 SDK 缓存及刷新。账号 JSON 只保存接收人和设备标识。组合内全部设备确认后，账号投递才算成功。部分设备离线或遇到可重试错误时，账号级重试会再次发送给组合内所有设备，先前收到的设备可能重复收到。
 
 微服运行环境可自动注入 `LZCAPP_API_GATEWAY_ADDRESS`，安装雁字时无需填写。SDK 有地址时使用容器内的明文 TCP gRPC 网关，未提供时使用微服本机的 Unix socket。
 
@@ -25,10 +25,10 @@ anser test-send lazycat --config examples/lazycat.json --title '雁字测试' --
 
 ## 设备发现与身份
 
-`GET /v1/channels/lazycat/devices` 需要雁字全局管理权限和当前请求的微服身份。接口使用懒猫 SDK 的 `EndDeviceService.ListEndDevices`，只读当前微服用户名下的设备。返回值可直接生成通知账号配置。
+`GET /v1/channels/lazycat/devices` 需要雁字全局管理权限和当前请求的微服身份。接口使用懒猫 SDK 的 `EndDeviceService.ListEndDevices`，只读当前微服用户名下的设备。编辑账号时可传 `?account_id=…`，只有账号的微服用户与当前认证身份一致才返回 `configured_device_ids`。
 
 ```json
-{"user_id":"alice","devices":[{"device_id":"work-laptop","name":"工作电脑","online":true}]}
+{"user_id":"alice","max_selection":16,"devices":[{"device_id":"work-laptop","name":"工作电脑","online":true}]}
 ```
 
 喵喵商店与官方商店使用同一个微服安装包。安装包在设备发现请求上使用懒猫的 request 阶段注入，读取已经认证的 `ctx.safe_uid`。网关覆盖 `X-Anser-Lazycat-Uid` 和 `X-Anser-Lazycat-Proof`，后者与后端的 `ANSER_LAZYCAT_INGRESS_SECRET` 共用该应用独立生成的 64 位十六进制凭据。平台用户信息和凭据只在网关至 Anser 的内部连接上传递。直接连接服务端或提供自定义 `x-hc-user-id` 无法获得设备目录。

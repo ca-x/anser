@@ -31,6 +31,8 @@ export interface Channel {
 }
 export interface LazycatDevices {
   user_id: string;
+  max_selection?: number;
+  configured_device_ids?: string[];
   devices: { device_id: string; name: string; online: boolean }[];
 }
 

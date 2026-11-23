@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { Account, Channel } from "../src/api.ts";
-import { currentDevice, initialProxyChoice, proxySettings, serializeConfig } from "../src/form-values.ts";
+import { currentDevices, initialProxyChoice, proxySettings, serializeConfig, serializeDeviceTarget } from "../src/form-values.ts";
 
 const account: Account = { id: "phone", name: "Phone", channel: "ntfy", priority: 0, weight: 1, tags: [], enabled: true };
 
@@ -30,11 +30,17 @@ test("channel forms never serialize inline proxy credentials when replacing a co
 });
 
 test("device selections belong to their discovered LazyCat identity and remain selectable offline", () => {
-  const home = { user_id: "alice", devices: [{ device_id: "phone", name: "Phone", online: false }] };
-  const selected = { user_id: "alice", device_id: "phone" };
-  assert.deepEqual(currentDevice(home, selected), home.devices[0]);
-  assert.equal(currentDevice({ ...home, user_id: "bob" }, selected), undefined);
-  assert.equal(currentDevice({ ...home, devices: [] }, selected), undefined);
-  assert.equal(currentDevice(undefined, selected), undefined);
-  assert.equal(currentDevice(home, undefined), undefined);
+  const home = { user_id: "alice", max_selection: 16, devices: [
+    { device_id: "phone", name: "Phone", online: false },
+    { device_id: "laptop", name: "Laptop", online: true },
+  ] };
+  const selected = { user_id: "alice", device_ids: ["phone", "laptop"] };
+  assert.equal(currentDevices(home, selected), true);
+  assert.equal(currentDevices({ ...home, max_selection: undefined }, selected), false);
+  assert.equal(currentDevices({ ...home, user_id: "bob" }, selected), false);
+  assert.equal(currentDevices({ ...home, devices: home.devices.slice(0, 1) }, selected), false);
+  assert.equal(currentDevices(undefined, selected), false);
+  assert.equal(currentDevices(home, undefined), false);
+  assert.deepEqual(serializeDeviceTarget(selected), selected);
+  assert.deepEqual(serializeDeviceTarget({ ...selected, device_ids: ["phone"] }), { user_id: "alice", device_id: "phone" });
 });

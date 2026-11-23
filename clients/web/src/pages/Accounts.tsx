@@ -9,7 +9,7 @@ import { useMutation, usePage, useResource } from "../resources";
 import { Confirm, Drawer, Empty, Failure, More, PageTitle, Progress, split, Tags } from "../components/Common";
 import { blankMessage, Composer } from "../components/Composer";
 import { LazycatDeviceField, useDeviceDirectory } from "../components/LazycatDeviceField";
-import { initialProxyChoice, proxySettings, serializeConfig, type DeviceTarget } from "../form-values";
+import { initialProxyChoice, proxySettings, serializeConfig, serializeDeviceTarget, type DeviceTarget } from "../form-values";
 import { ChannelFields } from "../components/ChannelFields";
 
 export function Accounts({ api }: { api: Api }) {
@@ -109,7 +109,7 @@ export function AccountEditor({ api, account, channels, close, onDone }: {
   const proxyDetail = useResource<OutboundProxy>(api, proxyPath);
   const lazycat = channelId === "lazycat";
   const discover = lazycat && channelAvailable(channel);
-  const devices = useDeviceDirectory(api, discover);
+  const devices = useDeviceDirectory(api, discover, account?.id);
   const deviceRequired = lazycat && (!account || !!device);
   const deviceReady = !deviceRequired || devices.accepts(device);
 
@@ -119,7 +119,7 @@ export function AccountEditor({ api, account, channels, close, onDone }: {
     if (!account) payload.channel = channelId;
     if (!deviceReady) throw new Error("请先选择接收设备。");
     if (supportsProxy) Object.assign(payload, proxySettings(proxyChoice, account));
-    if (lazycat && device) payload.config = { ...device };
+    if (lazycat && device) payload.config = serializeDeviceTarget(device);
     if (!lazycat && (!account || replace)) {
       if (!channel) throw new Error("此渠道当前不可用。");
       payload.config = serializeConfig(channel, config);

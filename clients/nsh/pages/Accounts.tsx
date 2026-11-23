@@ -29,7 +29,7 @@ import {
 } from "../components/ChannelConfig";
 import { RecordRow, WorkspacePage } from "../components/Workspace";
 import { operation, paged } from "../state";
-import { LazycatDevicePicker } from "../components/LazycatDevicePicker";
+import { LazycatDevicePicker, serializeDeviceTarget } from "../components/LazycatDevicePicker";
 import { ProxyPicker } from "./Proxies";
 
 export function Accounts(props: {
@@ -243,7 +243,7 @@ export function AccountEditor(props: {
           const target = device();
           if (!target || !deviceAvailable())
             throw new ApiError("missing_device", t("devices.choose"));
-          data.config = target;
+          data.config = serializeDeviceTarget(target);
         } else {
           data.config = config.value();
         }
@@ -360,6 +360,7 @@ export function AccountEditor(props: {
           >
             <LazycatDevicePicker
               api={props.api}
+              accountId={original?.id}
               selected={device()}
               onChange={device.set}
               onAvailable={deviceAvailable.set}

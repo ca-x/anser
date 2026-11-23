@@ -682,7 +682,7 @@ fn validate_target_override(channel: &str, target: &Value, config: &mut Value) -
         "bark" => &["device_key", "device_keys"][..],
         "email" => &["to"],
         "feishu" => &["receive_id", "receive_id_type"],
-        "lazycat" => &["user_id", "device_id"],
+        "lazycat" => &["user_id", "device_id", "device_ids"],
         "ntfy" => &["topic"],
         "qqbot" => &["recipient_id", "recipient_kind"],
         "slack" => &["channel_id"],
@@ -700,17 +700,16 @@ fn validate_target_override(channel: &str, target: &Value, config: &mut Value) -
             "Subscription targets may only override recipient fields",
         ));
     }
-    if channel == "bark" {
-        if values.contains_key("device_key") == values.contains_key("device_keys") {
-            return Err(ApiError::bad("Choose either device_key or device_keys"));
-        }
-        let configured = config.as_object_mut().ok_or_else(ApiError::internal)?;
-        configured.remove("device_key");
-        configured.remove("device_keys");
+    if channel == "bark" && values.contains_key("device_key") == values.contains_key("device_keys")
+    {
+        return Err(ApiError::bad("Choose either device_key or device_keys"));
     }
-    for (key, value) in values {
-        config[key] = value.clone();
+    if channel == "lazycat" && values.contains_key("device_id") && values.contains_key("device_ids")
+    {
+        return Err(ApiError::bad("Choose either device_id or device_ids"));
     }
+    let config = config.as_object_mut().ok_or_else(ApiError::internal)?;
+    anser_core::api::apply_recipient_override(channel, config, values);
     Ok(())
 }
 

@@ -332,9 +332,9 @@ export class AnserApi {
     );
   }
 
-  lazycatDevices(signal?: AbortSignal) {
+  lazycatDevices(signal?: AbortSignal, accountId?: string) {
     return this.request<LazycatDevices>(
-      "/channels/lazycat/devices",
+      accountId ? `/channels/lazycat/devices?account_id=${encodeURIComponent(accountId)}` : "/channels/lazycat/devices",
       "GET",
       undefined,
       signal,

@@ -219,10 +219,11 @@ dependencies = [
 
 [[package]]
 name = "anser-plugin-lazycat"
-version = "0.5.5"
+version = "0.5.6"
 dependencies = [
  "anser-core",
  "anser-plugin-api",
+ "futures-util",
  "lzc-sdk",
  "pulldown-cmark",
  "rcgen",

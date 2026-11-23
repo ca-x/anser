@@ -9,6 +9,25 @@ use serde_json::Value;
 use crate::Message;
 use crate::routing::{Backoff, Mode, RetryPolicy, SuccessCriteria};
 
+/// Applies a validated subscription override to a decrypted channel configuration.
+pub fn apply_recipient_override(
+    channel: &str,
+    config: &mut serde_json::Map<String, Value>,
+    target: &serde_json::Map<String, Value>,
+) {
+    let replace: &[&str] = match channel {
+        "bark" => &["device_key", "device_keys"],
+        "lazycat" if target.contains_key("device_id") || target.contains_key("device_ids") => {
+            &["device_id", "device_ids"]
+        }
+        _ => &[],
+    };
+    for key in replace {
+        config.remove(*key);
+    }
+    config.extend(target.clone());
+}
+
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Target {
@@ -131,7 +150,12 @@ pub struct Page<T> {
 pub struct LazycatDevices {
     pub user_id: String,
     pub devices: Vec<LazycatDevice>,
+    pub max_selection: Option<usize>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub configured_device_ids: Vec<String>,
 }
+
+pub const LAZYCAT_DEVICE_LIMIT: usize = 16;
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct LazycatDevice {
@@ -219,4 +243,32 @@ pub struct MessageDetail {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub inbox_recipient: Option<String>,
     pub deliveries: Vec<Delivery>,
+}
+
+#[cfg(test)]
+mod recipient_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn lazycat_subscription_can_switch_between_single_and_multiple_devices() {
+        let mut config = json!({"user_id":"owner","device_id":"old"});
+        let group = json!({"device_ids":["one","two"]});
+        apply_recipient_override(
+            "lazycat",
+            config.as_object_mut().unwrap(),
+            group.as_object().unwrap(),
+        );
+        assert_eq!(
+            config,
+            json!({"user_id":"owner","device_ids":["one","two"]})
+        );
+        let single = json!({"device_id":"other"});
+        apply_recipient_override(
+            "lazycat",
+            config.as_object_mut().unwrap(),
+            single.as_object().unwrap(),
+        );
+        assert_eq!(config, json!({"user_id":"owner","device_id":"other"}));
+    }
 }

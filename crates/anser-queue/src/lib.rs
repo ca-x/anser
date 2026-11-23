@@ -311,14 +311,8 @@ async fn send_one(
                     false,
                 )
             })?;
-            if delivery.channel == "bark"
-                && let Some(config) = config.as_object_mut()
-            {
-                config.remove("device_key");
-                config.remove("device_keys");
-            }
-            for (key, value) in target.as_object().into_iter().flatten() {
-                config[key] = value.clone();
+            if let (Some(config), Some(target)) = (config.as_object_mut(), target.as_object()) {
+                anser_core::api::apply_recipient_override(&delivery.channel, config, target);
             }
         }
         if now_ms() >= lease.deadline {

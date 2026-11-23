@@ -246,6 +246,7 @@
   "delivery_status.succeeded": "已成功",
   "devices.channel_unavailable": "懒猫通知渠道暂不可用，请检查插件设置。",
   "devices.change": "更换接收设备",
+  "devices.chosen": "已选 %{count} 台 · 最多 %{limit} 台",
   "devices.choose_again": "所选设备已不在当前列表，请重新选择接收目标。",
   "devices.choose": "请选择接收设备",
   "devices.destination": "接收设备",

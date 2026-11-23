@@ -22,7 +22,7 @@ import {
   Toggle,
 } from "../components/Controls";
 import { strategyDraft, StrategyEditor, Targets } from "../components/Routing";
-import { LazycatDevicePicker } from "../components/LazycatDevicePicker";
+import { LazycatDevicePicker, serializeDeviceTarget } from "../components/LazycatDevicePicker";
 import { RecordRow, WorkspacePage } from "../components/Workspace";
 import { operation, paged } from "../state";
 
@@ -157,7 +157,7 @@ export function TopicDetail(props: {
         if (selected) {
           if (!deviceAvailable())
             throw new ApiError("missing_device", t("devices.choose"));
-          target = { ...selected };
+          target = serializeDeviceTarget(selected);
         }
       } else if (address().trim() && selectedAccount()) {
         target = parseObject(address(), t("topics.recipient_override"));
