@@ -36,6 +36,16 @@ export interface Account {
   proxy_id?: string | null;
 }
 
+export interface LazycatTarget {
+  user_id: string;
+  device_id: string;
+}
+
+export interface LazycatDevices {
+  user_id: string;
+  devices: { device_id: string; name: string; online: boolean }[];
+}
+
 export interface ProxyProfile {
   id: string;
   name: string;

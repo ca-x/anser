@@ -263,9 +263,11 @@ export function ProxyEditor(props: {
 
 export function ProxyPicker(props: {
   api: AnserApi;
-  selected: string | null;
-  onChange: (value: string | null) => void;
+  selected: string | null | undefined;
+  canKeepExisting: boolean;
+  onChange: (value: string | null | undefined) => void;
 }) {
+  const keepExisting = ":existing";
   const unsupported = signal(false);
   const list = paged(async (cursor, abort) => {
     try {
@@ -279,7 +281,10 @@ export function ProxyPicker(props: {
     }
   });
   const options = () => [
-    { value: "", title: t("proxies.use_account_connection") },
+    ...(props.canKeepExisting
+      ? [{ value: keepExisting, title: t("proxies.keep_existing") }]
+      : []),
+    { value: "", title: t("proxies.direct") },
     ...list
       .items()
       .map((profile) => ({ value: profile.id, title: profile.name })),
@@ -294,17 +299,19 @@ export function ProxyPicker(props: {
       <View class="gap-2">
         <Choice
           label={t("proxies.outbound")}
-          value={props.selected ?? ""}
+          value={
+            props.selected === undefined && props.canKeepExisting
+              ? keepExisting
+              : (props.selected ?? "")
+          }
           items={options()}
-          onChange={(value) => props.onChange(value || null)}
+          onChange={(value) =>
+            props.onChange(value === keepExisting ? undefined : value || null)
+          }
         />
-        <Hint>
-          {t(
-            props.selected
-              ? "proxies.shared_hint"
-              : "proxies.account_connection_hint",
-          )}
-        </Hint>
+        <If when={props.selected}>
+          <Hint>{t("proxies.shared_hint")}</Hint>
+        </If>
         <Problem message={list.problem()} />
         <If when={list.loading()}>
           <Hint>{t("controls.loading")}</Hint>

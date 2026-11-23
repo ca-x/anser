@@ -2,7 +2,13 @@ import { t } from "nsh/i18n";
 import { effect, signal, Text, View } from "nsh";
 import { ApiError, type AnserApi } from "../api";
 import { channelName } from "../channelNames";
-import type { Account, Channel, Format, JsonObject } from "../contracts";
+import type {
+  Account,
+  Channel,
+  Format,
+  JsonObject,
+  LazycatTarget,
+} from "../contracts";
 import { integer, tagsFrom } from "../forms";
 import {
   Action,
@@ -23,6 +29,7 @@ import {
 } from "../components/ChannelConfig";
 import { RecordRow, WorkspacePage } from "../components/Workspace";
 import { operation, paged } from "../state";
+import { LazycatDevicePicker } from "../components/LazycatDevicePicker";
 import { ProxyPicker } from "./Proxies";
 
 export function Accounts(props: {
@@ -172,7 +179,9 @@ export function AccountEditor(props: {
   const channelId = signal(original?.channel ?? props.presetChannel ?? "");
   const channel = () =>
     props.channels.find((entry) => entry.id === channelId());
-  const proxyId = signal(original?.proxy_id ?? null);
+  const proxyId = signal<string | null | undefined>(
+    original?.proxy_id ?? (original ? undefined : null),
+  );
   const proxySupported = () => supportsProxy(channel());
   const tags = signal((original?.tags ?? []).join(", "));
   const weight = signal(String(original?.weight ?? 1));
@@ -182,7 +191,9 @@ export function AccountEditor(props: {
   );
   const enabled = signal(original?.enabled ?? true);
   const replaceConfig = signal(!original);
-  const config = channelConfigDraft(channel, () => Boolean(proxyId()));
+  const device = signal<LazycatTarget | undefined>(undefined);
+  const deviceAvailable = signal(false);
+  const config = channelConfigDraft(channel);
   const action = operation();
   const test = operation();
   const testing = signal(false);
@@ -214,9 +225,29 @@ export function AccountEditor(props: {
         enabled: enabled(),
       };
       if (!original) data.channel = channelId();
-      if (proxySupported() && proxyId() !== (original?.proxy_id ?? null))
-        data.proxy_id = proxyId();
-      if (replaceConfig()) data.config = config.value();
+      if (proxySupported()) {
+        const selected = proxyId();
+        if (original) {
+          data.inline_proxy = selected === null ? "clear" : "keep";
+          if (
+            selected === null ||
+            (selected !== undefined && selected !== original.proxy_id)
+          )
+            data.proxy_id = selected;
+        } else if (selected) {
+          data.proxy_id = selected;
+        }
+      }
+      if (replaceConfig()) {
+        if (channelId() === "lazycat") {
+          const target = device();
+          if (!target || !deviceAvailable())
+            throw new ApiError("missing_device", t("devices.choose"));
+          data.config = target;
+        } else {
+          data.config = config.value();
+        }
+      }
       const saved = await props.api.saveAccount(original?.id, data);
       if (!action.live()) return;
       config.clear();
@@ -273,7 +304,13 @@ export function AccountEditor(props: {
             }
             kind="primary"
             onPress={save}
-            disabled={action.busy() || test.busy()}
+            disabled={
+              action.busy() ||
+              test.busy() ||
+              (replaceConfig() &&
+                channelId() === "lazycat" &&
+                !deviceAvailable())
+            }
           />
           <Action
             label={t("common.cancel")}
@@ -303,8 +340,40 @@ export function AccountEditor(props: {
             channelId.set(value ?? "");
             proxyId.set(null);
             config.clear();
+            device.set(undefined);
           }}
         />
+        <If when={channelId() === "lazycat"}>
+          <If when={original}>
+            <Toggle
+              label={t("devices.change")}
+              checked={replaceConfig()}
+              onChange={(value) => {
+                replaceConfig.set(value);
+                if (!value) device.set(undefined);
+              }}
+            />
+          </If>
+          <If
+            when={replaceConfig()}
+            else={<Hint>{t("devices.keep_existing")}</Hint>}
+          >
+            <LazycatDevicePicker
+              api={props.api}
+              selected={device()}
+              onChange={device.set}
+              onAvailable={deviceAvailable.set}
+            />
+          </If>
+        </If>
+        <If when={props.canManageProxies && proxySupported()}>
+          <ProxyPicker
+            api={props.api}
+            selected={proxyId()}
+            canKeepExisting={Boolean(original && !original.proxy_id)}
+            onChange={proxyId.set}
+          />
+        </If>
         <Field
           label={t("accounts.tags")}
           value={tags()}
@@ -345,15 +414,8 @@ export function AccountEditor(props: {
           onChange={enabled.set}
         />
       </Panel>
-      <If when={channelId()}>
+      <If when={channelId() && channelId() !== "lazycat"}>
         <Section title={t("common.channel_configuration")}>
-          <If when={props.canManageProxies && proxySupported()}>
-            <ProxyPicker
-              api={props.api}
-              selected={proxyId()}
-              onChange={proxyId.set}
-            />
-          </If>
           <If when={original}>
             <Toggle
               label={t("accounts.replace_saved_configuration")}

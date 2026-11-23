@@ -122,29 +122,37 @@ test("logs in and sends a notification with an idempotency key", async () => {
   await app.waitFor("耗时：90 毫秒");
 });
 
-test("previews a QR deep link and exchanges its code after explicit confirmation", async () => {
-  const app = await open("./App.tsx", {
-    locale: "zh-CN",
-    urlScheme: `anser://connect?server=${encodeURIComponent(origin)}&code=${pairingCode}`,
-    network: {
-      ...baseNetwork(),
-      [`POST ${endpoints}/auth/pair/exchange`]: ({ body }) => {
-        expect(JSON.parse(body ?? "{}")).toEqual({ code: pairingCode });
-        return { body: { token: "fixture-token", user } };
+for (const method of ["deep link", "pasted link"] as const) {
+  test(`previews a pairing ${method} and exchanges its code after confirmation`, async () => {
+    const link = `anser://connect?server=${encodeURIComponent(origin)}&code=${pairingCode}`;
+    const app = await open("./App.tsx", {
+      storage: chinesePreferences,
+      ...(method === "deep link" ? { urlScheme: link } : {}),
+      network: {
+        ...baseNetwork(),
+        [`POST ${endpoints}/auth/pair/exchange`]: ({ body }) => {
+          expect(JSON.parse(body ?? "{}")).toEqual({ code: pairingCode });
+          return { body: { token: "fixture-token", user } };
+        },
       },
-    },
+    });
+    if (method === "pasted link") {
+      await app.press("导入连接链接");
+      await app.type("label:连接链接", link);
+      await app.press("预览服务器");
+    }
+    await app.waitFor("使用配对码连接");
+    expect(app.requests()).toEqual([]);
+    app.onDialog(() => "连接此服务器");
+    await app.press("使用配对码连接");
+    await app.waitFor("role:button[发送通知]");
+    expect(
+      app
+        .requests()
+        .some((request) => request.url.endsWith("/auth/pair/exchange")),
+    ).toBe(true);
   });
-  await app.waitFor("使用配对码连接");
-  expect(app.requests()).toEqual([]);
-  app.onDialog(() => "连接此服务器");
-  await app.press("使用配对码连接");
-  await app.waitFor("role:button[发送通知]");
-  expect(
-    app
-      .requests()
-      .some((request) => request.url.endsWith("/auth/pair/exchange")),
-  ).toBe(true);
-});
+}
 
 test("continues a draft across tabs and safely retries the same notification", async () => {
   const submissions: { key: string; body: string }[] = [];
@@ -680,6 +688,7 @@ test("uses English provider names and exposes plugin management to a global admi
   await app.press("API Key");
   await app.type("label:API Key", "fixture-token");
   await app.press("role:button[Connect]");
+  await app.waitFor("role:button[Accounts]");
   await app.press("role:button[Accounts]");
   await app.press("Channel plugins");
   await app.waitFor("text:Lark");
@@ -973,6 +982,7 @@ test("links and removes a proxy profile while preserving the saved account confi
       [`PUT ${endpoints}/accounts/a1`]: ({ body }) => {
         const input = JSON.parse(body ?? "{}");
         expect(input.proxy_id).toBe(proxyId === null ? proxyProfile.id : null);
+        expect(input.inline_proxy).toBe(proxyId === null ? "keep" : "clear");
         expect("config" in input).toBe(false);
         proxyId = input.proxy_id;
         return { body: { ...existing, proxy_id: proxyId } };
@@ -984,7 +994,7 @@ test("links and removes a proxy profile while preserving the saved account confi
   await app.waitFor("Operations");
   await app.press("查看");
   await app.press("替换已保存的配置");
-  await app.waitFor("label:HTTP 代理地址");
+  expect(app.shows("label:HTTP 代理地址")).toBe(false);
   await app.press("label:出站代理");
   await app.press(proxyProfile.name);
   expect(app.shows("label:HTTP 代理地址")).toBe(false);
@@ -996,8 +1006,390 @@ test("links and removes a proxy profile while preserving the saved account confi
   await app.press("查看");
   await app.waitFor(proxyProfile.name);
   await app.press("label:出站代理");
-  await app.press("使用账号连接设置");
+  await app.press("直连");
   await app.press("保存账号");
   await app.waitFor("Operations");
   expect(proxyId).toBe(null);
+});
+
+const lazycat = {
+  ...channel,
+  id: "lazycat",
+  display_name: "LazyCat",
+  can_manage: true,
+  config_schema: {
+    properties: { user_id: { type: "string" }, device_id: { type: "string" } },
+    required: ["device_id", "user_id"],
+  },
+};
+const discovered = {
+  user_id: "box-owner",
+  devices: [
+    { device_id: "mobile", name: "随身手机", online: true },
+    { device_id: "laptop", name: "书房电脑", online: false },
+  ],
+};
+const lazycatAccount = {
+  id: "cat-a1",
+  name: "个人设备",
+  channel: "lazycat",
+  enabled: true,
+};
+
+test("chooses discovered LazyCat devices on creation and preserves or replaces the saved destination", async () => {
+  let saved: typeof lazycatAccount | undefined;
+  let discoveries = 0;
+  const updates: Record<string, unknown>[] = [];
+  const app = await open("./App.tsx", {
+    storage: chinesePreferences,
+    platform: "linux",
+    width: 1120,
+    height: 1080,
+    network: {
+      ...baseNetwork(),
+      [`${endpoints}/channels`]: { body: page([lazycat]) },
+      [`${endpoints}/channels/lazycat/devices`]: () => {
+        discoveries++;
+        if (discoveries === 1)
+          return {
+            status: 403,
+            body: {
+              code: "lazycat_identity_required",
+              message: "needs platform identity",
+            },
+          };
+        if (discoveries === 2)
+          return { body: { user_id: "box-owner", devices: [] } };
+        return { body: discovered };
+      },
+      [`${endpoints}/accounts`]: () => ({ body: page(saved ? [saved] : []) }),
+      [`POST ${endpoints}/accounts`]: ({ body }) => {
+        const data = JSON.parse(body ?? "{}");
+        expect(data.config).toEqual({
+          user_id: "box-owner",
+          device_id: "mobile",
+        });
+        saved = lazycatAccount;
+        return { status: 201, body: saved };
+      },
+      [`PUT ${endpoints}/accounts/cat-a1`]: ({ body }) => {
+        const data = JSON.parse(body ?? "{}");
+        updates.push(data);
+        saved = { ...lazycatAccount, name: data.name };
+        return { body: saved };
+      },
+    },
+  });
+  await login(app);
+  await app.press("role:button[账号]");
+  await app.press("添加账号");
+  await app.type("label:账号名称", "个人设备");
+  await app.press("label:渠道");
+  await app.press("懒猫微服通知");
+  await app.waitFor("请从懒猫微服打开雁字，为当前登录的懒猫用户选择设备。");
+  expect(app.enabled("保存账号")).toBe(false);
+  expect(app.shows("使用 JSON 编辑配置")).toBe(false);
+  await app.press("刷新设备");
+  await app.waitFor("当前懒猫用户还没有已注册的设备。");
+  await app.press("刷新设备");
+  await app.waitFor("正在查找设备…", { state: "gone" });
+  expect(app.enabled("保存账号")).toBe(false);
+  await app.press("label:接收设备");
+  await app.press("随身手机 · 在线");
+  await app.press("保存账号");
+  await app.waitFor("个人设备");
+  await app.press("查看");
+  await app.clear("label:账号名称");
+  await app.type("label:账号名称", "办公提醒");
+  await app.press("保存账号");
+  await app.waitFor("办公提醒");
+  expect("config" in updates[0]).toBe(false);
+  expect(discoveries).toBe(3);
+  await app.press("查看");
+  await app.press("更换接收设备");
+  await app.waitFor("正在查找设备…", { state: "gone" });
+  await app.press("label:接收设备");
+  await app.press("书房电脑 · 离线");
+  await app.press("保存账号");
+  await app.waitFor("办公提醒");
+  expect(updates[1].config).toEqual({
+    user_id: "box-owner",
+    device_id: "laptop",
+  });
+});
+
+test("uses a LazyCat device picker for a subscription recipient override", async () => {
+  let subscription: Record<string, unknown> | undefined;
+  let owner = "box-owner";
+  const app = await open("./App.tsx", {
+    platform: "linux",
+    storage: chinesePreferences,
+    width: 1120,
+    height: 1080,
+    network: {
+      ...baseNetwork(),
+      [`${endpoints}/accounts`]: { body: page([lazycatAccount]) },
+      [`${endpoints}/channels/lazycat/devices`]: () => ({
+        body: { ...discovered, user_id: owner },
+      }),
+      [`${endpoints}/topics/ops/subscriptions`]: () => ({
+        body: page(subscription ? [{ id: "sub1", ...subscription }] : []),
+      }),
+      [`POST ${endpoints}/topics/ops/subscriptions`]: ({ body }) => {
+        subscription = JSON.parse(body ?? "{}");
+        return { status: 201, body: { id: "sub1", ...subscription } };
+      },
+    },
+  });
+  await login(app);
+  await app.press("role:button[主题]");
+  await app.waitFor("ops");
+  await app.press("查看");
+  await app.press("添加订阅");
+  await app.press("label:专属账号");
+  await app.press("个人设备");
+  await app.waitFor("使用账号的接收设备");
+  expect(app.shows("label:接收目标（可选 JSON）")).toBe(false);
+  await app.press("label:接收设备");
+  await app.press("书房电脑 · 离线");
+  owner = "other-owner";
+  await app.press("刷新设备");
+  await app.waitFor("所选设备已不在当前列表，请重新选择接收目标。");
+  expect(app.enabled("保存订阅")).toBe(false);
+  await app.press("label:接收设备");
+  await app.press("书房电脑 · 离线");
+  await app.type("label:主题密码", "fixture");
+  await app.press("保存订阅");
+  await app.waitFor("退订");
+  expect(subscription?.target).toEqual({
+    user_id: "other-owner",
+    device_id: "laptop",
+  });
+});
+
+test("account configuration JSON rejects inline proxies and replacement retains the previous connection", async () => {
+  let update: Record<string, unknown> | undefined;
+  const account = { id: "a1", name: "旧配置", channel: "ntfy", enabled: true };
+  const app = await open("./App.tsx", {
+    platform: "linux",
+    storage: chinesePreferences,
+    width: 1120,
+    height: 1080,
+    network: {
+      ...baseNetwork(),
+      [`${endpoints}/accounts`]: { body: page([account]) },
+      [`${endpoints}/channels`]: {
+        body: page([
+          {
+            ...channel,
+            can_manage: true,
+            config_schema: {
+              properties: {
+                topic: { type: "string" },
+                proxy: { type: "string" },
+              },
+            },
+          },
+        ]),
+      },
+      [`${endpoints}/proxies`]: { body: page([proxyProfile]) },
+      [`PUT ${endpoints}/accounts/a1`]: ({ body }) => {
+        update = JSON.parse(body ?? "{}");
+        return { body: account };
+      },
+    },
+  });
+  await login(app);
+  await app.press("role:button[账号]");
+  await app.waitFor("旧配置");
+  await app.press("查看");
+  await app.waitFor("保留当前连接");
+  await app.press("替换已保存的配置");
+  expect(app.shows("label:HTTP 代理地址")).toBe(false);
+  await app.press("使用 JSON 编辑配置");
+  await app.type(
+    "label:渠道配置（JSON）",
+    JSON.stringify({ topic: "alerts", proxy: "https://proxy.example.test" }),
+  );
+  await app.press("保存账号");
+  await app.waitFor("请在出站代理中选择已保存的代理配置。");
+  expect(update).toBe(undefined);
+  await app.clear("label:渠道配置（JSON）");
+  await app.type("label:渠道配置（JSON）", JSON.stringify({ topic: "alerts" }));
+  await app.press("保存账号");
+  await app.waitFor("旧配置");
+  expect(update?.inline_proxy).toBe("keep");
+  expect(update?.proxy_id).toBe(undefined);
+  expect(update?.config).toEqual({ topic: "alerts" });
+});
+
+test("creates a channel account with a saved proxy profile", async () => {
+  let created: Record<string, unknown> | undefined;
+  const app = await open("./App.tsx", {
+    platform: "linux",
+    storage: chinesePreferences,
+    width: 1120,
+    height: 1080,
+    network: {
+      ...baseNetwork(),
+      [`${endpoints}/channels`]: {
+        body: page([
+          {
+            ...channel,
+            can_manage: true,
+            config_schema: {
+              properties: {
+                topic: { type: "string" },
+                proxy: { type: "string" },
+              },
+            },
+          },
+        ]),
+      },
+      [`${endpoints}/proxies`]: { body: page([proxyProfile]) },
+      [`POST ${endpoints}/accounts`]: ({ body }) => {
+        created = JSON.parse(body ?? "{}");
+        return { status: 201, body: { id: "new", enabled: true, ...created } };
+      },
+    },
+  });
+  await login(app);
+  await app.press("role:button[账号]");
+  await app.press("添加账号");
+  await app.type("label:账号名称", "Via profile");
+  await app.press("label:渠道");
+  await app.press("ntfy");
+  await app.waitFor("直连");
+  expect(app.shows("保留当前连接")).toBe(false);
+  expect(app.shows("label:HTTP 代理地址")).toBe(false);
+  await app.press("label:出站代理");
+  await app.press(proxyProfile.name);
+  await app.type("label:主题", "alerts");
+  await app.press("保存账号");
+  await app.waitFor("渠道账号");
+  expect(created?.proxy_id).toBe(proxyProfile.id);
+  expect(created?.config).toEqual({ topic: "alerts" });
+  expect(created?.inline_proxy).toBe(undefined);
+});
+
+test("creates and edits a Topic and saves workspace default routing", async () => {
+  let saved = { ...topic, name: "house", description: "", protected: false };
+  let defaultMode = "broadcast";
+  const app = await open("./App.tsx", {
+    platform: "linux",
+    storage: chinesePreferences,
+    width: 1120,
+    height: 1080,
+    network: {
+      ...baseNetwork(),
+      [`POST ${endpoints}/topics`]: ({ body }) => {
+        const input = JSON.parse(body ?? "{}");
+        expect(input.name).toBe("house");
+        saved = { ...saved, ...input };
+        return { status: 201, body: saved };
+      },
+      [`PUT ${endpoints}/topics/house`]: ({ body }) => {
+        const input = JSON.parse(body ?? "{}");
+        expect(input.description).toBe("Household alerts");
+        saved = { ...saved, ...input };
+        return { body: saved };
+      },
+      [`${endpoints}/topics/house/subscriptions`]: { body: page() },
+      [`${endpoints}/default-route`]: {
+        body: { mode: defaultMode, targets: [] },
+      },
+      [`PUT ${endpoints}/default-route`]: ({ body }) => {
+        const input = JSON.parse(body ?? "{}");
+        defaultMode = input.mode;
+        return { body: input };
+      },
+    },
+  });
+  await login(app);
+  await app.press("role:button[主题]");
+  await app.press("创建主题");
+  await app.type("label:主题名称", "house");
+  await app.press("保存主题");
+  await app.waitFor("编辑主题");
+  await app.press("编辑主题");
+  await app.type("label:描述", "Household alerts");
+  await app.press("保存主题");
+  await app.waitFor("Household alerts");
+  await app.press("role:button[主题]");
+  await app.press("默认路由");
+  await app.waitFor("保存默认路由");
+  await app.press("label:路由方式");
+  await app.press("加权随机选择");
+  await app.press("保存默认路由");
+  await app.waitFor("创建主题");
+  expect(defaultMode).toBe("weighted");
+});
+
+test("tests a saved channel account and replays a dead letter from delivery history", async () => {
+  let tested = false;
+  let replayed = false;
+  const dead = {
+    id: "old",
+    message: { title: "Desk alert", body: "Please check", format: "text" },
+    status: "dead",
+    created_at: 1780000000000,
+  };
+  const account = {
+    id: "desk",
+    name: "Desk account",
+    channel: "ntfy",
+    enabled: true,
+  };
+  const app = await open("./App.tsx", {
+    platform: "linux",
+    storage: chinesePreferences,
+    width: 1120,
+    height: 1080,
+    network: {
+      ...baseNetwork(),
+      [`${endpoints}/accounts`]: { body: page([account]) },
+      [`POST ${endpoints}/accounts/desk/test`]: ({ body }) => {
+        const input = JSON.parse(body ?? "{}");
+        expect(input.body).toBe("Testing");
+        tested = true;
+        return { body: { status: "success" } };
+      },
+      [`${endpoints}/messages`]: { body: page([dead]) },
+      [`${endpoints}/messages/old`]: { body: { ...dead, deliveries: [] } },
+      [`POST ${endpoints}/messages/old/replay`]: ({ headers }) => {
+        expect(
+          Boolean(headers["idempotency-key"] ?? headers["Idempotency-Key"]),
+        ).toBe(true);
+        replayed = true;
+        return { status: 202, body: { message_id: "new", status: "pending" } };
+      },
+      [`${endpoints}/messages/new`]: {
+        body: {
+          ...dead,
+          id: "new",
+          status: "success",
+          deliveries: [],
+          inbox_deliveries: 1,
+        },
+      },
+    },
+  });
+  await login(app);
+  await app.press("role:button[账号]");
+  await app.waitFor("Desk account");
+  await app.press("查看");
+  await app.press("测试已保存的账号");
+  await app.clear("label:测试正文");
+  await app.type("label:测试正文", "Testing");
+  await app.press("发送测试通知");
+  await app.waitFor("渠道已接收测试通知。");
+  await app.press("role:button[投递]");
+  await app.waitFor("Desk alert");
+  await app.press("查看");
+  await app.waitFor("重放通知");
+  app.onDialog(() => "重放通知");
+  await app.press("重放通知");
+  await app.waitFor("已送达 1 个收件箱");
+  expect(tested).toBe(true);
+  expect(replayed).toBe(true);
 });

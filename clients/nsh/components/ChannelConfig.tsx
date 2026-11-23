@@ -51,7 +51,10 @@ function fields(channel?: Channel) {
   const isBuiltIn = builtInChannel(id);
   const required = Array.isArray(schema.required) ? schema.required : [];
   return Object.entries(properties)
-    .filter(([, prop]) => typeof prop === "object" && prop !== null)
+    .filter(
+      ([name, prop]) =>
+        name !== "proxy" && typeof prop === "object" && prop !== null,
+    )
     .map(([name, prop]) => {
       const schema = prop as Property;
       return {
@@ -98,17 +101,11 @@ export function supportsProxy(channel?: Channel) {
   );
 }
 
-export function channelConfigDraft(
-  channel: () => Channel | undefined,
-  sharedProxy: () => boolean,
-) {
+export function channelConfigDraft(channel: () => Channel | undefined) {
   const values = signal<Record<string, string>>({});
   const raw = signal("");
   const advanced = signal(false);
-  const definitions = () =>
-    fields(channel()).filter(
-      (field) => !sharedProxy() || field.name !== "proxy",
-    );
+  const definitions = () => fields(channel());
   const clear = () => {
     values.set({});
     raw.set("");
@@ -121,7 +118,8 @@ export function channelConfigDraft(
         raw().trim() || "{}",
         t("common.channel_configuration"),
       );
-      if (sharedProxy()) delete result.proxy;
+      if ("proxy" in result)
+        throw new ApiError("inline_proxy", t("proxies.choose_profile"));
       return result;
     }
     const result: JsonObject = {};

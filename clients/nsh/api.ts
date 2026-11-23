@@ -7,6 +7,7 @@ import type {
   HistoryEntry,
   InboxItem,
   JsonObject,
+  LazycatDevices,
   Message,
   Page,
   Policy,
@@ -153,6 +154,13 @@ export class AnserApi {
             : t("api.invalid_credentials_or_pairing_code"),
           401,
         );
+      if (
+        response.status === 403 &&
+        path === "/channels/lazycat/devices" &&
+        payload?.code === "lazycat_identity_required"
+      ) {
+        throw new ApiError(payload.code, t("devices.identity_required"), 403);
+      }
       if (response.status === 403)
         throw new ApiError(
           "forbidden",
@@ -296,6 +304,15 @@ export class AnserApi {
   channel(id: string, signal?: AbortSignal) {
     return this.request<Channel>(
       `/channels/${segment(id)}`,
+      "GET",
+      undefined,
+      signal,
+    );
+  }
+
+  lazycatDevices(signal?: AbortSignal) {
+    return this.request<LazycatDevices>(
+      "/channels/lazycat/devices",
       "GET",
       undefined,
       signal,

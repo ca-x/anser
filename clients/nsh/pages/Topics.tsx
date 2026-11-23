@@ -1,7 +1,13 @@
 import { t } from "nsh/i18n";
 import { signal, Text, View } from "nsh";
 import { ApiError, type AnserApi } from "../api";
-import type { Channel, JsonObject, Target, Topic } from "../contracts";
+import type {
+  Channel,
+  JsonObject,
+  LazycatTarget,
+  Target,
+  Topic,
+} from "../contracts";
 import { integer, parseObject, tagsFrom } from "../forms";
 import {
   Action,
@@ -16,6 +22,7 @@ import {
   Toggle,
 } from "../components/Controls";
 import { strategyDraft, StrategyEditor, Targets } from "../components/Routing";
+import { LazycatDevicePicker } from "../components/LazycatDevicePicker";
 import { RecordRow, WorkspacePage } from "../components/Workspace";
 import { operation, paged } from "../state";
 
@@ -118,6 +125,10 @@ export function TopicDetail(props: {
   const filter = signal("");
   const account = signal("");
   const address = signal("");
+  const device = signal<LazycatTarget | undefined>(undefined);
+  const deviceAvailable = signal(false);
+  const selectedAccount = () =>
+    accounts.items().find((item) => item.id === account());
   const password = signal("");
   const modeLabel = () =>
     ({
@@ -127,6 +138,12 @@ export function TopicDetail(props: {
       weighted_failover: t("topics.weighted_failover"),
     })[topic.policy.mode];
 
+  function chooseAccount(id: string | null) {
+    account.set(id ?? "");
+    address.set("");
+    device.set(undefined);
+  }
+
   function add() {
     void subscribe.run(async () => {
       if (!subscriber().trim())
@@ -135,13 +152,17 @@ export function TopicDetail(props: {
           t("topics.enter_a_subscriber_identifier"),
         );
       let target: JsonObject | undefined;
-      if (address().trim()) {
-        if (!account())
-          throw new ApiError(
-            "missing_account",
-            t("topics.select_a_channel_account_before_overriding"),
-          );
+      if (selectedAccount()?.channel === "lazycat") {
+        const selected = device();
+        if (selected) {
+          if (!deviceAvailable())
+            throw new ApiError("missing_device", t("devices.choose"));
+          target = { ...selected };
+        }
+      } else if (address().trim() && selectedAccount()) {
         target = parseObject(address(), t("topics.recipient_override"));
+        if ("proxy" in target)
+          throw new ApiError("invalid_recipient", t("proxies.choose_profile"));
       }
       await props.api.subscribe(topic.name, {
         subscriber_ref: subscriber().trim(),
@@ -155,6 +176,7 @@ export function TopicDetail(props: {
       filter.set("");
       account.set("");
       address.set("");
+      device.set(undefined);
       password.set("");
       editing.set(false);
       await list.reload();
@@ -240,17 +262,21 @@ export function TopicDetail(props: {
                     disabled: !item.enabled,
                   })),
                 ]}
-                onChange={(value) => {
-                  account.set(value ?? "");
-                  address.set("");
-                }}
+                onChange={chooseAccount}
               />
               <If when={accounts.problem()}>
                 <Field
                   label={t("topics.dedicated_account_id_optional")}
                   value={account()}
-                  onChange={account.set}
+                  onChange={chooseAccount}
                   hint={t("topics.if_accounts_are_unavailable_enter_an")}
+                />
+                <Action
+                  label={t("common.refresh")}
+                  kind="quiet"
+                  class="self-start"
+                  disabled={accounts.loading()}
+                  onPress={accounts.reload}
                 />
               </If>
               <If when={accounts.next()}>
@@ -262,12 +288,25 @@ export function TopicDetail(props: {
                   disabled={accounts.loading()}
                 />
               </If>
-              <If when={account()}>
-                <Field
-                  label={t("topics.recipient_override_optional_json")}
-                  value={address()}
-                  onChange={address.set}
-                  hint={t("topics.enter_the_fields_supported_by_this")}
+              <If
+                when={selectedAccount()?.channel === "lazycat"}
+                else={
+                  <If when={selectedAccount()}>
+                    <Field
+                      label={t("topics.recipient_override_optional_json")}
+                      value={address()}
+                      onChange={address.set}
+                      hint={t("topics.enter_the_fields_supported_by_this")}
+                    />
+                  </If>
+                }
+              >
+                <LazycatDevicePicker
+                  api={props.api}
+                  useAccountDevice
+                  selected={device()}
+                  onChange={device.set}
+                  onAvailable={deviceAvailable.set}
                 />
               </If>
             </If>
@@ -293,7 +332,15 @@ export function TopicDetail(props: {
               }
               onPress={add}
               kind="primary"
-              disabled={subscribe.busy() || !subscriber().trim()}
+              disabled={
+                subscribe.busy() ||
+                !subscriber().trim() ||
+                Boolean(
+                  selectedAccount()?.channel === "lazycat" &&
+                    device() &&
+                    !deviceAvailable(),
+                )
+              }
             />
           </Panel>
         </If>
