@@ -4,7 +4,7 @@
 
 Anser is a self-hosted notification hub. Use one API to send messages to topics, channel accounts, or the Anser client. The server embeds an Elastic UI console. The standalone NSH client uses native components for connecting, receiving, sending, and inspecting deliveries.
 
-[简体中文](README.md) · [Download](https://github.com/ca-x/anser/releases/latest) · [Screenshots](#screenshots) · [Configuration](#configuration)
+[简体中文](README.md) · [Website](https://ca-x.github.io/anser/?lang=en) · [Download](https://github.com/ca-x/anser/releases/latest) · [Screenshots](#screenshots) · [Configuration](#configuration)
 
 The server binary, Docker images, and NSH client come in separate archives. Verify downloads against the `SHA256SUMS` file for the same release.
 
