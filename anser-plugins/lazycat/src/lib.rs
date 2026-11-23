@@ -11,9 +11,7 @@ use anser_core::api::LazycatDevice;
 use anser_core::{ChannelAccount, Message, MessageFormat};
 use anser_plugin_api::{Capabilities, ChannelService, SendError, SendFuture, SendOutcome};
 use lzc_sdk::proto::common::{EndDevice, ListEndDeviceRequest};
-use lzc_sdk::proto::localdevice::{
-    NotifyRequest, notification_service_client::NotificationServiceClient,
-};
+use lzc_sdk::proto::localdevice::NotifyRequest;
 use lzc_sdk::{ApiGateway, ClientCredentials, CredentialPaths, TokenProvider, with_real_uid};
 use pulldown_cmark::{Event, Options, Parser, TagEnd};
 use serde::Deserialize;
@@ -215,7 +213,8 @@ impl Lazycat {
 async fn notify(provider: &TokenProvider, request: NotifyRequest) -> Result<(), SendError> {
     // Fetch the token first so SDK authentication errors retain their status.
     provider.token().await.map_err(sdk_error)?;
-    NotificationServiceClient::new(provider.authenticated_service())
+    provider
+        .notification()
         .notify(request)
         .await
         .map_err(|status| {
