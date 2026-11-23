@@ -101,7 +101,7 @@ ANSER_REQUIRE_WEB=1 cargo build --locked --release -p anser-server
 
 ![原生客户端发送通知](docs/screenshots/zh-CN/nsh-compose.png)
 
-![原生客户端选择懒猫设备（演示设备）](docs/screenshots/zh-CN/nsh-account-device.png)
+![在原生客户端勾选一组懒猫设备（演示设备）](docs/screenshots/zh-CN/nsh-account-device.png)
 
 ![原生客户端的插件设置](docs/screenshots/zh-CN/nsh-plugin.png)
 
@@ -153,4 +153,4 @@ ANSER_REQUIRE_WEB=1 cargo build --locked --release -p anser-server
 | `ANSER_MAX_TTL_SECONDS` / `ANSER_RETENTION_DAYS` | 默认 86400 秒上限、30 天记录保留 |
 | `ANSER_QUEUE_LIMIT` / `ANSER_REQUESTS_PER_MINUTE` | 默认 10000 个待处理路线、每凭据每分钟 120000 次请求 |
 
-保持 `Cargo.toml`、Web 和 NSH 客户端版本为同一 `x.y.z` 值。GitHub Actions 在匹配的 `vX.Y.Z` 标签构建 GHCR 的 Linux amd64/arm64 镜像，并随 GitHub Release 发布 Docker 镜像归档、服务端多平台二进制、独立 NSH 客户端包及 SHA-256 校验和。
+服务端、Web 管理台和 NSH 客户端使用同一个 `x.y.z` 版本，渠道插件各自维护版本。GitHub Actions 在匹配的 `vX.Y.Z` 标签构建 GHCR 的 Linux amd64/arm64 镜像，并随 GitHub Release 发布 Docker 镜像归档、服务端多平台二进制、独立 NSH 客户端包及 SHA-256 校验和。

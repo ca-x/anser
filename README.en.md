@@ -101,7 +101,7 @@ The delivery overview shows the queue, successful deliveries, dead letters, and 
 
 ![Sending a notification in the native client](docs/screenshots/en/nsh-compose.png)
 
-![Choosing a LazyCat device in the native client (sample devices)](docs/screenshots/en/nsh-account-device.png)
+![Selecting a group of LazyCat devices in the native client (sample devices)](docs/screenshots/en/nsh-account-device.png)
 
 ![Channel plugin settings in the native client](docs/screenshots/en/nsh-plugin.png)
 
@@ -153,4 +153,4 @@ Open Anser through your signed-in LazyCat app and create a LazyCat channel accou
 | `ANSER_MAX_TTL_SECONDS` / `ANSER_RETENTION_DAYS` | 86,400-second TTL limit and 30-day record retention |
 | `ANSER_QUEUE_LIMIT` / `ANSER_REQUESTS_PER_MINUTE` | 10,000 pending routes and 120,000 requests per credential per minute |
 
-The Rust workspace, Web console, and NSH client share one `x.y.z` version. A matching `vX.Y.Z` tag builds Linux amd64 and arm64 images for GHCR and publishes Docker archives, server binaries, NSH packages, and SHA-256 checksums to GitHub Releases.
+The server, Web console, and NSH client share one `x.y.z` version. Each notification channel plugin maintains its own version. A matching `vX.Y.Z` tag builds Linux amd64 and arm64 images for GHCR and publishes Docker archives, server binaries, NSH packages, and SHA-256 checksums to GitHub Releases.
