@@ -391,7 +391,7 @@ code { overflow-wrap: anywhere; }
 .api-example { min-width: 0; }
 .api-example pre { margin: 0; overflow-x: auto; padding: 12px; border: 1px solid var(--rule); border-radius: 8px; background: var(--surface-tint); }
 
-.plugin-tab-content { min-width: 0; }
+.plugin-tab-content { min-width: 0; padding-block-start: 14px; }
 .plugin-filters { display: flex; flex-wrap: wrap; gap: 8px; }
 .plugin-filters button {
   padding: 7px 12px; min-height: 36px; border-radius: 999px; border: 1px solid var(--rule);

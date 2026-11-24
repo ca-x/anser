@@ -67,6 +67,9 @@ test("groups installed plugins by capability and renders website list options su
   await page.addInitScript(() => sessionStorage.setItem("anser.auth.session", "test-session"));
   await page.goto(site + "/admin/channels");
   const filters = page.getByRole("group", { name: "Plugin type" });
+  const tabs = await page.getByRole("tablist", { name: "Plugins" }).boundingBox();
+  const filterBounds = await filters.boundingBox();
+  assert.ok(tabs && filterBounds && filterBounds.y - (tabs.y + tabs.height) >= 10);
   await filters.getByRole("button", { name: /Task plugins/ }).click();
   await page.getByRole("heading", { name: "TLS certificate expiration", exact: true }).waitFor();
   assert.equal(await page.getByRole("heading", { name: "OpenAI TTS", exact: true }).count(), 0);

@@ -68,6 +68,8 @@ ANSER_REQUIRE_WEB=1 cargo build --locked --release -p anser-server
 
 ![投递和发送尝试详情](docs/screenshots/zh-CN/server-delivery.png)
 
+![文本转语音插件的模型、音色与保存设置](docs/screenshots/zh-CN/server-tts.png)
+
 ![编辑邮件账号，显示连接预设、发件人名称和邮件样式](docs/screenshots/zh-CN/server-email.png)
 
 ![选择懒猫通知设备，绿色圆点表示在线，灰色表示离线（演示设备）](docs/screenshots/zh-CN/server-account-device.png)
@@ -138,7 +140,7 @@ ANSER_REQUIRE_WEB=1 cargo build --locked --release -p anser-server
 
 插件页按渠道、任务和内容转换分类。证书检查支持多个 HTTPS 站点和提前提醒天数，wttr.in 提供实时、当天、次日及 1 到 3 天预报，独立的 Open-Meteo 任务支持一周和自定义 1 到 16 天预报。在「定时任务」选择任务插件和目标后，可以按分钟、小时、天循环，按每周指定时间运行，或在指定日期和时间运行一次。服务器会把结果发到所选主题或默认路由。「插件市场」检索带 `anser-plugin` 标签的公开 GitHub 仓库，主题公告可在市场内单独访问。
 
-在「内容转换 → 文本转语音」可预听或发送语音。登录中的雁字客户端会依次播放新语音通知，可在收件箱关闭自动播放。其他渠道收到文字和限时音频链接。通过主题或默认渠道发送前，请配置可访问的 HTTPS `ANSER_PUBLIC_URL`。
+在「内容转换 → 文本转语音」选择模型和音色，保存后即可用同一配置预听或发送语音。登录中的雁字客户端会依次播放新语音通知，可在收件箱关闭自动播放。其他渠道收到文字和限时音频链接。通过主题或默认渠道发送前，请配置可访问的 HTTPS `ANSER_PUBLIC_URL`。
 
 ## API 与渠道
 

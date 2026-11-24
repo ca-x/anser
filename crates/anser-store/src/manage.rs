@@ -548,7 +548,7 @@ pub(crate) fn page<T>(values: &mut Vec<T>, limit: u32, key: impl Fn(&T) -> &str)
 
 impl Store {
     pub async fn has_credentials(&self) -> Result<bool> {
-        Ok(sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM scheduled_tasks) OR EXISTS(SELECT 1 FROM accounts) OR EXISTS(SELECT 1 FROM proxy_profiles) OR EXISTS(SELECT 1 FROM deliveries WHERE encrypted_target IS NOT NULL) OR EXISTS(SELECT 1 FROM user_totp WHERE setup_expires_at IS NULL OR setup_expires_at>?)")
+        Ok(sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM transform_settings) OR EXISTS(SELECT 1 FROM scheduled_tasks) OR EXISTS(SELECT 1 FROM accounts) OR EXISTS(SELECT 1 FROM proxy_profiles) OR EXISTS(SELECT 1 FROM deliveries WHERE encrypted_target IS NOT NULL) OR EXISTS(SELECT 1 FROM user_totp WHERE setup_expires_at IS NULL OR setup_expires_at>?)")
             .bind(now_ms()).fetch_one(&self.0).await?)
     }
 }

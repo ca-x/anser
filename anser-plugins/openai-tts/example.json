@@ -3,5 +3,6 @@
   "api_key": "replace-with-an-api-key",
   "model": "tts-1",
   "voice": "alloy",
-  "response_format": "mp3"
+  "response_format": "mp3",
+  "audio_retention_days": 7
 }

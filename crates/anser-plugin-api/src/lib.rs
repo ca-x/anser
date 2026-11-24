@@ -10,8 +10,9 @@ use serde_json::Value;
 mod actions;
 
 pub use actions::{
-    ContentTransformService, MAX_TRANSFORM_ARTIFACT_BYTES, PluginDescriptor, PluginError,
-    PluginFuture, PluginKind, TaskOutput, TaskService, TransformArtifact, TransformOutput,
+    ConfigOption, ContentTransformService, MAX_TRANSFORM_ARTIFACT_BYTES, PluginDescriptor,
+    PluginError, PluginFuture, PluginKind, TaskOutput, TaskService, TransformArtifact,
+    TransformOutput,
 };
 
 pub type SendFuture<'a> = Pin<Box<dyn Future<Output = Result<SendOutcome, SendError>> + Send + 'a>>;

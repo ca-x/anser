@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use anser_core::Message;
-use anser_core::api::{Publish, Receipt};
+use anser_core::api::{DEFAULT_AUDIO_RETENTION_DAYS, Publish, Receipt, audio_retention_ms};
 use anser_store::speech::SpeechWrite;
 use anser_store::users::InboxSpeech;
 use axum::Json;
@@ -13,7 +13,7 @@ use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use serde::Deserialize;
-use serde_json::{Map, Value};
+use serde_json::Value;
 use tokio::sync::{Semaphore, SemaphorePermit};
 
 use crate::api::{App, Wait, enqueue_prepared, idempotency_key};
@@ -25,7 +25,8 @@ static AUDIO_READERS: Semaphore = Semaphore::const_new(16);
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Input {
-    config: Map<String, Value>,
+    config: Option<Value>,
+    config_revision: Option<String>,
     message: Message,
     destination: Destination,
 }
@@ -42,7 +43,7 @@ pub(crate) async fn send(
     State(app): State<Arc<App>>,
     identity: Identity,
     headers: HeaderMap,
-    ApiJson(mut input): ApiJson<Input>,
+    ApiJson(input): ApiJson<Input>,
 ) -> ApiResult<(StatusCode, Json<Receipt>)> {
     identity.admin_global()?;
     let key = idempotency_key(&headers)?;
@@ -60,9 +61,30 @@ pub(crate) async fn send(
     {
         return Ok((status, Json(receipt)));
     }
+    let mut config = crate::transform_settings::resolve(
+        &app,
+        "openai-tts",
+        input.config,
+        input.config_revision.as_deref(),
+    )
+    .await?;
+    let fields = config
+        .as_object_mut()
+        .ok_or_else(|| ApiError::bad("Plugin configuration must be a JSON object"))?;
+    let retention_days = fields
+        .get("audio_retention_days")
+        .filter(|value| !value.is_null())
+        .map_or(Some(DEFAULT_AUDIO_RETENTION_DAYS), |value| {
+            value.as_u64().and_then(|days| u16::try_from(days).ok())
+        });
+    let retention_ms = retention_days
+        .and_then(audio_retention_ms)
+        .ok_or_else(|| ApiError::bad("Audio retention must be between 1 and 365 days"))?;
+    fields.insert("response_format".into(), "mp3".into());
     let speech = SpeechWrite {
         token: random_secret().to_string(),
         bytes: Vec::new(),
+        retention_ms,
     };
     let link = match &input.destination {
         Destination::Inbox { username } => {
@@ -80,14 +102,8 @@ pub(crate) async fn send(
         }
         Destination::Channels => Some(public_link(&app, &speech)?),
     };
-    input.config.insert("response_format".into(), "mp3".into());
-    let output = crate::plugins::transform_message(
-        &app,
-        "openai-tts",
-        Value::Object(input.config),
-        input.message,
-    )
-    .await?;
+    let output =
+        crate::plugins::transform_message(&app, "openai-tts", config, input.message).await?;
     let artifact = output
         .artifacts
         .into_iter()

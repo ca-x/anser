@@ -1,7 +1,7 @@
 //! Rutis registration and invocation for on-demand plugins.
 
 use anser_core::Message;
-use anser_plugin_api::{PluginDescriptor, PluginKind, TaskOutput, TransformOutput};
+use anser_plugin_api::{ConfigOption, PluginDescriptor, PluginKind, TaskOutput, TransformOutput};
 use rutis::Ctx;
 use rutis_bridge::session::call_service;
 use serde_json::Value;
@@ -49,6 +49,16 @@ macro_rules! action_plugin {
                 ) -> Result<$output, PluginError> {
                     action_plugin!(@call self.0, $method, config, input).await
                 }
+
+                pub fn validate_settings(&self, config: Value) -> Result<(), PluginError> {
+                    action_plugin!(@validate self.0, $method, config)
+                }
+
+                pub async fn config_options(
+                    &self, field: String, config: Value,
+                ) -> Result<Vec<anser_plugin_api::ConfigOption>, PluginError> {
+                    action_plugin!(@options self.0, $method, field, config)
+                }
             }
         }
     };
@@ -58,6 +68,20 @@ macro_rules! action_plugin {
     (@call $plugin:expr, transform, $config:ident, $input:ident) => {
         $plugin.transform(&$config, $input)
     };
+    (@validate $plugin:expr, transform, $config:ident) => {
+        $plugin.validate_settings(&$config)
+    };
+    (@validate $plugin:expr, run, $config:ident) => {{
+        let _ = $config;
+        Err(PluginError::new("unsupported_plugin_settings", "This plugin does not provide these settings", false))
+    }};
+    (@options $plugin:expr, transform, $field:ident, $config:ident) => {
+        $plugin.config_options(&$field, &$config).await
+    };
+    (@options $plugin:expr, run, $field:ident, $config:ident) => {{
+        let _ = ($field, $config);
+        Err(PluginError::new("unsupported_plugin_settings", "This plugin does not provide these settings", false))
+    }};
 }
 
 #[cfg(feature = "certificate-expiration")]
@@ -226,6 +250,33 @@ impl Actions {
         let action = self.find(PluginKind::ContentTransform, id)?;
         let _admission = action.lifecycle.admit()?;
         call_service(root, &action.service, "transform", (config, message))
+            .await
+            .map_err(channel_error)
+    }
+
+    pub async fn validate_transform_settings(
+        &self,
+        root: &Ctx,
+        id: &str,
+        config: &Value,
+    ) -> Result<(), HostError> {
+        let action = self.find(PluginKind::ContentTransform, id)?;
+        let _admission = action.lifecycle.admit()?;
+        call_service(root, &action.service, "validateSettings", (config,))
+            .await
+            .map_err(channel_error)
+    }
+
+    pub async fn transform_options(
+        &self,
+        root: &Ctx,
+        id: &str,
+        field: &str,
+        config: &Value,
+    ) -> Result<Vec<ConfigOption>, HostError> {
+        let action = self.find(PluginKind::ContentTransform, id)?;
+        let _admission = action.lifecycle.admit()?;
+        call_service(root, &action.service, "configOptions", (field, config))
             .await
             .map_err(channel_error)
     }

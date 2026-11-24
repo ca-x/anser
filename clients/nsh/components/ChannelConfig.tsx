@@ -2,7 +2,7 @@ import { t } from "nsh/i18n";
 import { locale, openUrl, signal, View } from "nsh";
 import { ApiError } from "../api";
 import { builtInChannel } from "../channelNames";
-import type { Channel, JsonObject } from "../contracts";
+import type { Channel, JsonObject, PluginChoice, SavedTransformConfig } from "../contracts";
 import { parseObject } from "../forms";
 import { Action, Choice, Field, Hint, Panel, Problem, Toggle } from "./Controls";
 
@@ -12,7 +12,9 @@ type Condition = { field: string; equals: string | number | boolean };
 type ConfigPreset = { id: string; label: LocaleText; description?: LocaleText; values: JsonObject };
 type Presentation = {
   presets?: ConfigPreset[];
-  account_editor?: { fields: string[] };
+  account_editor?: { fields: string[]; credentials?: Record<string, string[]> };
+  dynamic_options?: { fields: string[] };
+  persistent_settings?: boolean;
   form_fields?: string[];
   links?: { label: LocaleText; url: string }[];
   visible_when?: Condition;
@@ -69,6 +71,31 @@ export function supportsAccountEditor(plugin?: ConfigSchema) {
   return Array.isArray(ui?.account_editor?.fields);
 }
 
+export function supportsTransformSettings(plugin: ConfigSchema) {
+  const ui = plugin.config_schema["x-anser-ui"] as Presentation | undefined;
+  return ui?.persistent_settings === true;
+}
+
+export function transformDraft(plugin: ConfigSchema, saved: SavedTransformConfig) {
+  return Object.fromEntries(fields(plugin).flatMap(({ name, schema }) => {
+    const value = saved.config[name] ?? (!secretField(name, schema) ? schema.default : undefined);
+    if (value == null) return [];
+    return [[name, typeof value === "object" ? JSON.stringify(value) : String(value)]];
+  }));
+}
+
+export function dynamicOptionInputs(plugin: ConfigSchema, draft: Record<string, string>, saved: SavedTransformConfig) {
+  const editor = (plugin.config_schema["x-anser-ui"] as Presentation | undefined)?.account_editor;
+  return Object.fromEntries(fields(plugin).flatMap(({ name, schema }) => {
+    const inputs = schema["x-anser-ui"]?.dynamic_options?.fields;
+    if (!Array.isArray(inputs) || !inputs.length) return [];
+    const ready = inputs.every((key) => draft[key]?.trim() ||
+      (saved.saved_credentials.includes(key) &&
+        (editor?.credentials?.[key] ?? []).every((field) => draft[field] === saved.config[field])));
+    return ready ? [[name, Object.fromEntries(inputs.filter((key) => draft[key]?.trim()).map((key) => [key, draft[key]]))]] : [];
+  }));
+}
+
 function helpLinks(property: Property) {
   const links = property["x-anser-ui"]?.links;
   return Array.isArray(links) ? links.flatMap((link) => {
@@ -99,6 +126,9 @@ function fields(channel: ConfigSchema | undefined, values?: Record<string, strin
   const isBuiltIn = builtInChannel(id);
   const required = Array.isArray(schema.required) ? schema.required : [];
   const presented = (schema["x-anser-ui"] as Presentation | undefined)?.form_fields;
+  const entries = Array.isArray(presented)
+    ? presented.filter((name) => Object.hasOwn(fields, name)).map((name) => [name, fields[name]] as const)
+    : Object.entries(fields);
   function matches(condition: Condition | undefined): boolean {
     if (!condition || !Object.hasOwn(fields, condition.field)) return false;
     const value = values?.[condition.field];
@@ -106,9 +136,8 @@ function fields(channel: ConfigSchema | undefined, values?: Record<string, strin
       ? fields[condition.field]?.default === condition.equals
       : value === String(condition.equals);
   }
-  return Object.entries(fields)
-    .filter(([name, field]) => name !== "proxy" && field && typeof field === "object" && !Array.isArray(field)
-      && (!Array.isArray(presented) || presented.includes(name)))
+  return entries
+    .filter(([name, field]) => name !== "proxy" && field && typeof field === "object" && !Array.isArray(field))
     .filter(([, field]) => !values || !field["x-anser-ui"]?.visible_when || matches(field["x-anser-ui"]?.visible_when))
     .map(([name, field]) => {
       const ui = field["x-anser-ui"];
@@ -268,6 +297,7 @@ export function channelConfigDraft(channel: () => ConfigSchema | undefined, save
 export function ChannelConfig(props: {
   draft: ReturnType<typeof channelConfigDraft>;
   guided?: boolean;
+  choices?: Record<string, { items?: PluginChoice[]; loading?: boolean; failed?: boolean }>;
 }) {
   const linkError = signal("");
   function write(name: string, value: string) {
@@ -302,6 +332,10 @@ export function ChannelConfig(props: {
               {(field) => {
                 const property = () => field().schema;
                 const masked = () => secretField(field().name, property());
+                const remote = () => props.choices?.[field().name];
+                const chosen = () => props.draft.values()[field().name] ?? "";
+                const canChoose = () => (remote()?.items?.length ?? 0) > 0;
+                const selectedChoice = () => remote()?.items?.some(({ value }) => value === chosen());
                 const label = () =>
                   field().required && !props.draft.savedCredentials().includes(field().name)
                     ? t("channel_config.required_field", {
@@ -310,6 +344,19 @@ export function ChannelConfig(props: {
                     : field().label;
                 return (
                   <View class="gap-2">
+                  <If when={canChoose()}>
+                    <Choice label={label()} value={selectedChoice() ? chosen() : ""}
+                      items={[
+                        ...(remote()?.items ?? []).map(({ label: title, value }) => ({ title, value })),
+                        { title: t("channel_config.manual_value"), value: "" },
+                      ]}
+                      onChange={(value) => write(field().name, value ?? "")}
+                    />
+                  </If>
+                  <If when={remote()?.loading}><Hint>{t("channel_config.loading_options")}</Hint></If>
+                  <If when={remote()?.failed}><Hint>{t("channel_config.options_failed")}</Hint></If>
+                  <If when={remote()?.items?.length === 0}><Hint>{t("channel_config.no_options")}</Hint></If>
+                  <If when={!canChoose() || !selectedChoice()}>
                   <If
                     when={field().type === "boolean"}
                     else={
@@ -317,12 +364,13 @@ export function ChannelConfig(props: {
                         when={field().options.length > 0}
                         else={
                           <Field
-                            label={label()}
+                            label={canChoose() ? t("channel_config.custom_value", { name: field().label }) : label()}
                             hint={props.draft.savedCredentials().includes(field().name)
                               ? t("channel_config.keep_saved_credential") : field().hint}
                             value={props.draft.values()[field().name] ?? ""}
                             onChange={(value) => write(field().name, value)}
                             masked={masked()}
+                            keyboard={field().type === "integer" || field().type === "number" ? "numeric" : undefined}
                             multiline={
                               !masked() &&
                               ["array", "object"].includes(field().type ?? "")
@@ -371,6 +419,7 @@ export function ChannelConfig(props: {
                         <Hint>{field().hint}</Hint>
                       </If>
                     </View>
+                  </If>
                   </If>
                   <Each of={helpLinks(property())} key={(link) => link.url}>
                     {(link) => <Action kind="quiet" label={link().title} onPress={() => {

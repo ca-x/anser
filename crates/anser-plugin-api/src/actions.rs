@@ -29,6 +29,12 @@ impl PluginKind {
     }
 }
 
+#[derive(Debug, Deserialize, Serialize)]
+pub struct ConfigOption {
+    pub value: String,
+    pub label: String,
+}
+
 /// Installation metadata. Configuration is described by JSON Schema and optional
 /// presentation annotations, so callers can use platform-native controls.
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -92,6 +98,18 @@ pub const MAX_TRANSFORM_ARTIFACT_BYTES: usize = 4 * 1024 * 1024;
 pub trait ContentTransformService: Send + Sync + 'static {
     fn descriptor(&self) -> PluginDescriptor;
 
+    fn validate_settings(&self, _config: &Value) -> Result<(), PluginError> {
+        Err(unsupported_settings())
+    }
+
+    fn config_options<'a>(
+        &'a self,
+        _field: &'a str,
+        _config: &'a Value,
+    ) -> PluginFuture<'a, Vec<ConfigOption>> {
+        Box::pin(async { Err(unsupported_settings()) })
+    }
+
     /// Validate configuration, then return the transformed message.
     ///
     /// # Errors
@@ -102,4 +120,12 @@ pub trait ContentTransformService: Send + Sync + 'static {
         config: &'a Value,
         message: Message,
     ) -> PluginFuture<'a, TransformOutput>;
+}
+
+fn unsupported_settings() -> PluginError {
+    SendError::new(
+        "unsupported_plugin_settings",
+        "This plugin does not provide these settings",
+        false,
+    )
 }

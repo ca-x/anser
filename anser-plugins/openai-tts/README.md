@@ -1,6 +1,10 @@
 # OpenAI-compatible text to speech
 
-Open the plugin under **Content transforms** in the admin console. Anser returns an audio file you can preview or download. Send the same settings to `POST /v1/plugins/content_transform/openai-tts/run` with a global administrator credential.
+Open the plugin under **Content transforms** in the console or NSH. Set the server URL, API key, model, and voice, then select **Save plugin settings**. The server encrypts the saved configuration. Leave the API key blank on a later edit to keep it for the same endpoint.
+
+The model and voice pickers load choices when the provider connection is configured. Anser reads voice lists from `/v1/audio/voices` or `/v1/voices`. It also recognizes the `tts-1-<voice>` aliases that some providers advertise through `/v1/models`. You can enter a model or voice manually when the provider does not list it.
+
+Anser returns an audio file you can preview or download. The API accepts explicit settings at `POST /v1/plugins/content_transform/openai-tts/run`, or can use the saved settings when `config` is omitted. All configuration, discovery, and preview operations require a global administrator credential.
 
 ```json
 {
@@ -27,7 +31,7 @@ Choose a recipient, a topic, or the default route in the plugin panel. The equiv
 
 Anser renders one MP3 and stores it with the notification. The connected NSH client attempts to play new voice notifications in order. The inbox also has a manual play action and an autoplay switch. Browser playback follows browser media policy.
 
-Topic and channel sends require the server's `ANSER_PUBLIC_URL` to be a reachable HTTPS origin. External channels receive the text and an audio link. Anyone with the link can play it until expiry, up to seven days or the notification's retention period, whichever is shorter. Repeat the same `Idempotency-Key` with the same credential to retrieve the original receipt.
+Topic and channel sends require the server's `ANSER_PUBLIC_URL` to be a reachable HTTPS origin. External channels receive the text and an audio link. Anyone with the link can play it until expiry. Set **Audio retention (days)** to 1–365 days. It defaults to 7 days and cannot outlast the notification. The setting applies to newly sent audio, and Anser removes expired audio without removing the notification text. Previews do not create a saved audio file. Repeat the same `Idempotency-Key` with the same credential to retrieve the original receipt.
 
 | Error | Retryable |
 | --- | --- |

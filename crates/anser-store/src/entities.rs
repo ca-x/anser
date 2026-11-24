@@ -172,3 +172,20 @@ pub(crate) mod notification_template {
 
     impl ActiveModelBehavior for ActiveModel {}
 }
+
+pub(crate) mod transform_setting {
+    use sea_orm::entity::prelude::*;
+
+    #[derive(Clone, Debug, PartialEq, DeriveEntityModel)]
+    #[sea_orm(table_name = "transform_settings")]
+    pub struct Model {
+        #[sea_orm(primary_key, auto_increment = false)]
+        pub plugin_id: String,
+        pub encrypted_config: Vec<u8>,
+    }
+
+    #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+    pub enum Relation {}
+
+    impl ActiveModelBehavior for ActiveModel {}
+}

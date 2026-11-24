@@ -132,6 +132,14 @@ pub fn router() -> Router<Arc<App>> {
             "/v1/plugins/content_transform/{id}/run",
             post(crate::plugins::transform),
         )
+        .route(
+            "/v1/plugins/content_transform/{id}/config",
+            get(crate::transform_settings::settings).put(crate::transform_settings::save),
+        )
+        .route(
+            "/v1/plugins/content_transform/{id}/options/{field}",
+            post(crate::transform_settings::options),
+        )
         .route("/v1/channels", get(channels))
         .route("/v1/channels/lazycat/devices", get(crate::lazycat::devices))
         .route("/v1/channels/{id}", get(channel))
@@ -368,7 +376,7 @@ async fn account(
 }
 
 #[derive(Deserialize)]
-struct AccountEditor {
+pub(crate) struct AccountEditor {
     fields: Vec<String>,
     #[serde(default)]
     credentials: std::collections::BTreeMap<String, Vec<String>>,
@@ -382,6 +390,10 @@ async fn account_editor(app: &App, channel: &str) -> ApiResult<AccountEditor> {
         .config_schema(channel)
         .await
         .map_err(ApiError::channel)?;
+    config_editor(&schema)
+}
+
+pub(crate) fn config_editor(schema: &Value) -> ApiResult<AccountEditor> {
     let editor: AccountEditor =
         serde_json::from_value(schema["x-anser-ui"]["account_editor"].clone())
             .map_err(|_| ApiError::from(DataError::Missing))?;
@@ -410,6 +422,21 @@ async fn account_config(
     let account = app.store.account(&id).await?;
     let editor = account_editor(&app, &account.channel).await?;
     let saved = app.cipher.open(&id, &account.encrypted_config)?;
+    Ok((
+        [(header::CACHE_CONTROL, "no-store")],
+        Json(config_view(
+            &editor,
+            &saved,
+            Some(config_revision(&account.encrypted_config)),
+        )),
+    ))
+}
+
+pub(crate) fn config_view(
+    editor: &AccountEditor,
+    saved: &Value,
+    revision: Option<String>,
+) -> Value {
     let config: serde_json::Map<String, Value> = editor
         .fields
         .iter()
@@ -425,21 +452,18 @@ async fn account_config(
         .keys()
         .filter(|key| saved.get(*key).is_some_and(|value| !value.is_null()))
         .collect();
-    Ok((
-        [(header::CACHE_CONTROL, "no-store")],
-        Json(json!({
-            "config": config,
-            "saved_credentials": saved_credentials,
-            "revision": config_revision(&account.encrypted_config)
-        })),
-    ))
+    json!({"config": config, "saved_credentials": saved_credentials, "revision": revision})
 }
 
-fn config_revision(encrypted: &[u8]) -> String {
+pub(crate) fn config_revision(encrypted: &[u8]) -> String {
     format!("{:x}", Sha256::digest(encrypted))
 }
 
-fn merge_account_config(editor: &AccountEditor, saved: &Value, draft: Value) -> ApiResult<Value> {
+pub(crate) fn merge_account_config(
+    editor: &AccountEditor,
+    saved: &Value,
+    draft: Value,
+) -> ApiResult<Value> {
     let Value::Object(fields) = draft else {
         return Err(ApiError::bad("Expected a channel configuration object"));
     };

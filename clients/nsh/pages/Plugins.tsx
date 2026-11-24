@@ -1,8 +1,10 @@
-import { resource, signal, Text, View } from "nsh";
+import { cleanup, computed, effect, resource, signal, Text, View } from "nsh";
 import { t } from "nsh/i18n";
 import { ApiError, messageFor, type AnserApi } from "../api";
 import { channelName } from "../channelNames";
-import { pluginLabel } from "../components/ChannelConfig";
+import {
+  ChannelConfig, channelConfigDraft, dynamicOptionInputs, pluginLabel, supportsTransformSettings, transformDraft,
+} from "../components/ChannelConfig";
 import {
   Action,
   confirm,
@@ -13,7 +15,7 @@ import {
   Section,
 } from "../components/Controls";
 import { RecordRow, WorkspacePage } from "../components/Workspace";
-import type { Account, Channel, ChannelRuntime, InstalledPlugin } from "../contracts";
+import type { Account, Channel, ChannelRuntime, InstalledPlugin, PluginChoice, SavedTransformConfig } from "../contracts";
 import { operation } from "../state";
 import { AccountList } from "./Accounts";
 
@@ -56,6 +58,7 @@ export function Plugins(props: {
     }
   });
   const refresh = operation();
+  const editing = signal<InstalledPlugin | undefined>(undefined);
   const pending = () => ["pending", "refreshing"].includes(inventory.state());
   const group = (kind: InstalledPlugin["kind"]) =>
     (inventory() ?? []).filter((plugin) => plugin.kind === kind);
@@ -64,7 +67,7 @@ export function Plugins(props: {
       ? channelName(plugin.id, plugin.display_name)
       : plugin.display_name);
 
-  return (
+  return <If when={editing()} else={
     <WorkspacePage title={t("plugins.title")} back={props.onBack}>
       <Action
         label={t("common.refresh")}
@@ -121,6 +124,11 @@ export function Plugins(props: {
                   title={label(plugin())}
                   subtitle={plugin().version}
                   status={<PluginStatus channel={plugin()} />}
+                  action={supportsTransformSettings(plugin()) ? {
+                    label: t("plugins.configure"),
+                    accessibilityLabel: t("plugins.configure_plugin", { name: label(plugin()) }),
+                  } : undefined}
+                  onPress={supportsTransformSettings(plugin()) ? () => editing.set(plugin()) : undefined}
                 />
               )}
             </Each>
@@ -128,7 +136,72 @@ export function Plugins(props: {
         )}
       </Each>
     </WorkspacePage>
-  );
+  }>
+    {(plugin) => <TransformSettings api={props.api} plugin={plugin()} back={() => editing.set(undefined)} />}
+  </If>;
+}
+
+function TransformSettings(props: { api: AnserApi; plugin: InstalledPlugin; back: () => void }) {
+  const plugin = props.plugin;
+  const loading = operation();
+  const saving = operation();
+  const saved = signal<SavedTransformConfig | undefined>(undefined);
+  const draft = channelConfigDraft(() => plugin, () => saved()?.saved_credentials ?? []);
+  const notice = signal(false);
+  const choices = signal<Record<string, { items?: PluginChoice[]; loading?: boolean; failed?: boolean }>>({});
+  const optionRequest = computed(() => {
+    const config = saved();
+    return config ? JSON.stringify([config.revision, dynamicOptionInputs(plugin, draft.values(), config)]) : undefined;
+  });
+
+  function accept(config: SavedTransformConfig) {
+    draft.values.set(transformDraft(plugin, config));
+    saved.set(config);
+  }
+  function load() {
+    void loading.run(async () => {
+      const config = await props.api.transformSettings(plugin.id);
+      if (loading.live()) accept(config);
+    });
+  }
+  function save() {
+    notice.set(false);
+    void saving.run(async () => {
+      const config = await props.api.saveTransformSettings(plugin.id, draft.value(), saved()?.revision ?? null);
+      if (!saving.live()) return;
+      accept(config);
+      notice.set(true);
+    });
+  }
+  effect(() => {
+    const request = optionRequest();
+    if (!request) return;
+    const [revision, inputs] = JSON.parse(request) as [string | null, Record<string, Record<string, string>>];
+    const entries = Object.entries(inputs);
+    choices.set(Object.fromEntries(entries.map(([field]) => [field, { loading: true }])));
+    const abort = new AbortController();
+    const timer = setTimeout(() => {
+      for (const [field, value] of entries) {
+        const report = (result: { items?: PluginChoice[]; failed?: boolean }) => {
+          if (!abort.signal.aborted) choices.update((previous) => ({ ...previous, [field]: result }));
+        };
+        void props.api.transformOptions(plugin.id, field, value, revision, abort.signal)
+          .then(({ items }) => report({ items }), () => report({ failed: true }));
+      }
+    }, 350);
+    cleanup(() => { clearTimeout(timer); abort.abort(); });
+  });
+  load();
+
+  return <WorkspacePage title={pluginLabel(plugin) ?? plugin.display_name} back={props.back}
+    footer={<Action label={saving.busy() ? t("common.saving") : t("plugins.save_settings")}
+      kind="primary" disabled={!saved() || saving.busy()} onPress={save} />}>
+    <Problem message={loading.problem() || saving.problem()} />
+    <If when={loading.busy()}><Hint>{t("controls.loading")}</Hint></If>
+    <If when={loading.problem()}><Action label={t("common.refresh")} onPress={load} /></If>
+    <If when={notice()}><Hint>{t("plugins.settings_saved")}</Hint></If>
+    <If when={saved()}><ChannelConfig draft={draft} guided choices={choices()} /></If>
+  </WorkspacePage>;
 }
 
 export function PluginSettings(props: {

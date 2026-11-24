@@ -184,10 +184,11 @@ export class Api {
   }
 
   read<T>(path: string, signal?: AbortSignal) { return this.request<T>(path, { signal }); }
-  write<T>(path: string, method: "POST" | "PUT" | "PATCH" | "DELETE", value?: unknown, timeoutMs?: number) {
+  write<T>(path: string, method: "POST" | "PUT" | "PATCH" | "DELETE", value?: unknown, timeoutMs?: number, signal?: AbortSignal) {
     return this.request<T>(path, {
       method,
       body: value === undefined ? undefined : JSON.stringify(value),
+      signal,
     }, timeoutMs);
   }
   send(topic: string | undefined, message: Publish, key: string) {

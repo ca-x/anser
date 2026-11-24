@@ -4,11 +4,10 @@ use sqlx::SqliteConnection;
 
 use crate::{DataError, Result, Store, now_ms};
 
-const MAX_RETENTION_MS: i64 = 7 * 24 * 60 * 60 * 1000;
-
 pub struct SpeechWrite {
     pub token: String,
     pub bytes: Vec<u8>,
+    pub retention_ms: i64,
 }
 
 impl SpeechWrite {
@@ -23,7 +22,7 @@ impl SpeechWrite {
         now: i64,
         retention_ms: i64,
     ) -> Result<()> {
-        let expires = now.saturating_add(retention_ms.min(MAX_RETENTION_MS));
+        let expires = now.saturating_add(retention_ms.min(self.retention_ms));
         sqlx::query(
             "INSERT INTO notification_audio (message_id, token, bytes, expires_at) VALUES(?,?,?,?)",
         )

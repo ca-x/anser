@@ -209,6 +209,27 @@ impl ChannelHost {
         self.root.shutdown().await.map_err(|_| HostError::Shutdown)
     }
 
+    pub async fn validate_transform_settings(
+        &self,
+        id: &str,
+        config: &Value,
+    ) -> Result<(), HostError> {
+        self.actions
+            .validate_transform_settings(&self.root, id, config)
+            .await
+    }
+
+    pub async fn transform_options(
+        &self,
+        id: &str,
+        field: &str,
+        config: &Value,
+    ) -> Result<Vec<anser_plugin_api::ConfigOption>, HostError> {
+        self.actions
+            .transform_options(&self.root, id, field, config)
+            .await
+    }
+
     fn channel(&self, id: &str) -> Result<&Channel, HostError> {
         self.channels.get(id).ok_or(HostError::Unavailable)
     }

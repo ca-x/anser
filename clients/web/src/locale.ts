@@ -207,6 +207,12 @@ const english: Record<string, string> = {
   "端口": "Port",
   "加密方式": "Encryption",
   "连接预设": "Connection preset",
+  "选择或手动输入": "Choose or enter a value",
+  "未能获取选项，可以手动输入。": "Could not load options. Enter a value manually.",
+  "服务未提供可选项，可以手动输入。": "The service did not list options. Enter a value manually.",
+  "保存插件配置": "Save plugin settings",
+  "配置 {name}": "Configure {name}",
+  "插件配置已保存。": "Plugin settings saved.",
   "测试请求发往 Cloudflare。": "The test request goes to Cloudflare.",
   "留空保留已保存的凭据。更改关联设置时，请重新填写。": "Leave blank to keep the saved credential. Re-enter it if related settings change.",
   "手动配置": "Manual setup",
@@ -652,6 +658,8 @@ const english: Record<string, string> = {
 };
 
 const chinese: Record<string, string> = {
+  "Audio retention must be between 1 and 365 days": "音频保留天数须为 1 至 365 天。",
+  "Plugin settings changed. Reload the settings and try again.": "插件配置已更新。请重新打开后再试。",
   "Channel settings changed. Reopen the editor and try again.": "渠道配置已被更新。请重新打开编辑页后再试。",
   "Use 5 for low priority or 10 for normal priority.": "5 为低优先级，10 为普通优先级。",
   "A proxy URL is required when replacing credentials": "替换凭据时请填写代理地址。",

@@ -3,6 +3,8 @@ import type {
   Acceptance,
   Account,
   EditableAccountConfig,
+  PluginChoice,
+  SavedTransformConfig,
   Channel,
   ChannelRuntime,
   HistoryEntry,
@@ -349,6 +351,23 @@ export class AnserApi {
       "GET",
       undefined,
       signal,
+    );
+  }
+
+  transformSettings(id: string) {
+    return this.request<SavedTransformConfig>(`/plugins/content_transform/${segment(id)}/config`);
+  }
+
+  saveTransformSettings(id: string, config: JsonObject, revision: string | null) {
+    return this.request<SavedTransformConfig>(`/plugins/content_transform/${segment(id)}/config`, "PUT", {
+      config, config_revision: revision,
+    });
+  }
+
+  transformOptions(id: string, field: string, config: JsonObject, revision: string | null, abort: AbortSignal) {
+    return this.request<Page<PluginChoice>>(
+      `/plugins/content_transform/${segment(id)}/options/${segment(field)}`, "POST",
+      { config, config_revision: revision }, abort,
     );
   }
 

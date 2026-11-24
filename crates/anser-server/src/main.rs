@@ -17,6 +17,7 @@ mod settings;
 mod speech;
 mod templates;
 mod totp;
+mod transform_settings;
 mod web;
 
 use anser_queue::{Cipher, Enqueuer, Limits, Workers};

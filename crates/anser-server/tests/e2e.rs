@@ -2486,7 +2486,7 @@ async fn installed_plugins_group_typed_actions_and_require_global_admin_to_run()
         ("task", "certificate-expiration", "0.1.0"),
         ("task", "wttr-weather", "0.2.0"),
         ("task", "open-meteo-weather", "0.1.0"),
-        ("content_transform", "openai-tts", "0.1.0"),
+        ("content_transform", "openai-tts", "0.2.0"),
     ] {
         assert!(installed.iter().any(|plugin| {
             plugin["id"] == expected
@@ -2934,6 +2934,117 @@ async fn history_retention_settings_require_global_admin_and_survive_restart() {
 }
 
 #[tokio::test]
+#[cfg(feature = "openai-tts")]
+async fn tts_settings_persist_and_voice_choices_are_discovered_without_revealing_the_key() {
+    use axum::{
+        Json, Router,
+        http::HeaderMap,
+        routing::{get, post},
+    };
+    use tokio::net::TcpListener;
+    const SETTINGS: &str = "/v1/plugins/content_transform/openai-tts/config";
+    const OPTIONS: &str = "/v1/plugins/content_transform/openai-tts/options/voice";
+    const RUN: &str = "/v1/plugins/content_transform/openai-tts/run";
+    let upstream = Router::new()
+        .route("/v1/models", get(|headers: HeaderMap| async move {
+            assert_eq!(headers["authorization"], "Bearer fixture-tts-settings-key");
+            Json(json!({"data":[{"id":"tts-1"},{"id":"tts-1-hd"},{"id":"tts-1-alloy"},{"id":"tts-1-cedar"},{"id":"gpt-4o"}]}))
+        }))
+        .route("/v1/audio/speech", post(|headers: HeaderMap, Json(input): Json<Value>| async move {
+            assert_eq!(headers["authorization"], "Bearer fixture-tts-settings-key");
+            assert_eq!(input["voice"], "cedar");
+            ([( "content-type", "audio/mpeg")], "ID3fixture-audio")
+        }));
+    let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+    let provider = format!("http://{}", listener.local_addr().unwrap());
+    let provider_task = tokio::spawn(async move { axum::serve(listener, upstream).await.unwrap() });
+    let folder = tempfile::tempdir().unwrap();
+    let path = folder.path().join("settings.sqlite");
+    let server = Server::start(&path);
+    let admin = Some(BOOTSTRAP_KEY);
+    let no_auth = server
+        .request(Method::GET, SETTINGS, None)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(no_auth.status(), StatusCode::UNAUTHORIZED);
+    let empty: Value = server.get(SETTINGS, admin).await;
+    assert_eq!(
+        empty,
+        json!({"config":{},"revision":null,"saved_credentials":[]})
+    );
+    let config = json!({"server_url":provider,"api_key":"fixture-tts-settings-key","model":"tts-1","voice":"cedar","audio_retention_days":14});
+    let saved: Value = server
+        .json(
+            Method::PUT,
+            SETTINGS,
+            admin,
+            json!({"config":config}),
+            StatusCode::OK,
+        )
+        .await;
+    assert_eq!(saved["saved_credentials"], json!(["api_key"]));
+    assert!(saved["config"]["api_key"].is_null());
+    assert_eq!(saved["config"]["audio_retention_days"], 14);
+    let _: Value = server
+        .json(
+            Method::PUT,
+            SETTINGS,
+            admin,
+            json!({"config":config}),
+            StatusCode::CONFLICT,
+        )
+        .await;
+    drop(server);
+    let server = Server::start(&path);
+    let persisted: Value = server.get(SETTINGS, admin).await;
+    assert_eq!(persisted, saved);
+    let draft = json!({"server_url":provider,"model":"tts-1"});
+    let options: Value = server
+        .json(
+            Method::POST,
+            OPTIONS,
+            admin,
+            json!({"config":draft,"config_revision":saved["revision"]}),
+            StatusCode::OK,
+        )
+        .await;
+    assert_eq!(
+        options["items"],
+        json!([{"value":"alloy","label":"alloy"},{"value":"cedar","label":"cedar"}])
+    );
+    let result: Value = server
+        .json(
+            Method::POST,
+            RUN,
+            admin,
+            json!({"message":{"body":"Test saved TTS settings"}}),
+            StatusCode::OK,
+        )
+        .await;
+    assert_eq!(result["artifacts"][0]["content_type"], "audio/mpeg");
+    let moved =
+        json!({"server_url":"https://different.example.org","model":"tts-1","voice":"cedar"});
+    let _: Value = server
+        .json(
+            Method::PUT,
+            SETTINGS,
+            admin,
+            json!({"config":moved,"config_revision":saved["revision"]}),
+            StatusCode::UNPROCESSABLE_ENTITY,
+        )
+        .await;
+    assert_eq!(server.get::<Value>(SETTINGS, admin).await, saved);
+    assert!(
+        !std::fs::read(path)
+            .unwrap()
+            .windows(b"fixture-tts-settings-key".len())
+            .any(|value| value == b"fixture-tts-settings-key")
+    );
+    provider_task.abort();
+}
+
+#[tokio::test]
 async fn speech_delivery_reuses_audio_for_inbox_and_topic_links() {
     use axum::Router;
     use axum::routing::post;
@@ -2980,7 +3091,7 @@ async fn speech_delivery_reuses_audio_for_inbox_and_topic_links() {
         .await;
     let alice = server.login("alice", ACCOUNT_PASSWORD).await;
     let payload = json!({
-        "config":{"server_url":provider_url,"api_key":"fixture-provider","model":"tts-1","voice":"alloy","response_format":"wav"},
+        "config":{"server_url":provider_url,"api_key":"fixture-provider","model":"tts-1","voice":"alloy","response_format":"wav","audio_retention_days":1},
         "message":{"title":"Hello","body":"Your build is ready."},
         "destination":{"kind":"inbox","username":"alice"}
     });
@@ -3051,6 +3162,10 @@ async fn speech_delivery_reuses_audio_for_inbox_and_topic_links() {
         .await;
     let mut announcement = payload;
     announcement["destination"] = json!({"kind":"topic","name":"speech"});
+    announcement["config"]
+        .as_object_mut()
+        .unwrap()
+        .remove("audio_retention_days");
     let published: Value = checked_json(
         send(announcement, "voice-43").send().await.unwrap(),
         StatusCode::ACCEPTED,
@@ -3087,5 +3202,37 @@ async fn speech_delivery_reuses_audio_for_inbox_and_topic_links() {
         .unwrap();
     assert_eq!(audio.status(), StatusCode::OK);
     assert_eq!(audio.bytes().await.unwrap(), "ID3fixture-mp3");
+
+    const DAY: i64 = 86_400_000;
+    let now = anser_store::now_ms();
+    let store = anser_store::Store::open(&database).await.unwrap();
+    store.maintain(now + 2 * DAY, 30 * DAY).await.unwrap();
+    let expired = restarted
+        .request(Method::GET, &audio_path, None)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(expired.status(), StatusCode::NOT_FOUND);
+    let live = restarted
+        .request(Method::GET, path, None)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(live.status(), StatusCode::OK);
+    let inbox: Value = restarted.get("/v1/inbox", Some(&alice)).await;
+    let personal = inbox["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["body"] == "Your build is ready.")
+        .unwrap();
+    assert!(personal["audio_path"].is_null());
+    store.maintain(now + 8 * DAY, 30 * DAY).await.unwrap();
+    let expired = restarted
+        .request(Method::GET, path, None)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(expired.status(), StatusCode::NOT_FOUND);
     task.abort();
 }

@@ -727,6 +727,70 @@ test("manages plugin runtime and configures an account for that plugin", async (
   expect(app.texts().includes("插件运行状态")).toBe(true);
 });
 
+test("configures a transform with saved credentials and provider voice choices", async () => {
+  const path = `${endpoints}/plugins/content_transform/openai-tts`;
+  let settings = {
+    config: { server_url: "https://speech.example.test", model: "tts-1", voice: "alloy", audio_retention_days: 7 },
+    saved_credentials: ["api_key"], revision: "fixture",
+  };
+  let submitted: Record<string, unknown> | undefined;
+  const app = await open("./App.tsx", {
+    platform: "linux",
+    storage: chinesePreferences,
+    width: 1120,
+    height: 960,
+    network: {
+      ...baseNetwork(),
+      [`${endpoints}/plugins`]: { body: page([{
+        id: "openai-tts", kind: "content_transform", display_name: "TTS", available: true, enabled: true,
+        config_schema: {
+          "x-anser-ui": {
+            label: { "zh-CN": "文本转语音" }, persistent_settings: true,
+            account_editor: { fields: ["server_url", "model", "voice"], credentials: { api_key: ["server_url"] } },
+          },
+          properties: {
+            server_url: { type: "string" },
+            api_key: { type: "string", writeOnly: true },
+            model: { type: "string" },
+            audio_retention_days: { type: "integer", "x-anser-ui": { label: { "zh-CN": "音频保留天数" } } },
+            voice: { type: "string", "x-anser-ui": {
+              label: { "zh-CN": "音色" }, dynamic_options: { fields: ["server_url", "api_key", "model"] },
+            } },
+          },
+          required: ["server_url", "api_key", "model", "voice"],
+        },
+      }]) },
+      [`GET ${path}/config`]: () => ({ body: settings }),
+      [`PUT ${path}/config`]: ({ body }) => {
+        submitted = JSON.parse(body ?? "{}");
+        settings = { ...settings, config: JSON.parse(body ?? "{}").config, revision: "updated" };
+        return { body: settings };
+      },
+      [`POST ${path}/options/voice`]: ({ body }) => {
+        expect(JSON.parse(body ?? "{}")).toEqual({
+          config: { server_url: "https://speech.example.test", model: "tts-1" }, config_revision: settings.revision,
+        });
+        return { body: page([{ value: "alloy", label: "Alloy" }, { value: "cedar", label: "Cedar" }]) };
+      },
+    },
+  });
+  await login(app);
+  await app.press("role:button[账号]");
+  await app.press("插件管理");
+  await app.press("配置文本转语音");
+  await app.waitFor("Alloy");
+  await app.press("label:音色（必填）");
+  await app.press("Cedar");
+  await app.clear("label:音频保留天数");
+  await app.type("label:音频保留天数", "14");
+  await app.press("保存插件配置");
+  await app.waitFor("插件配置已保存。");
+  expect(submitted).toEqual({
+    config: { server_url: "https://speech.example.test", model: "tts-1", voice: "cedar", audio_retention_days: 14 },
+    config_revision: "fixture",
+  });
+});
+
 test("uses English provider names and exposes plugin management to a global admin key", async () => {
   const app = await open("./App.tsx", {
     locale: "en",

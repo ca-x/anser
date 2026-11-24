@@ -18,6 +18,7 @@ pub enum OpenError {
 
 mod channel_settings;
 mod entities;
+mod transform_settings;
 
 pub struct Store(SqlitePool, DatabaseConnection, tokio::sync::Mutex<()>);
 

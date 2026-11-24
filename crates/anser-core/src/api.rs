@@ -9,6 +9,15 @@ use serde_json::Value;
 use crate::Message;
 use crate::routing::{Backoff, Mode, RetryPolicy, SuccessCriteria};
 
+pub const DEFAULT_AUDIO_RETENTION_DAYS: u16 = 7;
+pub const MAX_AUDIO_RETENTION_DAYS: u16 = 365;
+
+pub fn audio_retention_ms(days: u16) -> Option<i64> {
+    (1..=MAX_AUDIO_RETENTION_DAYS)
+        .contains(&days)
+        .then(|| i64::from(days) * 86_400_000)
+}
+
 /// Applies a validated subscription override to a decrypted channel configuration.
 pub fn apply_recipient_override(
     channel: &str,

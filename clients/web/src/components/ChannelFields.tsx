@@ -1,6 +1,6 @@
 import { useLanguage, useT } from "../preferences";
 import { useState } from "react";
-import { EuiFieldNumber, EuiFieldPassword, EuiFieldText, EuiFormRow, EuiLink, EuiSelect, EuiTextArea } from "@elastic/eui";
+import { EuiComboBox, EuiFieldNumber, EuiFieldPassword, EuiFieldText, EuiFormRow, EuiLink, EuiSelect, EuiTextArea } from "@elastic/eui";
 import type { JsonObject } from "../api";
 import { accountFormFields, configPresets, externalHelpUrl, matchesCondition, pluginProperties, presetValues, sensitiveField, visibleField, type ConfigSchema } from "../form-values";
 import { channelConfigOptionName } from "../locale";
@@ -19,14 +19,20 @@ const fieldNames: Record<string, string> = {
   recipient_kind: "接收目标类型", recipient_id: "接收目标 ID", sandbox: "沙箱模式",
 };
 
-export function ChannelFields({ channel, value, update, savedCredentials }: {
+export type DynamicChoices = { items?: { value: string; label: string }[]; loading?: boolean; failed?: boolean };
+
+export function ChannelFields({ channel, value, update, savedCredentials, dynamicChoices }: {
   channel: ConfigSchema; value: JsonObject; update: (value: JsonObject) => void; savedCredentials?: string[];
+  dynamicChoices?: Record<string, DynamicChoices>;
 }) {
   const t = useT();
   const language = useLanguage();
   const schema = channel.config_schema;
   const fields = pluginProperties(channel);
   const presented = accountFormFields(channel);
+  const entries = presented
+    ? presented.filter((key) => Object.hasOwn(fields, key)).map((key) => [key, fields[key]] as const)
+    : Object.entries(fields);
   const [presetId, setPresetId] = useState<string>();
   const presets = configPresets(channel);
   const selected = presets.find((preset) => (presetId === undefined || preset.id === presetId) &&
@@ -57,8 +63,7 @@ export function ChannelFields({ channel, value, update, savedCredentials }: {
         options={[{ value: "", text: t("手动配置") }, ...presets.map((preset) =>
           ({ value: preset.id, text: preset.label[language] ?? preset.id }))]} />
     </EuiFormRow>}
-    {Object.entries(fields).filter(([key, field]) =>
-    key !== "proxy" && (!presented || presented.includes(key)) && visibleField(field, value, fields)).map(([key, field]) => {
+    {entries.filter(([key, field]) => key !== "proxy" && visibleField(field, value, fields)).map(([key, field]) => {
     const entry = value[key] ?? "";
     const ui = field["x-anser-ui"];
     const label = ui?.label?.[language] || t(field.title || fieldNames[key] || key);
@@ -66,8 +71,17 @@ export function ChannelFields({ channel, value, update, savedCredentials }: {
     const secret = field.writeOnly || field.format === "password" || /password|token|secret|sendkey|webhook/.test(key);
     const saved = savedCredentials?.includes(key);
     const isRequired = !saved && (required.has(key) || matchesCondition(ui?.required_when, value, fields));
+    const choices = dynamicChoices?.[key];
     let control;
-    if (field.enum) {
+    if (ui?.dynamic_options && (choices?.items?.length || choices?.loading)) {
+      const selected = String(entry);
+      const options = (choices.items ?? []).map(({ label, value }) => ({ label, key: value }));
+      const current = options.find(({ key }) => key === selected) ?? { label: selected, key: selected };
+      control = <EuiComboBox fullWidth singleSelection={{ asPlainText: true }} isLoading={choices.loading} options={options}
+        selectedOptions={selected ? [current] : []} onChange={(selection) => change(key, selection[0]?.key ?? "")}
+        onCreateOption={(input) => { if (input.trim()) change(key, input.trim()); }}
+        placeholder={t("选择或手动输入")} />;
+    } else if (field.enum) {
       const options = field.enum;
       const labelFor = (option: string | number) => ui?.option_labels?.[String(option)]?.[language] || channelConfigOptionName(language, String(option));
       control = <EuiSelect fullWidth required={isRequired} value={String(entry)} onChange={(event) =>
@@ -101,8 +115,11 @@ export function ChannelFields({ channel, value, update, savedCredentials }: {
       const text = link?.label?.[language];
       return url && text ? [<EuiLink key={url} href={url} target="_blank" rel="noopener noreferrer" external>{text}</EuiLink>] : [];
     }) : [];
-    return <EuiFormRow key={key} label={label} helpText={(help || saved || links.length > 0) ? <span className="field-help">
+    const optionHint = choices?.failed ? t("未能获取选项，可以手动输入。")
+      : choices?.items?.length === 0 ? t("服务未提供可选项，可以手动输入。") : undefined;
+    return <EuiFormRow key={key} label={label} helpText={(help || saved || optionHint || links.length > 0) ? <span className="field-help">
       {help && <span>{help}</span>}
+      {optionHint && <span>{optionHint}</span>}
       {saved && <span>{t("留空保留已保存的凭据。更改关联设置时，请重新填写。")}</span>}
       {links.length > 0 && <span className="field-help-links">{links}</span>}
     </span> : undefined} fullWidth>{control}</EuiFormRow>;

@@ -1,20 +1,26 @@
 //! Converts notification text into audio using the OpenAI speech protocol.
 
 use anser_channel_http::{
-    NetworkPolicy, append_path, client_with_policy, config, network_error, plain_body,
+    NetworkPolicy, append_path, bounded_body, client_with_policy, config, network_error,
+    plain_body,
     reqwest::{Url, header::HeaderValue},
     status_error, url,
 };
 use anser_core::Message;
+use anser_core::api::{DEFAULT_AUDIO_RETENTION_DAYS, MAX_AUDIO_RETENTION_DAYS, audio_retention_ms};
 use anser_plugin_api::{
-    ContentTransformService, MAX_TRANSFORM_ARTIFACT_BYTES, PluginDescriptor, PluginFuture,
-    PluginKind, SendError, TransformArtifact, TransformOutput,
+    ConfigOption, ContentTransformService, MAX_TRANSFORM_ARTIFACT_BYTES, PluginDescriptor,
+    PluginFuture, PluginKind, SendError, TransformArtifact, TransformOutput,
 };
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
 const MAX_INPUT_CHARS: usize = 4096;
+const OPENAI_VOICES: &[&str] = &[
+    "alloy", "ash", "ballad", "coral", "echo", "fable", "nova", "onyx", "sage", "shimmer", "verse",
+    "marin", "cedar",
+];
 
 #[derive(Default)]
 pub struct OpenAiTts;
@@ -28,6 +34,7 @@ struct Config {
     voice: String,
     #[serde(default)]
     response_format: AudioFormat,
+    audio_retention_days: Option<u16>,
 }
 
 #[derive(Clone, Copy, Default, Deserialize)]
@@ -64,7 +71,15 @@ impl ContentTransformService for OpenAiTts {
             version: Some(env!("CARGO_PKG_VERSION").into()),
             config_schema: json!({
                 "type": "object",
-                "x-anser-ui": {"label":{"en":"OpenAI TTS","zh-CN":"文本转语音"}},
+                "x-anser-ui": {
+                    "label":{"en":"OpenAI TTS","zh-CN":"文本转语音"},
+                    "persistent_settings": true,
+                    "form_fields":["server_url","api_key","model","voice","response_format","audio_retention_days"],
+                    "account_editor": {
+                        "fields":["server_url","model","voice","response_format","audio_retention_days"],
+                        "credentials":{"api_key":["server_url"]}
+                    }
+                },
                 "properties": {
                     "server_url": {
                         "type": "string", "format": "uri", "default": "https://api.openai.com",
@@ -76,21 +91,59 @@ impl ContentTransformService for OpenAiTts {
                     },
                     "model": {
                         "type": "string", "default": "tts-1", "maxLength": 128,
-                        "x-anser-ui": {"label":{"en":"Model","zh-CN":"模型"}}
+                        "x-anser-ui": {
+                            "label":{"en":"Model","zh-CN":"模型"},
+                            "dynamic_options":{"fields":["server_url","api_key"]}
+                        }
                     },
                     "voice": {
                         "type": "string", "default": "alloy", "maxLength": 128,
-                        "x-anser-ui": {"label":{"en":"Voice","zh-CN":"音色"}}
+                        "x-anser-ui": {
+                            "label":{"en":"Voice","zh-CN":"音色"},
+                            "dynamic_options":{"fields":["server_url","api_key","model"]}
+                        }
                     },
                     "response_format": {
                         "type": "string", "enum": ["mp3","opus","aac","flac","wav","pcm"], "default":"mp3",
                         "x-anser-ui": {"label":{"en":"Audio format","zh-CN":"音频格式"}}
+                    },
+                    "audio_retention_days": {
+                        "type": "integer", "default": DEFAULT_AUDIO_RETENTION_DAYS,
+                        "minimum": 1, "maximum": MAX_AUDIO_RETENTION_DAYS,
+                        "x-anser-ui": {
+                            "label":{"en":"Audio retention (days)","zh-CN":"音频保留天数"},
+                            "description":{
+                                "en":"Applies to new voice notifications. The audio expires no later than the notification.",
+                                "zh-CN":"仅适用于新发出的语音通知。音频不会保留得比通知更久。"
+                            }
+                        }
                     }
                 },
                 "required": ["server_url","api_key","model","voice"],
                 "additionalProperties": false
             }),
         }
+    }
+
+    fn validate_settings(&self, value: &Value) -> Result<(), SendError> {
+        let settings: Config = config(value)?;
+        settings.validate().map(|_| ())
+    }
+
+    fn config_options<'a>(
+        &'a self,
+        field: &'a str,
+        value: &'a Value,
+    ) -> PluginFuture<'a, Vec<ConfigOption>> {
+        Box::pin(async move {
+            let query: OptionsQuery = config(value)?;
+            let policy = NetworkPolicy::from_env();
+            match field {
+                "voice" => discover_voices(query, &policy).await,
+                "model" => discover_models(query, &policy).await,
+                _ => Err(invalid_config()),
+            }
+        })
     }
 
     fn transform<'a>(
@@ -114,15 +167,235 @@ fn invalid_config() -> SendError {
 }
 
 fn speech_url(server_url: &str) -> Result<Url, SendError> {
+    append_path(api_base(server_url)?, &["audio", "speech"])
+}
+
+fn api_base(server_url: &str) -> Result<Url, SendError> {
     let base = url(server_url)?;
     if base.query().is_some() {
         return Err(invalid_config());
     }
     if base.path().trim_end_matches('/').ends_with("/v1") {
-        append_path(base, &["audio", "speech"])
+        Ok(base)
     } else {
-        append_path(base, &["v1", "audio", "speech"])
+        append_path(base, &["v1"])
     }
+}
+
+fn valid_selection(value: &str) -> bool {
+    !value.trim().is_empty() && value.len() <= 128 && !value.contains(char::is_control)
+}
+
+fn authorization(key: &str) -> Result<HeaderValue, SendError> {
+    if key.is_empty() || key.len() > 4096 || !key.bytes().all(|byte| byte.is_ascii_graphic()) {
+        return Err(invalid_config());
+    }
+    let mut value =
+        HeaderValue::from_str(&format!("Bearer {key}")).map_err(|_| invalid_config())?;
+    value.set_sensitive(true);
+    Ok(value)
+}
+
+impl Config {
+    fn validate(&self) -> Result<(Url, HeaderValue), SendError> {
+        if !valid_selection(&self.model) || !valid_selection(&self.voice) {
+            return Err(invalid_config());
+        }
+        if self
+            .audio_retention_days
+            .is_some_and(|days| audio_retention_ms(days).is_none())
+        {
+            return Err(SendError::new(
+                "tts_retention",
+                "Audio retention must be between 1 and 365 days",
+                false,
+            ));
+        }
+        Ok((speech_url(&self.server_url)?, authorization(&self.api_key)?))
+    }
+}
+
+#[derive(Deserialize)]
+struct OptionsQuery {
+    server_url: String,
+    api_key: String,
+    model: Option<String>,
+}
+
+async fn discover_voices(
+    query: OptionsQuery,
+    policy: &NetworkPolicy,
+) -> Result<Vec<ConfigOption>, SendError> {
+    let base = api_base(&query.server_url)?;
+    let auth = authorization(&query.api_key)?;
+    let model = query
+        .model
+        .as_deref()
+        .filter(|model| valid_selection(model))
+        .ok_or_else(invalid_config)?;
+    if base.host_str() == Some("api.openai.com") {
+        let voices: &[&str] = match model {
+            "tts-1" | "tts-1-hd" => &["alloy", "echo", "fable", "onyx", "nova", "shimmer"],
+            model if model.starts_with("gpt-4o-mini-tts") => OPENAI_VOICES,
+            _ => &[],
+        };
+        return Ok(voices
+            .iter()
+            .map(|voice| ConfigOption {
+                value: (*voice).into(),
+                label: (*voice).into(),
+            })
+            .collect());
+    }
+    for path in [&["audio", "voices"][..], &["voices"][..]] {
+        let endpoint = append_path(base.clone(), path)?;
+        let reply = client_with_policy(&endpoint, None, policy)
+            .await?
+            .get(endpoint)
+            .header("Authorization", auth.clone())
+            .header("Accept", "application/json")
+            .send()
+            .await
+            .map_err(network_error)?;
+        if matches!(reply.status().as_u16(), 404 | 405 | 501) {
+            continue;
+        }
+        if let Some(error) = status_error(&reply) {
+            return Err(error);
+        }
+        let data: Value = serde_json::from_slice(&bounded_body(reply).await?)
+            .map_err(|_| invalid_voice_list())?;
+        return voice_options(&data);
+    }
+    let models = upstream_models(base, auth, policy).await?;
+    Ok(model_voice_options(model, &models))
+}
+
+fn option(value: &str) -> ConfigOption {
+    ConfigOption {
+        value: value.to_owned(),
+        label: value.to_owned(),
+    }
+}
+
+fn model_voice_options(model: &str, models: &[String]) -> Vec<ConfigOption> {
+    if !matches!(model, "tts-1" | "tts-1-hd") || !models.iter().any(|item| item == "tts-1") {
+        return Vec::new();
+    }
+    let mut voices: Vec<_> = models
+        .iter()
+        .filter_map(|item| tts_voice_alias(item))
+        .collect();
+    voices.sort_unstable();
+    voices.dedup();
+    voices.into_iter().take(200).map(option).collect()
+}
+
+fn tts_voice_alias(model: &str) -> Option<&str> {
+    model
+        .strip_prefix("tts-1-")
+        .filter(|voice| OPENAI_VOICES.contains(voice))
+}
+
+async fn discover_models(
+    query: OptionsQuery,
+    policy: &NetworkPolicy,
+) -> Result<Vec<ConfigOption>, SendError> {
+    let base = api_base(&query.server_url)?;
+    let auth = authorization(&query.api_key)?;
+    if base.host_str() == Some("api.openai.com") {
+        return Ok(["tts-1", "tts-1-hd", "gpt-4o-mini-tts"]
+            .into_iter()
+            .map(option)
+            .collect());
+    }
+    let models = upstream_models(base, auth, policy).await?;
+    let has_tts_aliases = models.iter().any(|name| name == "tts-1")
+        && !model_voice_options("tts-1", &models).is_empty();
+    Ok(models
+        .iter()
+        .filter(|name| {
+            let lower = name.to_ascii_lowercase();
+            (lower.contains("tts") || lower.contains("speech"))
+                && !(has_tts_aliases && tts_voice_alias(name).is_some())
+        })
+        .take(200)
+        .map(|name| option(name))
+        .collect())
+}
+
+async fn upstream_models(
+    base: Url,
+    auth: HeaderValue,
+    policy: &NetworkPolicy,
+) -> Result<Vec<String>, SendError> {
+    let endpoint = append_path(base, &["models"])?;
+    let reply = client_with_policy(&endpoint, None, policy)
+        .await?
+        .get(endpoint)
+        .header("Authorization", auth)
+        .header("Accept", "application/json")
+        .send()
+        .await
+        .map_err(network_error)?;
+    if matches!(reply.status().as_u16(), 404 | 405 | 501) {
+        return Ok(Vec::new());
+    }
+    if let Some(error) = status_error(&reply) {
+        return Err(error);
+    }
+    let data: Value =
+        serde_json::from_slice(&bounded_body(reply).await?).map_err(|_| invalid_voice_list())?;
+    let mut models: Vec<String> = data["data"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|entry| entry["id"].as_str())
+        .filter(|name| valid_selection(name))
+        .map(str::to_owned)
+        .collect();
+    models.sort_unstable();
+    models.dedup();
+    Ok(models)
+}
+
+fn voice_options(data: &Value) -> Result<Vec<ConfigOption>, SendError> {
+    let entries = data
+        .as_array()
+        .or_else(|| data["voices"].as_array())
+        .or_else(|| data["data"].as_array())
+        .ok_or_else(invalid_voice_list)?;
+    let mut seen = std::collections::HashSet::new();
+    Ok(entries
+        .iter()
+        .filter_map(|entry| {
+            let id = entry
+                .as_str()
+                .or_else(|| entry["id"].as_str())
+                .or_else(|| entry["voice_id"].as_str())?;
+            if !valid_selection(id) || !seen.insert(id) {
+                return None;
+            }
+            let label = entry["name"]
+                .as_str()
+                .or_else(|| entry["label"].as_str())
+                .filter(|label| valid_selection(label))
+                .unwrap_or(id);
+            Some(ConfigOption {
+                value: id.to_owned(),
+                label: label.to_owned(),
+            })
+        })
+        .take(200)
+        .collect())
+}
+
+fn invalid_voice_list() -> SendError {
+    SendError::new(
+        "tts_voice_list",
+        "The speech provider returned an unrecognized voice list",
+        false,
+    )
 }
 
 async fn synthesize(
@@ -130,18 +403,7 @@ async fn synthesize(
     message: Message,
     policy: &NetworkPolicy,
 ) -> Result<TransformOutput, SendError> {
-    let endpoint = speech_url(&config.server_url)?;
-    if config.api_key.is_empty()
-        || config.api_key.len() > 4096
-        || !config.api_key.bytes().all(|byte| byte.is_ascii_graphic())
-        || [config.model.as_str(), config.voice.as_str()]
-            .iter()
-            .any(|value| {
-                value.trim().is_empty() || value.len() > 128 || value.contains(char::is_control)
-            })
-    {
-        return Err(invalid_config());
-    }
+    let (endpoint, token) = config.validate()?;
     // An extra character distinguishes exact-limit input from truncation.
     let body = plain_body(&message, MAX_INPUT_CHARS + 1);
     let input = if body.trim().is_empty() {
@@ -157,9 +419,6 @@ async fn synthesize(
         ));
     }
     let (extension, content_type) = config.response_format.extension_and_mime();
-    let mut token = HeaderValue::from_str(&format!("Bearer {}", config.api_key))
-        .map_err(|_| invalid_config())?;
-    token.set_sensitive(true);
     let mut reply = client_with_policy(&endpoint, None, policy)
         .await?
         .post(endpoint)
@@ -257,6 +516,7 @@ mod tests {
             model: "tts-1".into(),
             voice: "alloy".into(),
             response_format: AudioFormat::Mp3,
+            audio_retention_days: None,
         }
     }
 

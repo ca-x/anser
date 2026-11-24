@@ -42,6 +42,15 @@ export interface EditableAccountConfig {
   revision: string;
 }
 
+export interface SavedTransformConfig extends Omit<EditableAccountConfig, "revision"> {
+  revision: string | null;
+}
+
+export interface PluginChoice {
+  value: string;
+  label: string;
+}
+
 export interface Account {
   id: string;
   channel: string;

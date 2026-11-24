@@ -129,6 +129,17 @@ pub async fn document() -> Json<Value> {
             &["POST / Transform one notification (global administrator only)"],
         ),
         (
+            "/v1/plugins/content_transform/{id}/config",
+            &[
+                "GET / Read saved transform settings without credentials",
+                "PUT / Save encrypted transform settings",
+            ],
+        ),
+        (
+            "/v1/plugins/content_transform/{id}/options/{field}",
+            &["POST / Resolve options for a plugin configuration field"],
+        ),
+        (
             "/v1/channels",
             &["GET / List plugin schemas and capabilities"],
         ),
@@ -443,6 +454,8 @@ fn request_schema(path: &str, method: &str) -> Option<&'static str> {
         ("PATCH", "/v1/schedules/{id}") => Some("ScheduleEdit"),
         ("POST", "/v1/plugins/task/{id}/run") => Some("PluginTaskInput"),
         ("POST", "/v1/plugins/content_transform/{id}/run") => Some("PluginTransformInput"),
+        ("PUT", "/v1/plugins/content_transform/{id}/config") => Some("PluginConfigDraft"),
+        ("POST", "/v1/plugins/content_transform/{id}/options/{field}") => Some("PluginConfigDraft"),
         ("PUT", "/v1/channels/{id}/runtime") => Some("ChannelChange"),
         ("PUT", "/v1/default-route") => Some("Policy"),
         ("POST", "/v1/topics") | ("PUT", "/v1/topics/{name}") => Some("TopicInput"),
@@ -505,6 +518,12 @@ fn success_schema(path: &str, method: &str) -> Option<(&'static str, Value)> {
         ("POST", "/v1/plugins/task/{id}/run") => ("200", reference("PluginTaskOutput")),
         ("POST", "/v1/plugins/content_transform/{id}/run") => {
             ("200", reference("PluginTransformOutput"))
+        }
+        ("GET" | "PUT", "/v1/plugins/content_transform/{id}/config") => {
+            ("200", reference("AccountConfig"))
+        }
+        ("POST", "/v1/plugins/content_transform/{id}/options/{field}") => {
+            ("200", reference("PluginConfigOptions"))
         }
         ("GET", "/v1/channels") => ("200", page("Channel")),
         ("GET", "/v1/channels/lazycat/devices") => ("200", reference("LazycatDevices")),
@@ -645,7 +664,7 @@ fn schemas() -> Value {
             "AccountCreate":{"type":"object","required":["name","channel","config"],"properties":account_in},
             "AccountUpdate":{"type":"object","properties":account_update},
             "AccountConfig":{"type":"object","required":["config","saved_credentials","revision"],"properties":{
-                "config":{"type":"object"},"saved_credentials":strings,"revision":string
+                "config":{"type":"object"},"saved_credentials":strings,"revision":{"type":["string","null"]}
             }},
             "Proxy":{"type":"object","required":["id","name","url","authenticated"],"properties":{"id":string,"name":string,"url":{"type":"string","format":"uri","description":"Credential-free HTTP(S) origin"},"authenticated":boolean}},
             "ProxyCreate":{"type":"object","required":["name","url"],"properties":proxy_input},
@@ -705,7 +724,9 @@ fn schemas() -> Value {
                 "rule":reference("ScheduleRule"),"interval_minutes":{"type":"integer","nullable":true},"enabled":boolean,"completed":boolean,
                 "next_at":{"type":"integer","format":"int64","nullable":true},"last_at":{"type":["integer","null"]},"last_status":{"type":["string","null"]},"last_count":integer}},
             "PluginTaskInput":{"type":"object","required":["config"],"properties":{"config":{"type":"object","writeOnly":true},"input":{}}},
-            "PluginTransformInput":{"type":"object","required":["config","message"],"properties":{"config":{"type":"object","writeOnly":true},"message":reference("Message")}},
+            "PluginConfigDraft":{"type":"object","properties":{"config":{"type":"object","writeOnly":true},"config_revision":{"type":["string","null"],"description":"The revision returned by the settings endpoint. Use null for the first save."}}},
+            "PluginConfigOptions":{"type":"object","required":["items"],"properties":{"items":{"type":"array","items":{"type":"object","required":["value","label"],"properties":{"value":string,"label":string}}}}},
+            "PluginTransformInput":{"type":"object","required":["message"],"properties":{"config":{"type":"object","writeOnly":true,"description":"Omit to use saved settings."},"config_revision":string,"message":reference("Message")}},
             "PluginTaskOutput":{"type":"object","required":["notifications"],"properties":{"notifications":{"type":"array","items":reference("Message")},"details":{"description":"Optional diagnostics independent of notification drafts."}}},
             "PluginTransformOutput":{"type":"object","required":["message"],"properties":{"message":reference("Message"),"artifacts":{"type":"array","items":reference("PluginTransformArtifact"),"description":"Inline media results, with a total decoded size of at most 4 MiB."}}},
             "PluginTransformArtifact":{"type":"object","required":["name","content_type","content_base64"],"properties":{"name":string,"content_type":string,"content_base64":{"type":"string","format":"byte"}}},
@@ -738,8 +759,9 @@ fn schemas() -> Value {
             "KeyInput":{"type":"object","required":["name","scopes"],"properties":key_fields},
             "ApiKey":{"type":"object","properties":key_out},
             "IssuedKey":{"type":"object","properties":{"token":string,"key":reference("ApiKey")}},
-            "SpeechSend":{"type":"object","required":["config","message","destination"],"properties":{
-                "config":{"type":"object","writeOnly":true,"description":"OpenAI TTS plugin options. Voice delivery uses MP3."},
+            "SpeechSend":{"type":"object","required":["message","destination"],"properties":{
+                "config":{"type":"object","writeOnly":true,"description":"OpenAI TTS plugin options. Omit to use saved settings. Voice delivery uses MP3."},
+                "config_revision":string,
                 "message":reference("Message"),
                 "destination":{"oneOf":[
                     {"type":"object","required":["kind","username"],"properties":{"kind":{"const":"inbox"},"username":string}},

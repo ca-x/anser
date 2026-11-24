@@ -19,7 +19,8 @@ interface ConfigPreset {
 
 interface Presentation {
   presets?: ConfigPreset[];
-  account_editor?: { fields: string[] };
+  account_editor?: { fields: string[]; credentials?: Record<string, string[]> };
+  dynamic_options?: { fields: string[] };
   form_fields?: string[];
   links?: {label: LocalizedText; url: string}[];
   visible_when?: Condition;
@@ -28,6 +29,18 @@ interface Presentation {
   description?: LocalizedText;
   option_labels?: Record<string, LocalizedText>;
   widget?: string;
+}
+
+export function dynamicOptionInputs(plugin: ConfigSchema, draft: JsonObject, saved?: { config: JsonObject; saved_credentials: string[] }) {
+  const editor = (plugin.config_schema["x-anser-ui"] as Presentation | undefined)?.account_editor;
+  return Object.fromEntries(Object.entries(pluginProperties(plugin)).flatMap(([name, property]) => {
+    const fields = property["x-anser-ui"]?.dynamic_options?.fields;
+    if (!Array.isArray(fields) || !fields.length) return [];
+    const ready = fields.every((key) => (typeof draft[key] === "string" && draft[key].trim()) ||
+      (saved?.saved_credentials.includes(key) &&
+        (editor?.credentials?.[key] ?? []).every((field) => draft[field] === saved.config[field])));
+    return ready ? [[name, Object.fromEntries(fields.filter((key) => Object.hasOwn(draft, key)).map((key) => [key, draft[key]]))]] : [];
+  }));
 }
 
 export interface ConfigProperty {

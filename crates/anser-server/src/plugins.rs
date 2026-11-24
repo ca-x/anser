@@ -121,7 +121,8 @@ pub(crate) async fn execute_task(
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct TransformRequest {
-    config: Value,
+    config: Option<Value>,
+    config_revision: Option<String>,
     message: Message,
 }
 
@@ -132,8 +133,15 @@ pub(crate) async fn transform(
     ApiJson(request): ApiJson<TransformRequest>,
 ) -> ApiResult<Json<TransformOutput>> {
     identity.admin_global()?;
+    let config = crate::transform_settings::resolve(
+        &app,
+        &id,
+        request.config,
+        request.config_revision.as_deref(),
+    )
+    .await?;
     Ok(Json(
-        transform_message(&app, &id, request.config, request.message).await?,
+        transform_message(&app, &id, config, request.message).await?,
     ))
 }
 
@@ -241,7 +249,7 @@ fn timed_out() -> ApiError {
     )
 }
 
-fn plugin_error(error: HostError) -> ApiError {
+pub(crate) fn plugin_error(error: HostError) -> ApiError {
     match error {
         HostError::PluginNotFound => anser_store::DataError::Missing.into(),
         HostError::Send(error) => {

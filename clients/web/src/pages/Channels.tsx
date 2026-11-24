@@ -75,14 +75,17 @@ export function Channels({ api, navigate }: { api: Api; navigate: Navigate }) {
     <ul className="plugin-grid">
       {items.filter((item) => !filter || item.kind === filter).map((plugin) => {
         const path = `${listPath}/${segment(plugin.id)}`;
+        const settings = (plugin.config_schema["x-anser-ui"] as { persistent_settings?: boolean } | undefined)?.persistent_settings === true;
         return <li key={`${plugin.kind}:${plugin.id}`} className="plugin-tile">
           <div className="plugin-tile-meta"><EuiBadge>{t(typeLabel(plugin.kind))}</EuiBadge><PluginStatus channel={plugin} /></div>
           <h2>{plugin.kind === "channel" ? <EuiLink href={path} onClick={(event) => follow(event, path, navigate)}>{name(plugin)}</EuiLink> : name(plugin)}</h2>
           <div className="plugin-tile-actions">
             {plugin.version && <span className="muted">{plugin.version}</span>}
             {plugin.kind === "channel" ? <RowAction icon="gear" href={path} onClick={(event) => follow(event, path, navigate)}>{t("配置插件")}</RowAction>
-              : <RowAction icon="play" onClick={() => setActive(plugin)} disabled={!plugin.available}
-                label={t("运行 {name}", { name: name(plugin) })}>{t("运行插件")}</RowAction>}
+              : <RowAction icon={settings ? "gear" : "play"} onClick={() => setActive(plugin)} disabled={!plugin.available}
+                label={t(settings ? "配置 {name}" : "运行 {name}", { name: name(plugin) })}>
+                {t(settings ? "配置插件" : "运行插件")}
+              </RowAction>}
             {plugin.kind === "task" && <RowAction icon="clock" href={`/admin/schedules?plugin=${segment(plugin.id)}`}
               onClick={(event) => follow(event, `/admin/schedules?plugin=${segment(plugin.id)}`, navigate)}>{t("创建定时推送")}</RowAction>}
           </div>
