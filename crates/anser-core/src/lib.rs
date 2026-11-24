@@ -69,4 +69,5 @@ pub enum DeliveryStatus {
 
 pub mod api;
 pub mod routing;
+pub mod schedule;
 pub mod template;

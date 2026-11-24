@@ -593,9 +593,22 @@ fn schemas() -> Value {
             "LazycatDevice":{"type":"object","required":["device_id","name","online"],"properties":{"device_id":string,"name":string,"online":boolean}},
             "InstalledPlugin":{"type":"object","required":["id","kind","display_name","config_schema","enabled","available"],"properties":{"id":string,"kind":{"type":"string","enum":["channel","task","content_transform"]},"display_name":string,"version":string,"config_schema":{"type":"object"},"enabled":boolean,"available":boolean}},
             "GithubPlugin":{"type":"object","properties":{"full_name":string,"description":{"type":["string","null"]},"stargazers_count":integer}},
-            "ScheduleInput":{"type":"object","required":["name","plugin_id","interval_minutes","config"],"properties":{"name":string,"plugin_id":string,"interval_minutes":{"type":"integer","minimum":1,"maximum":43200},"topic":{"type":["string","null"]},"start_at":{"type":"integer","description":"Unix epoch in milliseconds; omission runs after one interval"},"config":{"type":"object","writeOnly":true},"input":{"writeOnly":true}}},
+            "ScheduleRule":{"oneOf":[
+                {"type":"object","additionalProperties":false,"required":["kind","minutes"],"properties":{
+                    "kind":{"type":"string","enum":["interval"]},"minutes":{"type":"integer","minimum":1,"maximum":43200}}},
+                {"type":"object","additionalProperties":false,"required":["kind","weekdays","time","time_zone"],"properties":{
+                    "kind":{"type":"string","enum":["weekly"]},"weekdays":{"type":"array","items":{"type":"integer","minimum":1,"maximum":7},"minItems":1,"maxItems":7,"uniqueItems":true,"description":"ISO weekdays, Monday (1) through Sunday (7)."},
+                    "time":{"type":"string","pattern":"^([01][0-9]|2[0-3]):[0-5][0-9]$"},"time_zone":{"type":"string","example":"Asia/Shanghai","description":"IANA time zone."}}},
+                {"type":"object","additionalProperties":false,"required":["kind","at"],"properties":{
+                    "kind":{"type":"string","enum":["once"]},"at":{"type":"integer","format":"int64","description":"Future Unix epoch in milliseconds."}}}
+            ]},
+            "ScheduleInput":{"type":"object","additionalProperties":false,"required":["name","plugin_id","config"],
+                "oneOf":[{"required":["rule"]},{"required":["interval_minutes"]}],
+                "properties":{"name":string,"plugin_id":string,"rule":reference("ScheduleRule"),"interval_minutes":{"type":"integer","minimum":1,"maximum":43200,"description":"Legacy fixed interval."},"topic":{"type":["string","null"]},"start_at":{"type":"integer","format":"int64","description":"Optional Unix epoch in milliseconds for interval schedules only."},"config":{"type":"object","writeOnly":true},"input":{"writeOnly":true}}},
             "ScheduleState":{"type":"object","required":["enabled"],"properties":{"enabled":boolean}},
-            "Schedule":{"type":"object","properties":{"id":string,"name":string,"plugin_id":string,"topic":{"type":["string","null"]},"interval_minutes":integer,"enabled":boolean,"next_at":integer,"last_at":{"type":["integer","null"]},"last_status":{"type":["string","null"]},"last_count":integer}},
+            "Schedule":{"type":"object","properties":{"id":string,"name":string,"plugin_id":string,"topic":{"type":["string","null"]},
+                "rule":reference("ScheduleRule"),"interval_minutes":{"type":"integer","nullable":true},"enabled":boolean,"completed":boolean,
+                "next_at":{"type":"integer","format":"int64","nullable":true},"last_at":{"type":["integer","null"]},"last_status":{"type":["string","null"]},"last_count":integer}},
             "PluginTaskInput":{"type":"object","required":["config"],"properties":{"config":{"type":"object","writeOnly":true},"input":{}}},
             "PluginTransformInput":{"type":"object","required":["config","message"],"properties":{"config":{"type":"object","writeOnly":true},"message":reference("Message")}},
             "PluginTaskOutput":{"type":"object","required":["notifications"],"properties":{"notifications":{"type":"array","items":reference("Message")},"details":{"description":"Optional diagnostics independent of notification drafts."}}},

@@ -1,8 +1,9 @@
-use anser_core::api::Page;
+use anser_core::{api::Page, schedule::Rule};
 use serde::Serialize;
+use sqlx::types::Json;
 
 use crate::queue::{Submission, enqueue_one};
-use crate::{Result, Store, affected, manage, new_id, now_ms};
+use crate::{DataError, Result, Store, affected, manage, new_id, now_ms};
 
 const SCHEDULE_KEY: &str = "system-scheduled-tasks";
 #[derive(Serialize, sqlx::FromRow)]
@@ -11,9 +12,12 @@ pub struct Schedule {
     pub name: String,
     pub plugin_id: String,
     pub topic: Option<String>,
-    pub interval_minutes: i64,
+    pub interval_minutes: Option<i64>,
+    #[sqlx(json)]
+    pub rule: Rule,
     pub enabled: bool,
-    pub next_at: i64,
+    pub completed: bool,
+    pub next_at: Option<i64>,
     pub last_at: Option<i64>,
     pub last_status: Option<String>,
     pub last_count: u32,
@@ -25,7 +29,7 @@ pub struct NewSchedule<'a> {
     pub plugin_id: &'a str,
     pub encrypted_input: &'a [u8],
     pub topic: Option<&'a str>,
-    pub interval_minutes: i64,
+    pub rule: &'a Rule,
     pub next_at: i64,
 }
 
@@ -56,9 +60,10 @@ impl Store {
         } else {
             None
         };
-        sqlx::query("INSERT INTO scheduled_tasks(id,name,plugin_id,encrypted_input,topic_id,interval_minutes,next_at) VALUES(?,?,?,?,?,?,?)")
+        sqlx::query("INSERT INTO scheduled_tasks(id,name,plugin_id,encrypted_input,topic_id,interval_minutes,next_at,rule) VALUES(?,?,?,?,?,?,?,?)")
             .bind(item.id).bind(item.name).bind(item.plugin_id).bind(item.encrypted_input)
-            .bind(topic_id).bind(item.interval_minutes).bind(item.next_at).execute(&mut *tx).await?;
+            .bind(topic_id).bind(item.rule.interval_minutes().unwrap_or(1)).bind(item.next_at)
+            .bind(Json(item.rule)).execute(&mut *tx).await?;
         let result = sqlx::query_as("SELECT * FROM scheduled_task_views WHERE id=?")
             .bind(item.id)
             .fetch_one(&mut *tx)
@@ -70,13 +75,13 @@ impl Store {
     pub async fn change_schedule(&self, id: &str, enabled: bool) -> Result<()> {
         let now = now_ms();
         affected(sqlx::query("UPDATE scheduled_tasks SET enabled=?,next_at=CASE WHEN enabled=0 AND ? THEN max(next_at,?) ELSE next_at END,
-            lease_token=CASE WHEN ? THEN lease_token ELSE NULL END,lease_until=CASE WHEN ? THEN lease_until ELSE NULL END WHERE id=?")
+            lease_token=CASE WHEN ? THEN lease_token ELSE NULL END,lease_until=CASE WHEN ? THEN lease_until ELSE NULL END WHERE id=? AND completed=0")
             .bind(enabled).bind(enabled).bind(now).bind(enabled).bind(enabled).bind(id).execute(&self.0).await?.rows_affected())
     }
 
     pub async fn run_schedule_now(&self, id: &str) -> Result<()> {
         let now = now_ms();
-        affected(sqlx::query("UPDATE scheduled_tasks SET next_at=? WHERE id=? AND enabled=1 AND (lease_until IS NULL OR lease_until<=?)")
+        affected(sqlx::query("UPDATE scheduled_tasks SET next_at=? WHERE id=? AND enabled=1 AND completed=0 AND (lease_until IS NULL OR lease_until<=?)")
             .bind(now).bind(id).bind(now).execute(&self.0).await?.rows_affected())
     }
 
@@ -92,7 +97,7 @@ impl Store {
 
     pub async fn claim_schedule(&self, now: i64) -> Result<Option<ScheduledRun>> {
         Ok(sqlx::query_as("UPDATE scheduled_tasks SET lease_token=?,lease_until=?
-            WHERE id=(SELECT id FROM scheduled_tasks WHERE enabled=1 AND next_at<=? AND (lease_until IS NULL OR lease_until<=?) ORDER BY next_at,id LIMIT 1)
+            WHERE id=(SELECT id FROM scheduled_tasks WHERE enabled=1 AND completed=0 AND next_at<=? AND (lease_until IS NULL OR lease_until<=?) ORDER BY next_at,id LIMIT 1)
             RETURNING id,plugin_id,encrypted_input,lease_token AS token")
             .bind(new_id()).bind(now.saturating_add(90_000)).bind(now).bind(now)
             .fetch_optional(&self.0).await?)
@@ -108,19 +113,19 @@ impl Store {
         let _writer = self.2.lock().await;
         let mut tx = self.0.begin_with("BEGIN IMMEDIATE").await?;
         let now = now_ms();
-        let job: Option<(bool, Option<String>)> = sqlx::query_as(
-            "SELECT s.enabled,t.name FROM scheduled_tasks s LEFT JOIN topics t ON t.id=s.topic_id
-             WHERE s.id=? AND s.lease_token=? AND s.lease_until>?",
+        let job: Option<(Option<String>, Json<Rule>)> = sqlx::query_as(
+            "SELECT v.topic,v.rule FROM scheduled_tasks s JOIN scheduled_task_views v ON v.id=s.id
+             WHERE s.id=? AND s.enabled=1 AND s.completed=0 AND s.lease_token=? AND s.lease_until>?",
         )
         .bind(&run.id)
         .bind(&run.token)
         .bind(now)
         .fetch_optional(&mut *tx)
         .await?;
-        let Some((enabled, topic)) = job else {
+        let Some((topic, Json(rule))) = job else {
             return Ok(false);
         };
-        let count = if enabled && error.is_none() {
+        let count = if error.is_none() {
             submissions.len()
         } else {
             0
@@ -140,19 +145,22 @@ impl Store {
                 enqueue_one(&mut tx, item).await?;
             }
         }
-        let status = if enabled {
-            error.unwrap_or("success")
+        let completed = rule.is_once();
+        let next = if completed {
+            None
         } else {
-            "paused"
+            Some(rule.next_after(now).ok_or(DataError::Batch)?)
         };
         sqlx::query(
             "UPDATE scheduled_tasks SET last_at=?,last_status=?,last_count=?,
-            next_at=?+interval_minutes*60000,lease_token=NULL,lease_until=NULL WHERE id=?",
+            next_at=coalesce(?,next_at),enabled=?,completed=?,lease_token=NULL,lease_until=NULL WHERE id=?",
         )
         .bind(now)
-        .bind(status)
+        .bind(error.unwrap_or("success"))
         .bind(count as i64)
-        .bind(now)
+        .bind(next)
+        .bind(!completed)
+        .bind(completed)
         .bind(&run.id)
         .execute(&mut *tx)
         .await?;

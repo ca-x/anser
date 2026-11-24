@@ -1003,7 +1003,7 @@ mod tests {
                 plugin_id: "wttr-weather",
                 encrypted_input: &[1],
                 topic: None,
-                interval_minutes: 60,
+                rule: &anser_core::schedule::Rule::Interval { minutes: 60 },
                 next_at: 0,
             })
             .await
@@ -1054,6 +1054,62 @@ mod tests {
         assert_eq!(schedules.items[0].last_status.as_deref(), Some("success"));
         assert!(store.claim_schedule(now_ms()).await.unwrap().is_none());
         assert_eq!(store.keys("", 50).await.unwrap().items.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn one_time_schedule_cannot_enqueue_again_after_completion() {
+        use crate::scheduled_tasks::NewSchedule;
+        use anser_core::schedule::Rule;
+
+        let (temp, store) = fixture().await;
+        let at = now_ms() + 60_000;
+        store
+            .create_schedule(NewSchedule {
+                id: "once",
+                name: "Once",
+                plugin_id: "wttr-weather",
+                encrypted_input: &[1],
+                topic: None,
+                rule: &Rule::Once { at },
+                next_at: at,
+            })
+            .await
+            .unwrap();
+        assert!(store.claim_schedule(at - 1).await.unwrap().is_none());
+        store.run_schedule_now("once").await.unwrap();
+        let run = store.claim_schedule(now_ms()).await.unwrap().unwrap();
+        assert!(
+            store
+                .finish_schedule(&run, vec![submission(None)], None)
+                .await
+                .unwrap()
+        );
+        drop(store);
+
+        let store = Store::open(&temp.path().join("test.sqlite3"))
+            .await
+            .unwrap();
+        let page = store.schedules("", 50).await.unwrap();
+        let completed = &page.items[0];
+        assert!(completed.completed);
+        assert!(!completed.enabled);
+        assert_eq!(completed.next_at, None);
+        assert_eq!(completed.last_count, 1);
+        assert_eq!(completed.rule, Rule::Once { at });
+        assert!(store.change_schedule("once", true).await.is_err());
+        assert!(store.run_schedule_now("once").await.is_err());
+        assert!(store.claim_schedule(at).await.unwrap().is_none());
+        assert!(
+            !store
+                .finish_schedule(&run, vec![submission(None)], None)
+                .await
+                .unwrap()
+        );
+        let count: i64 = sqlx::query_scalar("SELECT count(*) FROM messages")
+            .fetch_one(&store.0)
+            .await
+            .unwrap();
+        assert_eq!(count, 1);
     }
 
     #[tokio::test]

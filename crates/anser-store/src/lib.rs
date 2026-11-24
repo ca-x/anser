@@ -57,6 +57,34 @@ mod tests {
     use super::*;
 
     #[tokio::test]
+    async fn upgrade_preserves_legacy_schedules() {
+        use anser_core::schedule::Rule;
+        use sqlx::{Connection, SqliteConnection};
+
+        let mut db = SqliteConnection::connect("sqlite::memory:").await.unwrap();
+        let migrations = sqlx::migrate!();
+        migrations.run_to(14, &mut db).await.unwrap();
+        sqlx::query(
+            "INSERT INTO scheduled_tasks(id,name,plugin_id,encrypted_input,interval_minutes,next_at)
+             VALUES('legacy','Weather','wttr-weather',x'AA',90,123)",
+        )
+        .execute(&mut db)
+        .await
+        .unwrap();
+        migrations.run(&mut db).await.unwrap();
+        let schedule: crate::scheduled_tasks::Schedule =
+            sqlx::query_as("SELECT * FROM scheduled_task_views WHERE id='legacy'")
+                .fetch_one(&mut db)
+                .await
+                .unwrap();
+        assert_eq!(schedule.rule, Rule::Interval { minutes: 90 });
+        assert_eq!(schedule.interval_minutes, Some(90));
+        assert_eq!(schedule.next_at, Some(123));
+        assert!(schedule.enabled);
+        assert!(!schedule.completed);
+    }
+
+    #[tokio::test]
     async fn upgrade_preserves_old_inboxes_and_backfills_only_linked_receipts() {
         use sqlx::{Connection, SqliteConnection};
         let mut db = SqliteConnection::connect("sqlite::memory:").await.unwrap();

@@ -2,6 +2,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anser_core::api::{Page, Publish};
+use anser_core::schedule::Rule;
 use anser_plugin_api::PluginKind;
 use anser_queue::CancellationToken;
 use anser_store::queue::Submission;
@@ -23,7 +24,8 @@ use crate::plugins::{self, TaskRequest};
 pub(crate) struct Create {
     name: String,
     plugin_id: String,
-    interval_minutes: i64,
+    interval_minutes: Option<i64>,
+    rule: Option<Rule>,
     topic: Option<String>,
     start_at: Option<i64>,
     config: Value,
@@ -53,12 +55,8 @@ pub(crate) async fn create(
 ) -> ApiResult<(StatusCode, Json<Schedule>)> {
     identity.admin_global()?;
     let name = request.name.trim();
-    if name.is_empty()
-        || name.len() > 128
-        || name.chars().any(char::is_control)
-        || !(1..=43_200).contains(&request.interval_minutes)
-    {
-        return Err(ApiError::bad("Invalid schedule name or interval"));
+    if name.is_empty() || name.len() > 128 || name.chars().any(char::is_control) {
+        return Err(ApiError::bad("Invalid schedule name"));
     }
     if !app.host.actions().any(|(descriptor, _)| {
         descriptor.kind == PluginKind::Task && descriptor.id == request.plugin_id
@@ -68,12 +66,12 @@ pub(crate) async fn create(
     plugins::validate_config(&request.config)?;
     plugins::require_encoded_limit(&request.input, 32 * 1024)?;
     let now = now_ms();
-    let next_at = request
-        .start_at
-        .unwrap_or(now.saturating_add(request.interval_minutes * 60_000));
-    if next_at < 0 || next_at > now.saturating_add(366 * 86_400_000) {
-        return Err(ApiError::bad("Invalid schedule start time"));
-    }
+    let (rule, next_at) = schedule_timing(
+        request.rule,
+        request.interval_minutes,
+        request.start_at,
+        now,
+    )?;
     let id = new_id();
     let encrypted_input = app.cipher.seal(
         &schedule_context(&id),
@@ -87,11 +85,38 @@ pub(crate) async fn create(
             plugin_id: &request.plugin_id,
             encrypted_input: &encrypted_input,
             topic: request.topic.as_deref(),
-            interval_minutes: request.interval_minutes,
-            next_at: next_at.max(now),
+            rule: &rule,
+            next_at,
         })
         .await?;
     Ok((StatusCode::CREATED, Json(schedule)))
+}
+
+fn schedule_timing(
+    rule: Option<Rule>,
+    interval_minutes: Option<i64>,
+    start_at: Option<i64>,
+    now: i64,
+) -> ApiResult<(Rule, i64)> {
+    let rule = match (rule, interval_minutes) {
+        (Some(rule), None) => rule,
+        (None, Some(minutes)) => Rule::Interval { minutes },
+        _ => return Err(ApiError::bad("Specify a schedule rule or an interval")),
+    };
+    let next = rule
+        .next_after(now)
+        .ok_or_else(|| ApiError::bad("Invalid schedule rule or date is in the past"))?;
+    let next = match start_at {
+        Some(start)
+            if rule.interval_minutes().is_some()
+                && (0..=now.saturating_add(366 * 86_400_000)).contains(&start) =>
+        {
+            start.max(now)
+        }
+        Some(_) => return Err(ApiError::bad("Invalid first run time for this schedule")),
+        None => next,
+    };
+    Ok((rule, next))
 }
 
 pub(crate) async fn change(

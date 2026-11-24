@@ -13,7 +13,7 @@ serde.workspace = true
 serde_json.workspace = true
 rand.workspace = true
 uuid.workspace = true
-sqlx.workspace = true
+sqlx = { workspace = true, features = ["json"] }
 sea-orm = { version = "=2.0.4", default-features = false, features = ["macros", "runtime-tokio", "sqlx-sqlite"] }
 thiserror.workspace = true
 

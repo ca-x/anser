@@ -6,7 +6,7 @@ import { chromium } from "playwright-core";
 test("groups installed plugins by capability and renders website list options supplied by a task", async (t) => {
   const browser = await chromium.launch({ executablePath: process.env.CHROME_BIN || undefined });
   t.after(() => browser.close());
-  const page = await browser.newPage({ locale: "en", colorScheme: "dark", viewport: { width: 390, height: 800 } });
+  const page = await browser.newPage({ locale: "en", timezoneId: "Asia/Shanghai", colorScheme: "dark", viewport: { width: 390, height: 800 } });
   page.setDefaultTimeout(7500);
   const site = "https://anser.test";
   const dist = new URL("../dist/", import.meta.url);
@@ -39,7 +39,11 @@ test("groups installed plugins by capability and renders website list options su
         schedule = route.request().postDataJSON();
         return route.fulfill({ status: 201, json: { id: "test" } });
       }
-      return route.fulfill({ json: { items: [] } });
+      const items = schedule?.rule.kind === "once" ? [{
+        ...schedule, id: "test", enabled: false, completed: true, next_at: null,
+        last_at: Date.now(), last_status: "success", last_count: 1,
+      }] : [];
+      return route.fulfill({ json: { items } });
     }
     if (path === "/v1/topics") return route.fulfill({ json: { items: [{ name: "alerts", enabled: true }] } });
     if (path === "/v1/plugins/task/certificate-expiration/run") {
@@ -68,15 +72,55 @@ test("groups installed plugins by capability and renders website list options su
   await page.keyboard.press("Escape");
   await dialog.waitFor({ state: "hidden" });
   await page.getByRole("link", { name: "Schedule a notification" }).click();
-  await dialog.getByLabel("Name", { exact: true }).fill("TLS reminders");
-  await dialog.getByLabel("Website URLs").fill("https://example.com");
-  await dialog.getByLabel("Send to").selectOption("alerts");
-  await dialog.getByLabel("Interval (minutes)").fill("30");
-  await dialog.getByRole("button", { name: "Save schedule" }).click();
-  await dialog.waitFor({ state: "hidden" });
+  const fillSchedule = async (name) => {
+    await dialog.getByLabel("Name", { exact: true }).fill(name);
+    await dialog.getByLabel("Website URLs").fill("https://example.com");
+    await dialog.getByLabel("Send to").selectOption("alerts");
+  };
+  const reopen = () => page.getByRole("button", { name: "Schedule a notification" }).click();
+  const save = async () => {
+    await dialog.getByRole("button", { name: "Save schedule" }).click();
+    await dialog.waitFor({ state: "hidden" });
+  };
+
+  await fillSchedule("TLS reminders");
+  await dialog.getByLabel("Interval", { exact: true }).fill("30");
+  await save();
   assert.deepEqual(schedule, {
-    name: "TLS reminders", plugin_id: "certificate-expiration", interval_minutes: 30, topic: "alerts",
+    name: "TLS reminders", plugin_id: "certificate-expiration", rule: { kind: "interval", minutes: 30 }, topic: "alerts",
     config: { urls: ["https://example.com"], warning_days: 30 }, input: null,
   });
+  for (const [unit, minutes] of [["hours", 120], ["days", 2880]]) {
+    await reopen();
+    await fillSchedule("TLS reminders");
+    await dialog.getByLabel("Interval", { exact: true }).fill("2");
+    await dialog.getByLabel("Interval unit").selectOption(unit);
+    await save();
+    assert.deepEqual(schedule.rule, { kind: "interval", minutes });
+  }
+
+  await reopen();
+  await fillSchedule("Weekly TLS check");
+  await dialog.getByLabel("Schedule type").selectOption("weekly");
+  await dialog.getByRole("button", { name: "Save schedule" }).click();
+  await dialog.getByText("Select at least one day.", { exact: true }).waitFor();
+  await dialog.getByRole("checkbox", { name: "Monday" }).check();
+  await dialog.getByRole("checkbox", { name: "Sunday" }).check();
+  await dialog.getByLabel("Time of day").fill("07:35");
+  assert.equal(await dialog.getByLabel("Time zone").inputValue(), "Asia/Shanghai");
+  await save();
+  assert.deepEqual(schedule.rule, { kind: "weekly", weekdays: [1, 7], time: "07:35", time_zone: "Asia/Shanghai" });
+
+  await reopen();
+  await fillSchedule("One-time TLS check");
+  await dialog.getByLabel("Schedule type").selectOption("once");
+  const at = new Date(Date.now() + 7 * 86_400_000).toISOString().slice(0, 16);
+  await dialog.getByLabel("Run date and time").fill(at);
+  await save();
+  assert.deepEqual(schedule.rule, { kind: "once", at: new Date(`${at}+08:00`).getTime() });
+  const finished = page.getByRole("row").filter({ hasText: "One-time TLS check" });
+  await finished.getByText("Finished", { exact: true }).waitFor();
+  assert.ok(await finished.getByRole("button", { name: "Run now" }).isDisabled());
+  assert.ok(await finished.getByRole("button", { name: "Resume" }).isDisabled());
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
 });

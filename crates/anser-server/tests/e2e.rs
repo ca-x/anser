@@ -2313,6 +2313,136 @@ async fn installed_plugins_group_typed_actions_and_require_global_admin_to_run()
     assert_eq!(mismatch["code"], "not_found");
 }
 
+#[cfg(feature = "weather-wttr")]
+#[tokio::test]
+async fn schedule_api_accepts_legacy_and_weekly_rules_and_finishes_a_due_one_time_task() {
+    use anser_core::schedule::Rule;
+    use anser_store::now_ms;
+
+    const SCHEDULES: &str = "/v1/schedules";
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("anser.sqlite3");
+    let server = Server::start(&path);
+    let admin = server.login(BOOTSTRAP_USER, BOOTSTRAP_PASSWORD).await;
+    let create = |timing: Value| {
+        // An invalid location makes execution deterministic without an external provider.
+        let mut request =
+            json!({"name":"Weather","plugin_id":"wttr-weather","config":{"location":""}});
+        request
+            .as_object_mut()
+            .unwrap()
+            .extend(timing.as_object().unwrap().clone());
+        request
+    };
+
+    let legacy: Value = server
+        .json(
+            Method::POST,
+            SCHEDULES,
+            Some(&admin),
+            create(json!({"interval_minutes":120})),
+            StatusCode::CREATED,
+        )
+        .await;
+    assert_eq!(legacy["interval_minutes"], 120);
+    assert_eq!(legacy["rule"], json!({"kind":"interval","minutes":120}));
+
+    let rule = json!({"kind":"weekly","weekdays":[1,7],"time":"08:30","time_zone":"Asia/Shanghai"});
+    let weekly: Value = server
+        .json(
+            Method::POST,
+            SCHEDULES,
+            Some(&admin),
+            create(json!({"rule":rule})),
+            StatusCode::CREATED,
+        )
+        .await;
+    assert_eq!(weekly["rule"], rule);
+    assert!(weekly["interval_minutes"].is_null());
+    let weekly_path = format!("{SCHEDULES}/{}/run", json_string(&weekly, "id"));
+    let queued: Value = server
+        .json(
+            Method::POST,
+            &weekly_path,
+            Some(&admin),
+            Value::Null,
+            StatusCode::ACCEPTED,
+        )
+        .await;
+    assert_eq!(queued["queued"], true);
+
+    for timing in [
+        json!({"rule":{"kind":"weekly","weekdays":[8],"time":"08:30","time_zone":"UTC"}}),
+        json!({"rule":{"kind":"weekly","weekdays":[1],"time":"08:30","time_zone":"unknown"}}),
+        json!({"rule":{"kind":"once","at":now_ms()-1000}}),
+        json!({"rule":rule,"start_at":now_ms()}),
+        json!({"rule":rule,"interval_minutes":120}),
+    ] {
+        let error: Value = server
+            .json(
+                Method::POST,
+                SCHEDULES,
+                Some(&admin),
+                create(timing),
+                StatusCode::BAD_REQUEST,
+            )
+            .await;
+        assert_eq!(error["code"], "invalid_request");
+    }
+
+    let at = now_ms() + 2_500;
+    let once: Value = server
+        .json(
+            Method::POST,
+            SCHEDULES,
+            Some(&admin),
+            create(json!({"rule":{"kind":"once","at":at}})),
+            StatusCode::CREATED,
+        )
+        .await;
+    assert_eq!(once["next_at"], at);
+    assert_eq!(once["completed"], false);
+    let id = json_string(&once, "id");
+
+    let finished = tokio::time::timeout(Duration::from_secs(12), async {
+        loop {
+            let schedules: Value = server.get(SCHEDULES, Some(&admin)).await;
+            let items = schedules["items"].as_array().unwrap();
+            let item = items.iter().find(|item| item["id"] == id).unwrap();
+            if item["completed"] == true {
+                let weekly = items.iter().find(|item| item["rule"] == rule).unwrap();
+                let cadence: Rule = serde_json::from_value(rule.clone()).unwrap();
+                let last = weekly["last_at"].as_i64().unwrap();
+                assert_eq!(weekly["next_at"].as_i64(), cadence.next_after(last));
+                break item.clone();
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert!(finished["last_at"].as_i64().unwrap() >= at);
+    assert_eq!(finished["last_status"], "plugin_error");
+    assert_eq!(finished["enabled"], false);
+    assert!(finished["next_at"].is_null());
+
+    drop(server);
+    let restarted = Server::start(&path);
+    let admin = restarted.login(BOOTSTRAP_USER, BOOTSTRAP_PASSWORD).await;
+    let error: Value = restarted
+        .json(
+            Method::POST,
+            &format!("{SCHEDULES}/{id}/run"),
+            Some(&admin),
+            Value::Null,
+            StatusCode::NOT_FOUND,
+        )
+        .await;
+    assert_eq!(error["code"], "not_found");
+    let schedules: Value = restarted.get(SCHEDULES, Some(&admin)).await;
+    assert!(schedules["items"].as_array().unwrap().contains(&finished));
+}
+
 #[tokio::test]
 async fn speech_delivery_reuses_audio_for_inbox_and_topic_links() {
     use axum::Router;

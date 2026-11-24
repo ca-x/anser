@@ -1,5 +1,5 @@
 import { useId, useState } from "react";
-import { EuiBasicTable, EuiBadge, EuiButton, EuiButtonEmpty, EuiFieldNumber, EuiFieldText, EuiFormRow, EuiSelect } from "@elastic/eui";
+import { EuiBasicTable, EuiBadge, EuiButton, EuiButtonEmpty, EuiCheckboxGroup, EuiFieldNumber, EuiFieldText, EuiFlexGroup, EuiFlexItem, EuiFormRow, EuiSelect } from "@elastic/eui";
 import { Api, segment, type InstalledPlugin, type JsonObject, type Page, type Topic } from "../api";
 import { ChannelFields } from "../components/ChannelFields";
 import { Confirm, Drawer, Empty, Failure, JsonInput, More, object, Progress, useDate } from "../components/Common";
@@ -8,9 +8,26 @@ import { useLanguage, useT } from "../preferences";
 import { useMutation, usePage, useResource } from "../resources";
 import { PluginsWorkspace } from "./Channels";
 
+type ScheduleRule =
+  | { kind: "interval"; minutes: number }
+  | { kind: "weekly"; weekdays: number[]; time: string; time_zone: string }
+  | { kind: "once"; at: number };
+
+const intervalUnits = { minutes: 1, hours: 60, days: 1440 };
+const weekdays = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
+
+// A browser may normalize a nonexistent local time forward during a DST transition.
+function localTimestamp(value: string) {
+  const local = new Date(value);
+  const epoch = local.getTime();
+  if (!Number.isFinite(epoch)) return NaN;
+  const wallTime = new Date(epoch - local.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+  return wallTime === value ? epoch : NaN;
+}
+
 type Schedule = {
-  id: string; name: string; plugin_id: string; topic: string | null; interval_minutes: number;
-  enabled: boolean; next_at: number; last_at: number | null; last_status: string | null; last_count: number;
+  id: string; name: string; plugin_id: string; topic: string | null; rule: ScheduleRule;
+  enabled: boolean; completed: boolean; next_at: number | null; last_at: number | null; last_status: string | null; last_count: number;
 };
 
 export default function Schedules({ api, navigate }: { api: Api; navigate: (path: string) => void }) {
@@ -24,6 +41,18 @@ export default function Schedules({ api, navigate }: { api: Api; navigate: (path
   const language = useLanguage();
   const catalog = useResource<Page<InstalledPlugin>>(api, "/plugins");
   const plugins = (catalog.data?.items ?? []).filter((plugin) => plugin.kind === "task");
+  const cadence = (rule: ScheduleRule) => {
+    if (rule.kind === "once") return t("单次执行");
+    if (rule.kind === "weekly") {
+      const days = new Intl.ListFormat(language).format(
+        weekdays.filter((_, index) => rule.weekdays.includes(index + 1)).map((day) => t(day)),
+      );
+      return `${days} · ${rule.time} (${rule.time_zone})`;
+    }
+    if (rule.minutes % intervalUnits.days === 0) return t("每 {count} 天", { count: rule.minutes / intervalUnits.days });
+    if (rule.minutes % intervalUnits.hours === 0) return t("每 {count} 小时", { count: rule.minutes / intervalUnits.hours });
+    return t("每 {count} 分钟", { count: rule.minutes });
+  };
   const pluginName = (id: string) => {
     const plugin = plugins.find((entry) => entry.id === id);
     return plugin ? pluginLabel(plugin, language) ?? plugin.display_name : id;
@@ -37,7 +66,7 @@ export default function Schedules({ api, navigate }: { api: Api; navigate: (path
   });
   return <PluginsWorkspace tab="schedules" navigate={navigate}>
     <div className="section-header">
-      <div className="stack"><h2>{t("任务计划")}</h2><p className="muted">{t("按间隔运行任务插件，把生成的通知发送到指定主题或默认路由。")}</p></div>
+      <div className="stack"><h2>{t("任务计划")}</h2><p className="muted">{t("定时运行任务插件，把生成的通知发送到指定主题或默认路由。")}</p></div>
       <div className="row-actions">
         <EuiButtonEmpty size="s" iconType="refresh" onClick={list.reload}>{t("刷新")}</EuiButtonEmpty>
         <EuiButton size="s" fill iconType="plusCircle" onClick={() => setCreating(true)}>{t("创建定时推送")}</EuiButton>
@@ -49,13 +78,16 @@ export default function Schedules({ api, navigate }: { api: Api; navigate: (path
       <EuiBasicTable<Schedule> tableCaption={t("任务计划")} rowHeader="name" itemId="id" items={list.items} columns={[
         { field: "name", name: t("名称"), render: (_, item) => <div><strong>{item.name}</strong><p className="muted">{pluginName(item.plugin_id)}</p></div> },
         { field: "topic", name: t("发送到"), render: (topic: string | null) => topic || t("默认路由") },
-        { field: "next_at", name: t("下次执行"), render: (_, item) => item.enabled ? date(item.next_at) : <EuiBadge>{t("已暂停")}</EuiBadge> },
+        { field: "next_at", name: t("下次执行"), render: (_, item) => <div>
+          {item.completed ? <EuiBadge>{t("已结束")}</EuiBadge> : item.enabled ? date(item.next_at) : <EuiBadge>{t("已暂停")}</EuiBadge>}
+          <p className="muted">{cadence(item.rule)}</p>
+        </div> },
         { field: "last_status", name: t("最近执行"), render: (_, item) => !item.last_at ? "—" : <div>
           {item.last_status === "success" ? t("已入队 {count} 条", { count: String(item.last_count) }) : t(item.last_status === "paused" ? "已暂停" : "执行失败")}
           <p className="muted">{date(item.last_at)}{item.last_status !== "success" && item.last_status !== "paused" && item.last_status ? ` · ${item.last_status}` : ""}</p></div> },
         { name: t("操作"), render: (item: Schedule) => <div className="row-actions">
           <EuiButtonEmpty size="xs" disabled={task.busy || !item.enabled} onClick={() => void update(item, "run")}>{t("立即执行")}</EuiButtonEmpty>
-          <EuiButtonEmpty size="xs" disabled={task.busy} onClick={() => void update(item, "toggle")}>{t(item.enabled ? "暂停" : "恢复")}</EuiButtonEmpty>
+          <EuiButtonEmpty size="xs" disabled={task.busy || item.completed} onClick={() => void update(item, "toggle")}>{t(item.enabled ? "暂停" : "恢复")}</EuiButtonEmpty>
           <EuiButtonEmpty size="xs" color="danger" disabled={task.busy} onClick={() => { task.clear(); setRemoving(item); }}>{t("删除")}</EuiButtonEmpty>
         </div> },
       ]} />
@@ -80,7 +112,17 @@ function ScheduleEditor({ api, plugins, preset, nameOf, close, done }: {
   const [config, setConfig] = useState<JsonObject>();
   const [source, setSource] = useState("");
   const [start, setStart] = useState("");
+  const [kind, setKind] = useState<ScheduleRule["kind"]>("interval");
   const [interval, setInterval] = useState("60");
+  const [unit, setUnit] = useState<keyof typeof intervalUnits>("minutes");
+  const [days, setDays] = useState<Record<string, boolean>>({});
+  const [time, setTime] = useState("09:00");
+  const [once, setOnce] = useState("");
+  const [localZone] = useState(() => Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC");
+  const [zone, setZone] = useState(localZone);
+  const [zoneOptions] = useState(() =>
+    Array.from(new Set([localZone, "UTC", ...(Intl.supportedValuesOf?.("timeZone") ?? [])])).sort(),
+  );
   const [topic, setTopic] = useState("");
   const topics = usePage<Topic>(api, "/topics");
   const task = useMutation();
@@ -92,9 +134,25 @@ function ScheduleEditor({ api, plugins, preset, nameOf, close, done }: {
     footer={<EuiButton type="submit" form={id} fill isLoading={task.busy} disabled={!plugin}>{t("保存计划")}</EuiButton>}>
     <form id={id} className="stack" onSubmit={(event) => { event.preventDefault(); if (!plugin) return;
       void task.run(async () => {
-        const startAt = start ? new Date(start).getTime() : undefined;
-        if (startAt !== undefined && !Number.isFinite(startAt)) throw new Error(t("请输入有效的开始时间。"));
-        await api.write("/schedules", "POST", { name: name.trim(), plugin_id: pluginId, interval_minutes: Number(interval),
+        let rule: ScheduleRule;
+        let startAt: number | undefined;
+        if (kind === "interval") {
+          const minutes = Number(interval) * intervalUnits[unit];
+          rule = { kind, minutes };
+          if (start) {
+            startAt = localTimestamp(start);
+            if (!Number.isFinite(startAt)) throw new Error(t("请输入有效的开始时间。"));
+          }
+        } else if (kind === "weekly") {
+          const selected = weekdays.map((_, index) => index + 1).filter((day) => days[String(day)]);
+          if (!selected.length) throw new Error(t("请至少选择一个执行日。"));
+          rule = { kind, weekdays: selected, time, time_zone: zone };
+        } else {
+          const at = localTimestamp(once);
+          if (!Number.isFinite(at) || at <= Date.now()) throw new Error(t("请选择未来有效的执行日期和时间。"));
+          rule = { kind, at };
+        }
+        await api.write("/schedules", "POST", { name: name.trim(), plugin_id: pluginId, rule,
           topic: topic || null, start_at: startAt, config: serializeConfig(plugin, fields), input: taskInput ? object(source || "{}") : null });
         done();
       });
@@ -110,11 +168,49 @@ function ScheduleEditor({ api, plugins, preset, nameOf, close, done }: {
         options={[{ value: "", text: t("默认路由") }, ...topics.items.filter(({ enabled }) => enabled).map(({ name }) => ({ value: name, text: name }))]} /></EuiFormRow>
       <Failure message={topics.error} retry={topics.reload} />
       <More next={topics.next} busy={topics.busy} load={() => void topics.loadMore()} />
-      <EuiFormRow label={t("执行间隔（分钟）")} fullWidth><EuiFieldNumber fullWidth required min={1} max={43200} step={1}
-        value={interval} onChange={(event) => setInterval(event.target.value)} /></EuiFormRow>
-      <EuiFormRow label={t("首次执行时间")} helpText={t("使用当前时区。留空则在一个执行间隔后运行。")} fullWidth>
-        <EuiFieldText fullWidth type="datetime-local" value={start} onChange={(event) => setStart(event.target.value)} />
+      <EuiFormRow label={t("执行方式")} fullWidth><EuiSelect fullWidth value={kind}
+        onChange={(event) => setKind(event.target.value as ScheduleRule["kind"])}
+        options={[
+          { value: "interval", text: t("固定间隔") },
+          { value: "weekly", text: t("每周重复") },
+          { value: "once", text: t("单次执行") },
+        ]} />
       </EuiFormRow>
+      {kind === "interval" && <>
+        <EuiFlexGroup gutterSize="s" alignItems="flexStart">
+          <EuiFlexItem><EuiFormRow label={t("执行间隔")} fullWidth>
+            <EuiFieldNumber fullWidth required min={1} max={43200 / intervalUnits[unit]} step={1}
+              value={interval} onChange={(event) => setInterval(event.target.value)} />
+          </EuiFormRow></EuiFlexItem>
+          <EuiFlexItem><EuiFormRow label={t("间隔单位")} fullWidth><EuiSelect fullWidth value={unit}
+            onChange={(event) => setUnit(event.target.value as keyof typeof intervalUnits)}
+            options={[
+              { value: "minutes", text: t("分钟") },
+              { value: "hours", text: t("小时") },
+              { value: "days", text: t("天") },
+            ]} />
+          </EuiFormRow></EuiFlexItem>
+        </EuiFlexGroup>
+        <EuiFormRow label={t("首次执行时间")} helpText={t("时区 {zone}。留空则在一个执行间隔后运行。", { zone: localZone })} fullWidth>
+          <EuiFieldText fullWidth type="datetime-local" value={start} onChange={(event) => setStart(event.target.value)} />
+        </EuiFormRow>
+      </>}
+      {kind === "weekly" && <>
+        <EuiFormRow label={t("在这些星期执行")} labelType="legend" fullWidth><EuiCheckboxGroup
+          options={weekdays.map((day, index) => ({ id: String(index + 1), label: t(day) }))}
+          idToSelectedMap={days} onChange={(day) => setDays((current) => ({ ...current, [day]: !current[day] }))} />
+        </EuiFormRow>
+        <EuiFormRow label={t("执行时间")} fullWidth>
+          <EuiFieldText fullWidth required type="time" value={time} onChange={(event) => setTime(event.target.value)} />
+        </EuiFormRow>
+        <EuiFormRow label={t("时区")} fullWidth><EuiSelect fullWidth value={zone}
+          onChange={(event) => setZone(event.target.value)}
+          options={zoneOptions.map((value) => ({ value, text: value }))} />
+        </EuiFormRow>
+      </>}
+      {kind === "once" && <EuiFormRow label={t("执行日期和时间")} helpText={t("时区 {zone}。", { zone: localZone })} fullWidth>
+        <EuiFieldText fullWidth required type="datetime-local" value={once} onChange={(event) => setOnce(event.target.value)} />
+      </EuiFormRow>}
     </form>
   </Drawer>;
 }

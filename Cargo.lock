@@ -46,7 +46,7 @@ checksum = "683d7910e743518b0e34f1186f92494becacb047c7b6bf616c96772180fef923"
 
 [[package]]
 name = "anser-channel-http"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "anser-core",
  "anser-plugin-api",
@@ -62,8 +62,9 @@ dependencies = [
 
 [[package]]
 name = "anser-core"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
+ "jiff",
  "serde",
  "serde_json",
  "thiserror",
@@ -71,7 +72,7 @@ dependencies = [
 
 [[package]]
 name = "anser-host"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "anser-core",
  "anser-plugin-api",
@@ -104,7 +105,7 @@ dependencies = [
 
 [[package]]
 name = "anser-plugin-api"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "anser-core",
  "serde",
@@ -378,7 +379,7 @@ dependencies = [
 
 [[package]]
 name = "anser-queue"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "anser-channel-http",
  "anser-core",
@@ -398,7 +399,7 @@ dependencies = [
 
 [[package]]
 name = "anser-sdk"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "anser-channel-http",
  "anser-core",
@@ -413,7 +414,7 @@ dependencies = [
 
 [[package]]
 name = "anser-server"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "anser-channel-http",
  "anser-core",
@@ -450,7 +451,7 @@ dependencies = [
 
 [[package]]
 name = "anser-store"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "anser-core",
  "rand 0.8.8",
@@ -2013,6 +2014,48 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3bd1574e617a9a6c1f8f8181bd7e841e1f20e4277607ef28945765188d6284d4"
 
 [[package]]
+name = "jiff"
+version = "0.2.46"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "175dc66334db3b9ab9985bf8b61cfed50dc16d20964bb47f9e479adcae984a7f"
+dependencies = [
+ "jiff-core",
+ "jiff-static",
+ "jiff-tzdb",
+ "log",
+ "portable-atomic",
+ "portable-atomic-util",
+ "serde_core",
+]
+
+[[package]]
+name = "jiff-core"
+version = "0.1.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e599b80292e597019b8b3e392de3f4bea2959ddfb8c7dff60e035e9e311a2c1b"
+dependencies = [
+ "log",
+]
+
+[[package]]
+name = "jiff-static"
+version = "0.2.46"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c7b1af7547d47354bc438d797e3854601bde8f8d185780c5ba4ab27afa54f1ba"
+dependencies = [
+ "jiff-core",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
+]
+
+[[package]]
+name = "jiff-tzdb"
+version = "0.1.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0980fca2cc272465bd60e82397607ba9f33add9e48defd77923301bbd03808f2"
+
+[[package]]
 name = "jni"
 version = "0.22.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2599,6 +2642,21 @@ dependencies = [
  "cpufeatures 0.2.17",
  "opaque-debug",
  "universal-hash",
+]
+
+[[package]]
+name = "portable-atomic"
+version = "1.15.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "05c8b63e8d9609db387f0324918f81d68fe27748f084ef092fb35954d0539a85"
+
+[[package]]
+name = "portable-atomic-util"
+version = "0.2.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "10ab3eb7f3becc3a1cbc4f2c6f20267996cfc1a6467a873763411b136a122715"
+dependencies = [
+ "portable-atomic",
 ]
 
 [[package]]
@@ -3672,6 +3730,8 @@ dependencies = [
  "serde_json",
  "sha2 0.11.1",
  "sqlx-core",
+ "sqlx-mysql",
+ "sqlx-postgres",
  "sqlx-sqlite",
  "syn 2.0.119",
  "thiserror",
