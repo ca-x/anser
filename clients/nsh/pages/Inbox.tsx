@@ -75,7 +75,7 @@ export function Inbox(props: {
             subtitle={`${sender(item())} / ${localTime(item().created_at)}`}
             status={
               <If when={item().read_at == null}>
-                <Text class="text-sm font-semibold text-waiting">
+                <Text class="text-sm font-semibold text-warning">
                   {t("inbox.unread")}
                 </Text>
               </If>

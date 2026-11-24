@@ -11,19 +11,19 @@ export function AccountMenu(props: {
   onSecurity: () => void;
 }) {
   const itemClass =
-    "min-h-11 justify-center rounded-md px-3 py-2 hover:bg-muted focus:bg-muted active:bg-accent";
+    "min-h-11 justify-center rounded-(--radius) px-3 py-2 hover:bg-muted focus:bg-muted active:bg-accent";
   return (
     <Menu
       placement="top"
       align="start"
       offset={4}
       class={props.server ? "min-w-0" : "min-w-0 flex-1"}
-      popupClass="min-w-44 rounded-xl border border-border bg-popover p-1.5 shadow-md"
+      popupClass="min-w-44 rounded-(--radius) border border-border bg-popover p-1.5 shadow-md"
       backdropClass="bg-foreground/30"
       trigger={
         <View
           accessibilityLabel={t("profile.menu")}
-          class="min-h-12 min-w-0 flex-row items-center gap-2 rounded-md px-2 py-1.5 hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
+          class="min-h-12 min-w-0 flex-row items-center gap-2 rounded-(--radius) px-2 py-1.5 hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
         >
           <ProfileAvatar name={props.name} avatar={props.avatar} />
           <View class="min-w-0 flex-1 gap-0.5">

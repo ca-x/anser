@@ -1,2 +1,4 @@
 .nsh/
 dist/
+/native/target/
+/native/Cargo.lock

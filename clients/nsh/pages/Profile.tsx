@@ -40,7 +40,7 @@ export function Profile(props: {
       animation={reduceMotion() ? "none" : "fade"}
       presentation="formSheet"
       backdropClass="bg-foreground/30"
-      class="m-auto w-11/12 max-w-md rounded-xl border border-border bg-popover"
+      class="m-auto w-11/12 max-w-md rounded-(--radius) border border-border bg-popover"
       closeOnSwipe={!busy()}
       closeOnEscape={!busy()}
       closeOnBackdropPress={!busy()}

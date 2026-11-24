@@ -84,11 +84,11 @@ export function LazycatDevicePicker(props: {
             disabled={!checked() && visible().length >= limit()}
             onChange={({ checked }) => select(option().id, checked)}
             accessibilityLabel={t(option().online ? "devices.online" : "devices.offline", { name: option().label })}
-            class="min-h-12 flex-row items-center gap-2.5 rounded-md border border-input bg-card px-3 hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
+            class="min-h-12 flex-row items-center gap-2.5 rounded-(--radius) border border-input bg-card px-3 hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
             indicatorClass="size-5 items-center justify-center rounded border border-input checked:border-primary checked:bg-primary"
             indicator={<If when={checked()}><Text class="text-xs text-primary-foreground">✓</Text></If>}
           >
-            <View class={option().online ? "size-2 rounded-full bg-success" : "size-2 rounded-full bg-device-offline"} />
+            <View class={option().online ? "size-2 rounded-full bg-success" : "size-2 rounded-full bg-muted-foreground"} />
             <Text class="min-w-0 flex-1 text-sm text-foreground">{option().label}</Text>
           </Checkbox>;
         }}

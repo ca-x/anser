@@ -370,6 +370,7 @@
   "preferences.simplified_chinese": "简体中文",
   "preferences.english": "英文",
   "preferences.light": "浅色",
+  "preferences.omarchy": "Omarchy 桌面主题",
   "preferences.session_only": "无法保存偏好设置。改动仍在本次会话内生效。",
   "preferences.title": "偏好设置",
   "proxies.choose_profile": "请在出站代理中选择已保存的代理配置。",

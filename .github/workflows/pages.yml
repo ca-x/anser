@@ -6,7 +6,7 @@ on:
     paths:
       - 'website/**'
       - 'clients/web/src/assets/logo.png'
-      - 'docs/screenshots/*/server-overview.png'
+      - 'docs/screenshots/**/*.png'
       - '.github/workflows/pages.yml'
   workflow_dispatch:
 

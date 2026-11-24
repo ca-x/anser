@@ -19,6 +19,40 @@ const serverAssets = [
   "anser-x86_64-pc-windows-msvc.zip",
 ];
 const systemDark = window.matchMedia("(prefers-color-scheme: dark)");
+const galleryImages = import.meta.glob(
+  "../../docs/screenshots/{en,zh-CN}/{server-schedules,server-plugins-catalog,server-delivery,server-tts,server-inbox-receipt,nsh-compose}.png",
+  { eager: true, query: "?url", import: "default" },
+);
+
+const galleryScreens = [
+  ["server-inbox-receipt", 1320, 830],
+  ["server-schedules", 1320, 830],
+  ["server-plugins-catalog", 1440, 900],
+  ["server-delivery", 1320, 830],
+  ["server-tts", 1320, 1020],
+  ["nsh-compose", 1120, 760],
+];
+
+function ScreenshotGallery({ language, t }) {
+  return <section className="gallery-band" id="screenshots" aria-labelledby="gallery-title">
+    <div className="wrap section">
+      <h2 id="gallery-title">{t.galleryTitle}</h2>
+      <div className="screenshot-grid">
+        {galleryScreens.map(([file, width, height]) => {
+          const src = galleryImages[`../../docs/screenshots/${language}/${file}.png`];
+          const [title, description] = t.galleryScreens[file];
+          return <figure className="screenshot" key={file}>
+            <a href={src} aria-label={t.openScreenshot(title)}>
+              <img src={src} alt={description} width={width} height={height} loading="lazy" decoding="async" />
+              <span className="screenshot-name">{title}<ArrowSquareOut size={16} aria-hidden="true" /></span>
+            </a>
+            <figcaption>{description}</figcaption>
+          </figure>;
+        })}
+      </div>
+    </div>
+  </section>;
+}
 
 function saved(key) {
   try { return localStorage.getItem(key); } catch { return null; }
@@ -74,7 +108,7 @@ function Website() {
     <header className="top">
       <nav className="wrap top-inner" aria-label={t.name}>
         <a className="brand" href="#"><img src={logo} width="38" height="38" alt="" />{t.name}</a>
-        <div className="nav-links"><a href="#features">{t.features}</a><a href="#usage">{t.usage}</a><a href="#downloads">{t.downloads}</a><a href="#sdk">{t.sdk}</a></div>
+        <div className="nav-links"><a href="#features">{t.features}</a><a href="#screenshots">{t.screenshots}</a><a href="#usage">{t.usage}</a><a href="#downloads">{t.downloads}</a><a href="#sdk">{t.sdk}</a></div>
         <div className="prefs">
           <label className="preference"><Globe size={17} aria-hidden="true" />
             <select aria-label={t.language} value={language} onChange={(e) => {
@@ -102,7 +136,7 @@ function Website() {
           <p>{t.description}</p>
           <div className="hero-actions">
             <LinkButton href="#downloads" variant="primary" size="lg" icon={ArrowDown}>{t.primary}</LinkButton>
-            <LinkButton href="#features" variant="secondary" size="lg" icon={ArrowDownRight}>{t.preview}</LinkButton>
+            <LinkButton href="#screenshots" variant="secondary" size="lg" icon={ArrowDownRight}>{t.preview}</LinkButton>
           </div>
         </div>
         <figure className="console">
@@ -127,6 +161,7 @@ function Website() {
           </div>
         </div>
       </section>
+      <ScreenshotGallery language={language} t={t} />
       <section className="wrap section" id="usage">
         <h2>{t.usageTitle}</h2>
         <div className="usage-grid">

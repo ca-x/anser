@@ -12,9 +12,23 @@
 
 连接页和工作区都可打开「偏好设置」。语言支持简体中文、English 和跟随系统，外观支持浅色、深色和跟随系统。改动即时生效，并通过 NSH Storage 保存在本机。
 
+Linux 检测到有效的 Omarchy 配色时，外观菜单会额外显示「Omarchy 桌面主题」。选中后，客户端使用桌面主题的配色和方角控件，切换桌面主题时客户端会同步刷新。普通 Linux、Windows、macOS、移动端和 Web 使用雁字自带的主题。
+
 ## 开发与打包
 
-使用 [NSH 0.6.1](https://github.com/longbridge/nsh/releases/tag/v0.6.1)。从 Anser 仓库根目录执行。
+客户端使用支持 `nshm` 的 [NSH 源码快照](https://github.com/longbridge/nsh/commit/21080f1cccc081d28c509817d6f95c5e06419251) 和 `nsh-omarchy 0.1.1`。CI 从固定提交构建 CLI 和客户端宿主。Linux 开发需要 GTK 和 WebKitGTK 6.0 的开发包。打包 Web 还需要 Clang、LLVM 和 Rust 的 `wasm32-unknown-unknown` 目标。
+
+从 Anser 仓库根目录执行以下命令。保留 NSH 源码和 `target` 目录，CLI 会从同一份源码构建宿主。
+
+```sh
+git init ../nsh-anser
+git -C ../nsh-anser fetch --depth 1 https://github.com/longbridge/nsh.git 21080f1cccc081d28c509817d6f95c5e06419251
+git -C ../nsh-anser checkout --detach FETCH_HEAD
+rustup toolchain install 1.100.0 --profile minimal --target wasm32-unknown-unknown
+export RUSTUP_TOOLCHAIN=1.100.0
+(cd ../nsh-anser && cargo build --locked --target-dir target -p nsh-cli)
+export PATH="$(cd ../nsh-anser && pwd)/target/debug:$PATH"
+```
 
 ```sh
 nsh check clients/nsh
@@ -35,6 +49,10 @@ Linux 运行需要 GTK 4.14+ 和 NSH 运行时要求的 WebKitGTK 6.0 动态库�
 2. 在手机上用系统相机扫描二维码，再点开系统识别出的雁字连接链接。也可以复制连接链接，在客户端连接页选择「导入连接链接」。
 3. 核对应用显示的服务器地址，确认后客户端才向该 HTTPS 服务器提交一次性配对码。配对码过期时可回到管理界面重新生成。
 
-NSH v0.6.1 的 TSX API 提供应用 URL scheme、系统通知和照片选择，没有应用内相机扫码接口。移动端安装包注册了 `anser://` scheme。Web 环境可粘贴链接。离开应用时，消息仍保留在服务器收件箱。当前客户端通过长轮询接收消息，需要应用运行且系统允许请求继续执行。应用挂起或关闭时不会收取新的系统提醒。系统通知权限由用户在收件箱主动开启，通知正文始终在应用内查看。
+移动端安装包注册了 `anser://` scheme。Web 环境可粘贴配对链接。
+
+系统通知权限由用户在收件箱主动开启。Omarchy 和其他 Linux 桌面通过 Freedesktop 通知服务接收提醒，与 `notify-send` 使用同一个服务。Windows 使用系统 Toast，macOS 和 iOS 使用 UserNotifications，Android 使用 NotificationManager。Web 提醒取决于 HTTPS、浏览器支持和站点授权。
+
+客户端通过长轮询接收新消息，需要应用运行且系统允许请求继续执行。应用挂起或关闭时，新消息保留在服务端收件箱，重新打开可查看。通知正文始终在应用内查看。
 
 NSH headless 测试使用本地请求 mock 覆盖远程 HTTP 凭据限制、登录、发送、投递尝试详情、配对、Topic 密码和收件箱。设备侧通知授权和相机的链接交接取决于系统平台。

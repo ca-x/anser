@@ -78,6 +78,8 @@ The delivery overview shows the queue, successful deliveries, dead letters, and 
 
 ![Installed plugins grouped by capability](docs/screenshots/en/server-plugins-catalog.png)
 
+![Scheduled tasks with interval, weekly, and one-time plans](docs/screenshots/en/server-schedules.png)
+
 ![Manage notification templates](docs/screenshots/en/server-templates.png)
 
 ![Outbound proxy settings](docs/screenshots/en/server-proxies.png)

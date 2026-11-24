@@ -1,0 +1,12 @@
+[package]
+name = "anser-client-native"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+publish = false
+
+[workspace]
+
+[dependencies]
+nsh-core = "0.6.0"
+nsh-omarchy = { version = "=0.1.1", default-features = false }

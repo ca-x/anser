@@ -603,6 +603,25 @@ test("switches language and appearance, then restores the saved preferences", as
   );
 });
 
+test("restores the app theme on web when Omarchy was previously selected", async () => {
+  const app = await open("./App.tsx", {
+    platform: "web",
+    locale: "en",
+    colorScheme: "light",
+    storage: {
+      "anser.preferences": JSON.stringify({
+        language: "en",
+        appearance: "omarchy",
+      }),
+    },
+  });
+  await app.waitFor("Connect to an Anser server");
+  expect(app.viewStyle("id:app-background")?.backgroundColor).toBe("#f8f6f2ff");
+  await app.press("Preferences");
+  await app.press("label:Appearance");
+  expect(app.texts()).not.toContain("Omarchy desktop theme");
+});
+
 const lark = {
   ...channel,
   id: "feishu",

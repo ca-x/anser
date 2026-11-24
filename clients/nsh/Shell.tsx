@@ -15,6 +15,7 @@ import {
 import { Button, createNavStack, NavStack } from "nsh/base";
 import { currentWindow, isAvailable as desktopAvailable } from "nsh/desktop";
 import { TabBar } from "nsh/mobile";
+import { Head } from "nsh/web";
 import { messageFor, type AnserApi } from "./api";
 import accountIcon from "./assets/navigation/id-badge.svg";
 import historyIcon from "./assets/navigation/history.svg";
@@ -116,7 +117,7 @@ const sections: {
 
 export function AnserApp() {
   const preferences = createPreferences();
-  if (desktopAvailable || platform.os === "web") {
+  if (desktopAvailable && platform.os !== "web") {
     const appWindow = currentWindow();
     effect(() => appWindow.set({ title: t("workspace.anser") }));
   }
@@ -161,6 +162,7 @@ export function AnserApp() {
 
   return (
     <View class="flex-1 bg-background" testID="app-background">
+      {platform.os === "web" && <Head title={t("workspace.anser")} />}
       <If when={preferences.ready()}>
         <If
           when={session()}
@@ -275,7 +277,7 @@ function Workspace(props: {
           <Button
             onPress={() => go(tab().id)}
             selected={selected()}
-            class={`min-h-12 rounded-lg items-center hover:bg-muted active:bg-accent focus-visible:ring-2 focus-visible:ring-ring transition-colors duration-100 motion-reduce:transition-none ${wide() ? "flex-row gap-2.5 px-3 py-2" : "min-w-0 flex-1 justify-center gap-0.5 px-1 py-1"} ${selected() ? "bg-accent" : ""}`}
+            class={`min-h-12 rounded-(--radius) items-center hover:bg-muted active:bg-accent focus-visible:ring-2 focus-visible:ring-ring transition-colors duration-100 motion-reduce:transition-none ${wide() ? "flex-row gap-2.5 px-3 py-2" : "min-w-0 flex-1 justify-center gap-0.5 px-1 py-1"} ${selected() ? "bg-accent" : ""}`}
           >
             <Image
               src={tab().icon}

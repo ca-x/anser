@@ -370,6 +370,7 @@
   "preferences.simplified_chinese": "Simplified Chinese",
   "preferences.english": "English",
   "preferences.light": "Light",
+  "preferences.omarchy": "Omarchy desktop theme",
   "preferences.session_only": "Preferences could not be saved. They still apply for this session.",
   "preferences.title": "Preferences",
   "proxies.choose_profile": "Select a saved outbound proxy profile in the proxy menu.",

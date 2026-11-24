@@ -1,0 +1,11 @@
+{
+  "version": 2,
+  "packages": [
+    {
+      "name": "anser-client-native",
+      "version": "0.1.0",
+      "path": "./native",
+      "module": "anser-native"
+    }
+  ]
+}

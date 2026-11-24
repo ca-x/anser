@@ -7,17 +7,17 @@ const statuses: Record<
 > = {
   pending: {
     label: "delivery_status.queued",
-    style: "text-waiting",
+    style: "text-warning",
     live: true,
   },
   waiting: {
     label: "delivery_status.waiting",
-    style: "text-waiting",
+    style: "text-warning",
     live: true,
   },
   sending: {
     label: "delivery_status.sending",
-    style: "text-waiting",
+    style: "text-warning",
     live: true,
   },
   success: { label: "delivery_status.succeeded", style: "text-success" },

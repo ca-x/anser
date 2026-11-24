@@ -23,6 +23,9 @@ export function PreferenceControls(props: { preferences: Preferences }) {
           { value: "system", title: t("preferences.follow_system") },
           { value: "light", title: t("preferences.light") },
           { value: "dark", title: t("preferences.dark") },
+          ...(current.omarchyAvailable
+            ? [{ value: "omarchy", title: t("preferences.omarchy") }]
+            : []),
         ]}
         onChange={current.changeAppearance}
       />

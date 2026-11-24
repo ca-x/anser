@@ -78,6 +78,8 @@ ANSER_REQUIRE_WEB=1 cargo build --locked --release -p anser-server
 
 ![按能力分类的已安装插件](docs/screenshots/zh-CN/server-plugins-catalog.png)
 
+![定时任务列表展示周期、每周和单次计划](docs/screenshots/zh-CN/server-schedules.png)
+
 ![通知模板管理](docs/screenshots/zh-CN/server-templates.png)
 
 ![出站代理设置](docs/screenshots/zh-CN/server-proxies.png)

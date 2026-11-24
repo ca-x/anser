@@ -1,13 +1,28 @@
-import { batch, cleanup, setColorScheme, signal, Storage } from "nsh";
+import {
+  batch,
+  cleanup,
+  platform,
+  setColorScheme,
+  setTheme,
+  signal,
+  Storage,
+} from "nsh";
 import { setLocale } from "nsh/i18n";
+import { SystemTheme } from "anser-native";
 
 const storageKey = "anser.preferences";
 
 type Language = "system" | "en" | "zh-CN";
-type Appearance = "system" | "light" | "dark";
+type Appearance = "system" | "light" | "dark" | "omarchy";
 type Settings = { language: Language; appearance: Appearance };
 
-function parseSettings(raw: string | null): Settings | undefined {
+function resolveAppearance(value: unknown, omarchyAvailable: boolean): Appearance {
+  if (value === "light" || value === "dark") return value;
+  if (value === "omarchy" && omarchyAvailable) return value;
+  return "system";
+}
+
+function parseSettings(raw: string | null, omarchyAvailable: boolean): Settings | undefined {
   if (!raw) return undefined;
   try {
     const value: unknown = JSON.parse(raw);
@@ -15,8 +30,7 @@ function parseSettings(raw: string | null): Settings | undefined {
     const { language, appearance } = value as Partial<Settings>;
     return {
       language: language === "en" || language === "zh-CN" ? language : "system",
-      appearance:
-        appearance === "light" || appearance === "dark" ? appearance : "system",
+      appearance: resolveAppearance(appearance, omarchyAvailable),
     };
   } catch {
     return undefined;
@@ -24,6 +38,7 @@ function parseSettings(raw: string | null): Settings | undefined {
 }
 
 export function createPreferences() {
+  const omarchyAvailable = platform.os === "linux" && SystemTheme.omarchyAvailable();
   const settings = signal<Settings>({
     language: "system",
     appearance: "system",
@@ -32,26 +47,38 @@ export function createPreferences() {
   const saved = signal(true);
   let live = true;
   let revision = 0;
+  let appliedAppearance: Appearance | undefined;
   cleanup(() => {
     live = false;
+    if (appliedAppearance === "omarchy") SystemTheme.stopFollowingOmarchy();
   });
 
   function apply(next: Settings) {
     batch(() => {
       settings.set(next);
       setLocale(next.language === "system" ? null : next.language);
-      setColorScheme(next.appearance);
+      if (next.appearance === appliedAppearance) return;
+
+      if (appliedAppearance === "omarchy") {
+        SystemTheme.stopFollowingOmarchy();
+        setTheme(null);
+      }
+      appliedAppearance = next.appearance;
+      if (next.appearance === "omarchy") SystemTheme.followOmarchy();
+      else setColorScheme(next.appearance);
     });
   }
 
   void Storage.getItem(storageKey)
     .then((raw) => {
-      const initial = parseSettings(raw);
+      const initial = parseSettings(raw, omarchyAvailable);
       if (initial && live && revision === 0) apply(initial);
     })
     .catch(() => undefined)
     .finally(() => {
-      if (live) ready.set(true);
+      if (!live) return;
+      if (appliedAppearance === undefined) apply(settings());
+      ready.set(true);
     });
 
   function update(next: Settings) {
@@ -71,6 +98,7 @@ export function createPreferences() {
     settings,
     ready,
     saved,
+    omarchyAvailable,
     changeLanguage(language: string | null) {
       update({
         ...settings(),
@@ -81,10 +109,7 @@ export function createPreferences() {
     changeAppearance(appearance: string | null) {
       update({
         ...settings(),
-        appearance:
-          appearance === "light" || appearance === "dark"
-            ? appearance
-            : "system",
+        appearance: resolveAppearance(appearance, omarchyAvailable),
       });
     },
   };
