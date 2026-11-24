@@ -76,10 +76,12 @@ impl ChannelService for Dingtalk {
     fn config_schema(&self) -> Value {
         json!({
             "$schema":"https://json-schema.org/draft/2020-12/schema",
+            "x-anser-version": env!("CARGO_PKG_VERSION"),
             "type":"object",
+            "x-anser-ui": {"label":{"en":"DingTalk","zh-CN":"钉钉"},"account_editor": {"fields":[],"credentials":{"webhook":[],"signing_secret":["webhook"]}}},
             "properties":{
-                "webhook":{"type":"string","format":"uri","writeOnly":true},
-                "signing_secret":{"type":"string","format":"password","writeOnly":true,"maxLength":512},
+                "webhook":{"x-anser-ui":{"label":{"en":"Webhook URL","zh-CN":"机器人回调地址"}},"type":"string","format":"uri","writeOnly":true},
+                "signing_secret":{"x-anser-ui":{"label":{"en":"Signing secret","zh-CN":"签名密钥"}},"type":"string","format":"password","writeOnly":true,"maxLength":512},
                 "proxy":{"type":"string","format":"uri","writeOnly":true}
             },
             "required":["webhook"],"additionalProperties":false

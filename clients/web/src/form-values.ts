@@ -10,7 +10,18 @@ type Condition = { field: string; equals: string | number | boolean };
 
 type LocalizedText = Partial<Record<"zh-CN" | "en", string>>;
 
+interface ConfigPreset {
+  id: string;
+  label: LocalizedText;
+  description?: LocalizedText;
+  values: JsonObject;
+}
+
 interface Presentation {
+  presets?: ConfigPreset[];
+  account_editor?: { fields: string[] };
+  form_fields?: string[];
+  links?: {label: LocalizedText; url: string}[];
   visible_when?: Condition;
   required_when?: Condition;
   label?: LocalizedText;
@@ -49,9 +60,51 @@ export function visibleField(field: ConfigProperty, value: JsonObject, fields: R
   return condition == null || matchesCondition(condition, value, fields);
 }
 
+export function configPresets(plugin?: ConfigSchema) {
+  const ui = plugin?.config_schema["x-anser-ui"] as Presentation | undefined;
+  return Array.isArray(ui?.presets) ? ui.presets.filter((preset) =>
+    preset && typeof preset.id === "string" && !!preset.id && preset.label && preset.values &&
+    typeof preset.values === "object" && !Array.isArray(preset.values)) : [];
+}
+
+export function presetValues(plugin: ConfigSchema, preset: ConfigPreset) {
+  const properties = pluginProperties(plugin);
+  return Object.fromEntries(Object.entries(preset.values).filter(([key, value]) => {
+    const field = Object.hasOwn(properties, key) ? properties[key] : undefined;
+    const scalar = typeof value === "string" || typeof value === "boolean" ||
+      (typeof value === "number" && Number.isFinite(value));
+    return field && scalar && !sensitiveField(key, field) && key !== "proxy" &&
+      (field.type === typeof value || (field.type === "integer" && Number.isSafeInteger(value))) &&
+      (!field.enum || field.enum.includes(value as string | number));
+  }));
+}
+
+export function sensitiveField(name: string, field: ConfigProperty) {
+  return field.writeOnly || field.format === "password" || /pass(?:word)?|token|secret|key|webhook/i.test(name);
+}
+
 export function pluginLabel(plugin: ConfigSchema, language: "zh-CN" | "en") {
   const ui = plugin.config_schema["x-anser-ui"] as Presentation | undefined;
   return ui?.label?.[language];
+}
+
+export function supportsAccountEditor(plugin?: ConfigSchema) {
+  const ui = plugin?.config_schema["x-anser-ui"] as Presentation | undefined;
+  return Array.isArray(ui?.account_editor?.fields);
+}
+
+export function accountFormFields(plugin: ConfigSchema) {
+  const ui = plugin.config_schema["x-anser-ui"] as Presentation | undefined;
+  return Array.isArray(ui?.form_fields) ? ui.form_fields : undefined;
+}
+
+export function externalHelpUrl(value: unknown) {
+  if (typeof value !== "string") return undefined;
+  try {
+    const url = new URL(value);
+    if (url.protocol === "https:" && !url.username && !url.password) return url.href;
+  } catch { /* Ignore malformed plugin metadata. */ }
+  return undefined;
 }
 
 export function usesDevicePicker(plugin?: ConfigSchema) {

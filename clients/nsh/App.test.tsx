@@ -932,6 +932,13 @@ test("admin manages reusable proxy profiles without reading credentials", async 
       [`${endpoints}/proxies`]: () => ({
         body: page(profile ? [profile] : []),
       }),
+      [`POST ${endpoints}/proxies/test`]: ({ body }) => {
+        expect(JSON.parse(body ?? "{}")).toEqual({
+          proxy_url: proxyProfile.url, username: "fixture-user", password: "fixture-secret",
+        });
+        expect(profile).toBe(undefined);
+        return { body: { status: 200, latency_ms: 7 } };
+      },
       [`POST ${endpoints}/proxies`]: ({ body }) => {
         expect(JSON.parse(body ?? "{}")).toEqual({
           name: proxyProfile.name,
@@ -984,6 +991,8 @@ test("admin manages reusable proxy profiles without reading credentials", async 
   await app.press("使用代理认证");
   await app.type("label:代理用户名", "fixture-user");
   await app.type("label:代理密码", "fixture-secret");
+  await app.press("测试连接");
+  await app.waitFor("代理连接成功。HTTP 200，耗时 7 毫秒。");
   await app.press("保存代理配置");
   await app.waitFor(proxyProfile.name);
   await app.press("查看");
@@ -1328,6 +1337,108 @@ test("creates a channel account with a saved proxy profile", async () => {
   expect(created?.proxy_id).toBe(proxyProfile.id);
   expect(created?.config).toEqual({ topic: "alerts" });
   expect(created?.inline_proxy).toBe(undefined);
+});
+
+test("applies SMTP presets and requires a fresh password when the server changes", async () => {
+  let savedConfig: unknown;
+  const app = await open("./App.tsx", {
+    platform: "linux",
+    storage: chinesePreferences,
+    width: 1120,
+    height: 1080,
+    network: {
+      ...baseNetwork(),
+      [`${endpoints}/channels`]: { body: page([{
+        ...channel,
+        id: "email",
+        display_name: "SMTP 邮件",
+        can_manage: true,
+        config_schema: {
+          "x-anser-ui": { presets: [
+            { id: "qq", label: { "zh-CN": "QQ 邮箱" }, values: { host: "smtp.qq.com", port: 465, encryption: "tls" } },
+            { id: "icloud", label: { "zh-CN": "iCloud 邮件" }, values: {
+              host: "smtp.mail.me.com", port: 587, encryption: "starttls", password: "ignored",
+            } },
+          ] },
+          properties: {
+            host: { type: "string" }, port: { type: "integer" },
+            encryption: { type: "string", enum: ["tls", "starttls"] },
+            password: { type: "string", writeOnly: true, "x-anser-ui": { label: { "zh-CN": "邮件授权码" } } },
+            from_name: { type: "string", "x-anser-ui": { label: { "zh-CN": "发件人显示名称" } } },
+          },
+        },
+      }]) },
+      [`POST ${endpoints}/accounts`]: ({ body }) => {
+        const payload = JSON.parse(body ?? "{}");
+        savedConfig = payload.config;
+        return { status: 201, body: { id: "mail", enabled: true, ...payload } };
+      },
+    },
+  });
+  await login(app);
+  await app.press("role:button[账号]");
+  await app.press("添加账号");
+  await app.type("label:账号名称", "提醒邮件");
+  await app.press("label:渠道");
+  await app.press("SMTP 邮件");
+  await app.press("label:连接预设");
+  await app.press("QQ 邮箱");
+  await app.type("label:邮件授权码", "previous-fixture");
+  await app.press("label:连接预设");
+  await app.press("iCloud 邮件");
+  await app.type("label:发件人显示名称", "雁字提醒");
+  await app.press("保存账号");
+  await app.waitFor("渠道账号");
+  expect(savedConfig).toEqual({
+    host: "smtp.mail.me.com", port: 587, encryption: "starttls", from_name: "雁字提醒",
+  });
+});
+
+test("opens a saved plugin form with settings filled and credentials empty", async () => {
+  const account = {
+    id: "smtp", channel: "email", name: "QQ 邮件", tags: [], weight: 1, priority: 0, enabled: true,
+  };
+  let saved: Record<string, unknown> | undefined;
+  const app = await open("./App.tsx", {
+    platform: "linux",
+    storage: chinesePreferences,
+    width: 1120,
+    height: 1080,
+    network: {
+      ...baseNetwork(),
+      [`${endpoints}/accounts`]: { body: page([account]) },
+      [`${endpoints}/channels`]: { body: page([{
+        ...channel, id: "email", display_name: "邮件", can_manage: true,
+        config_schema: {
+          "x-anser-ui": { account_editor: { fields: ["host", "from_name"] } },
+          properties: {
+            host: { type: "string" },
+            password: { type: "string", writeOnly: true },
+            from_name: { type: "string", "x-anser-ui": { label: { "zh-CN": "发件人显示名称" } } },
+          },
+          required: ["host", "password"],
+        },
+      }]) },
+      [`GET ${endpoints}/accounts/smtp/config`]: { body: {
+        config: { host: "smtp.qq.com" }, saved_credentials: ["password"], revision: "fixture-revision",
+      } },
+      [`PUT ${endpoints}/accounts/smtp`]: ({ body }) => {
+        saved = JSON.parse(body ?? "{}");
+        return { body: account };
+      },
+    },
+  });
+  await login(app);
+  await app.press("role:button[账号]");
+  await app.waitFor("QQ 邮件");
+  await app.press("查看");
+  await app.waitFor("label:发件人显示名称");
+  expect(app.shows("替换渠道配置")).toBe(false);
+  await app.type("label:发件人显示名称", "雁字提醒");
+  await app.press("保存账号");
+  await app.waitFor("渠道账号");
+  expect(saved?.config).toEqual({ host: "smtp.qq.com", from_name: "雁字提醒" });
+  expect(saved?.config_revision).toBe("fixture-revision");
 });
 
 test("creates and edits a Topic and saves workspace default routing", async () => {

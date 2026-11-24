@@ -1,0 +1,4 @@
+{
+  "user_id": "example-user",
+  "device_ids": ["example-phone", "example-tablet"]
+}

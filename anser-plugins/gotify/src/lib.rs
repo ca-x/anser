@@ -64,11 +64,13 @@ impl ChannelService for Gotify {
     fn config_schema(&self) -> Value {
         json!({
             "$schema":"https://json-schema.org/draft/2020-12/schema",
+            "x-anser-version": env!("CARGO_PKG_VERSION"),
             "type":"object",
+            "x-anser-ui": {"label":{"en":"Gotify","zh-CN":"Gotify"},"account_editor": {"fields":["server_url","priority"],"credentials":{"app_token":["server_url"]}}},
             "properties":{
-                "server_url":{"type":"string","format":"uri"},
-                "app_token":{"type":"string","maxLength":512,"format":"password","writeOnly":true},
-                "priority":{"type":"integer","default":0},
+                "server_url":{"x-anser-ui":{"label":{"en":"Server URL","zh-CN":"服务器地址"}},"type":"string","format":"uri"},
+                "app_token":{"x-anser-ui":{"label":{"en":"Application token","zh-CN":"应用令牌"}},"type":"string","maxLength":512,"format":"password","writeOnly":true},
+                "priority":{"x-anser-ui":{"label":{"en":"Notification priority","zh-CN":"通知优先级"}},"type":"integer","default":0},
                 "proxy":{"type":"string","format":"uri","writeOnly":true}
             },
             "required":["server_url","app_token"],"additionalProperties":false

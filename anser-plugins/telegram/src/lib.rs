@@ -111,12 +111,14 @@ impl ChannelService for Telegram {
     fn config_schema(&self) -> Value {
         json!({
             "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "x-anser-version": env!("CARGO_PKG_VERSION"),
             "type": "object",
+            "x-anser-ui": {"label":{"en":"Telegram","zh-CN":"Telegram"},"account_editor": {"fields":["chat_id","parse_mode"],"credentials":{"bot_token":[]}}},
             "properties": {
-                "bot_token": {"type": "string", "pattern":"^[0-9]+:[A-Za-z0-9_-]+$", "writeOnly": true},
-                "chat_id": {"oneOf":[{"type":"integer"},{"type":"string","pattern":"^(-?[0-9]+|@[A-Za-z0-9_]+)$"}]},
-                "parse_mode": {"enum":["html","markdown","markdown_v2"]},
-                "proxy": {"type": "string", "format": "uri"}
+                "bot_token": {"x-anser-ui":{"label":{"en":"Bot token","zh-CN":"机器人令牌"}},"type": "string", "pattern":"^[0-9]+:[A-Za-z0-9_-]+$", "writeOnly": true},
+                "chat_id": {"x-anser-ui":{"label":{"en":"Chat ID or username","zh-CN":"会话 ID 或用户名"}},"oneOf":[{"type":"integer"},{"type":"string","pattern":"^(-?[0-9]+|@[A-Za-z0-9_]+)$"}]},
+                "parse_mode": {"x-anser-ui":{"label":{"en":"Formatting mode","zh-CN":"格式解析方式"},"option_labels":{"html":{"en":"HTML","zh-CN":"HTML"},"markdown":{"en":"Markdown","zh-CN":"Markdown"},"markdown_v2":{"en":"Markdown V2","zh-CN":"Markdown V2"}}},"enum":["html","markdown","markdown_v2"]},
+                "proxy": {"type": "string", "format": "uri", "writeOnly": true}
             },
             "required": ["bot_token", "chat_id"],
             "additionalProperties": false

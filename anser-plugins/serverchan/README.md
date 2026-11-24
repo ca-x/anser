@@ -1,6 +1,6 @@
 # Server酱
 
-`SCT…` 为 Turbo 凭据，`sctp<数字>t…` 为 Server酱³ 凭据。地址由官方 SDK 规则推导，可显式填写 `version` 核对。Turbo 可配 `channel`、`openid` 和 `noip`，Server酱³ 可配 `tags`。
+在配置界面填入 SendKey 即可。微信推送使用 [Server酱 Turbo](https://sct.ftqq.com/sendkey) 的 `SCT…`，App 推送使用 [Server酱³](https://sc3.ft07.com/sendkey) 的 `sctp<数字>t…`。插件根据 SendKey 自动识别版本。API 仍支持 `version`、Turbo 的 `channel`、`openid` 和 `noip`，以及 Server酱³ 的 `tags`。通过配置界面更换 SendKey 时，旧版本专属选项会清除。
 
 未填写标题时，取正文中第一行可读文本作为标题，正文仍完整发送至渠道长度上限。标题最多 32 字符，正文可使用 Markdown。可设 `short` 作为通知卡片摘要。
 

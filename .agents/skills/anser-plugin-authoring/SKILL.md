@@ -40,6 +40,10 @@ Use `x-anser-ui` for optional presentation details. Localize labels and descript
 
 Use the host's allowed native widgets for privileged operations such as selecting a LazyCat device. For a new widget, define its wire interaction and authorization in the host and implement a native NSH control alongside the Web control. Keep plugin metadata declarative and render text as text.
 
+- Declare the channel version in `x-anser-version` using `env!("CARGO_PKG_VERSION")`. Supply localized field, choice and plugin labels in the schema so Web and NSH can share the same form.
+- Use `x-anser-ui.form_fields` to show only the fields needed in the guided form. Keep supported API options in `properties`. A field can supply localized HTTPS help links through `x-anser-ui.links` with `label` and `url`.
+- Use `x-anser-ui.account_editor.fields` to enumerate the settings the admin editor may read. Only list fields safe to return. Declare write-only credentials under `account_editor.credentials` and list every field that affects where and under which identity a stored credential will be used. An empty binding list suits credentials for a fixed upstream. The editor can preserve an omitted credential only when those settings are unchanged. The proxy picker manages shared proxy profiles separately from channel fields.
+
 ## Make provider calls predictable
 
 - Use the [shared transport](../../../anser-plugins/http/src/lib.rs) for URL policy, TLS, timeouts, proxy handling, and retry classification. Keep provider SDKs and credentials inside the plugin. Return safe error codes and messages and preserve Retry-After when present.

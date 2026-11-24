@@ -33,6 +33,27 @@ test("collapsible navigation, persisted retention and responsive account actions
   await page.addInitScript(() => sessionStorage.setItem("anser.auth.session", "test-session"));
   await page.goto(site + "/admin/accounts");
   const nav = page.locator("nav.sidebar");
+  async function navColors(sidebar) {
+    return sidebar.evaluate((node) => {
+      const group = node.querySelector("details[open] .nav-group");
+      const style = getComputedStyle(group);
+      return { rail: getComputedStyle(node).backgroundColor, group: style.backgroundColor, shadow: style.boxShadow };
+    });
+  }
+  const arrow = nav.locator(".nav-section-chevron").first();
+  assert.match(await arrow.getAttribute("src"), /\/chevron-right-[^/]+\.svg$/);
+  const light = await navColors(nav);
+  assert.notEqual(light.rail, light.group);
+  assert.notEqual(light.shadow, "none");
+  await page.emulateMedia({ colorScheme: "dark", reducedMotion: "reduce" });
+  await page.waitForFunction(() => document.documentElement.dataset.theme === "dark");
+  const dark = await navColors(nav);
+  assert.notEqual(dark.rail, dark.group);
+  assert.notEqual(dark.group, light.group);
+  const selected = nav.getByRole("link", { name: "Accounts" });
+  assert.equal(await selected.getAttribute("aria-current"), "page");
+  assert.equal(await nav.locator(".nav-section-chevron").first().evaluate((icon) => getComputedStyle(icon).transitionDuration), "0s");
+  await page.emulateMedia({ colorScheme: "light", reducedMotion: "no-preference" });
   const system = nav.locator("summary").filter({ hasText: "Administration" });
   const settingsLink = nav.getByRole("link", { name: "System settings" });
   await settingsLink.waitFor();
@@ -65,4 +86,8 @@ test("collapsible navigation, persisted retention and responsive account actions
   await saved.waitFor();
   assert.equal((await saved.innerText()).trim(), "Edit account");
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+  await page.locator(".nav-trigger").click();
+  const mobile = page.locator(".console-navigation-flyout nav");
+  await mobile.getByRole("link", { name: "Accounts" }).waitFor();
+  assert.equal((await navColors(mobile)).group, light.group);
 });

@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
-  EuiButton, EuiButtonEmpty, EuiIcon, EuiFieldPassword, EuiFieldText, EuiFlyout, EuiFlyoutBody, EuiFlyoutHeader, EuiFormRow, EuiTitle,
+  EuiButton, EuiButtonEmpty, EuiFieldPassword, EuiFieldText, EuiFlyout, EuiFlyoutBody, EuiFlyoutHeader, EuiFormRow, EuiTitle,
 } from "@elastic/eui";
 import { Api, ApiError, errorMessage, type SignIn, type User } from "./api";
 import { SendSession } from "./send-draft";
@@ -24,6 +24,7 @@ import pairIcon from "./assets/icons/scan-qr.svg?no-inline";
 import securityIcon from "./assets/icons/shield.svg?no-inline";
 import settingsIcon from "./assets/icons/settings.svg?no-inline";
 import aboutIcon from "./assets/icons/info.svg?no-inline";
+import sectionChevron from "./assets/icons/chevron-right.svg?no-inline";
 import "./styles.css";
 
 const Accounts = lazy(() => import("./pages/Accounts").then(({ Accounts }) => ({ default: Accounts })));
@@ -238,7 +239,7 @@ function NavigationSection({ id, label, active, children }: {
     setOpen(next);
     try { localStorage.setItem(key, next ? "open" : "closed"); } catch { /* Preferences are optional. */ }
   }}>
-    <summary><span>{label}</span><EuiIcon className="nav-section-chevron" type="chevronSingleRight" aria-hidden="true" /></summary>
+    <summary><span>{label}</span><img className="nav-section-chevron" src={sectionChevron} alt="" aria-hidden="true" width="18" height="18" /></summary>
     {children}
   </details>;
 }

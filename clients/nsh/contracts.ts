@@ -36,6 +36,12 @@ export interface InstalledPlugin {
 
 export type ChannelRuntime = Pick<Channel, "id" | "enabled" | "available">;
 
+export interface EditableAccountConfig {
+  config: JsonObject;
+  saved_credentials: string[];
+  revision: string;
+}
+
 export interface Account {
   id: string;
   channel: string;

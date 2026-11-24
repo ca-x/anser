@@ -1,0 +1,4 @@
+{
+  "urls": ["https://example.org", "https://example.net:8443"],
+  "warning_days": 30
+}

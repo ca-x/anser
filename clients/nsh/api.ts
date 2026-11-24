@@ -2,6 +2,7 @@ import { t } from "nsh/i18n";
 import type {
   Acceptance,
   Account,
+  EditableAccountConfig,
   Channel,
   ChannelRuntime,
   HistoryEntry,
@@ -405,6 +406,16 @@ export class AnserApi {
         throw new ApiError(error.code, t("proxies.in_use"), 409);
       throw error;
     }
+  }
+
+  accountConfig(id: string) {
+    return this.request<EditableAccountConfig>(`/accounts/${segment(id)}/config`);
+  }
+
+  probeProxy(id: string | undefined, input: { url?: string; proxy_url?: string; username?: string; password?: string }) {
+    return this.request<{ status: number; latency_ms: number }>(
+      id ? `/proxies/${segment(id)}/test` : "/proxies/test", "POST", input,
+    );
   }
 
   saveAccount(id: string | undefined, body: JsonObject) {

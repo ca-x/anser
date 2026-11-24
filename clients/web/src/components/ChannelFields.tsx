@@ -1,7 +1,8 @@
 import { useLanguage, useT } from "../preferences";
-import { EuiFieldNumber, EuiFieldPassword, EuiFieldText, EuiFormRow, EuiSelect, EuiTextArea } from "@elastic/eui";
+import { useState } from "react";
+import { EuiFieldNumber, EuiFieldPassword, EuiFieldText, EuiFormRow, EuiLink, EuiSelect, EuiTextArea } from "@elastic/eui";
 import type { JsonObject } from "../api";
-import { matchesCondition, pluginProperties, visibleField, type ConfigSchema } from "../form-values";
+import { accountFormFields, configPresets, externalHelpUrl, matchesCondition, pluginProperties, presetValues, sensitiveField, visibleField, type ConfigSchema } from "../form-values";
 import { channelConfigOptionName } from "../locale";
 
 const fieldNames: Record<string, string> = {
@@ -18,13 +19,30 @@ const fieldNames: Record<string, string> = {
   recipient_kind: "接收目标类型", recipient_id: "接收目标 ID", sandbox: "沙箱模式",
 };
 
-export function ChannelFields({ channel, value, update }: {
-  channel: ConfigSchema; value: JsonObject; update: (value: JsonObject) => void;
+export function ChannelFields({ channel, value, update, savedCredentials }: {
+  channel: ConfigSchema; value: JsonObject; update: (value: JsonObject) => void; savedCredentials?: string[];
 }) {
   const t = useT();
   const language = useLanguage();
   const schema = channel.config_schema;
   const fields = pluginProperties(channel);
+  const presented = accountFormFields(channel);
+  const [presetId, setPresetId] = useState<string>();
+  const presets = configPresets(channel);
+  const selected = presets.find((preset) => (presetId === undefined || preset.id === presetId) &&
+    Object.entries(presetValues(channel, preset)).every(([key, entry]) => value[key] === entry));
+  function applyPreset(id: string) {
+    setPresetId(id);
+    const preset = presets.find((entry) => entry.id === id);
+    if (!preset) return;
+    const transport = presetValues(channel, preset);
+    const changed = Object.entries(transport).some(([key, entry]) => value[key] !== entry);
+    const next = { ...value, ...transport };
+    if (changed) {
+      for (const [key, field] of Object.entries(fields)) if (sensitiveField(key, field)) delete next[key];
+    }
+    update(next);
+  }
   const required = new Set(Array.isArray(schema.required) ? schema.required : []);
 
   function change(key: string, content: unknown) {
@@ -33,14 +51,21 @@ export function ChannelFields({ channel, value, update }: {
     update(next);
   }
 
-  return <div className="stack">{Object.entries(fields).filter(([key, field]) =>
-    key !== "proxy" && visibleField(field, value, fields)).map(([key, field]) => {
+  return <div className="stack">
+    {presets.length > 0 && <EuiFormRow label={t("连接预设")} fullWidth helpText={selected?.description?.[language]}>
+      <EuiSelect fullWidth value={selected?.id ?? ""} onChange={(event) => applyPreset(event.target.value)}
+        options={[{ value: "", text: t("手动配置") }, ...presets.map((preset) =>
+          ({ value: preset.id, text: preset.label[language] ?? preset.id }))]} />
+    </EuiFormRow>}
+    {Object.entries(fields).filter(([key, field]) =>
+    key !== "proxy" && (!presented || presented.includes(key)) && visibleField(field, value, fields)).map(([key, field]) => {
     const entry = value[key] ?? "";
     const ui = field["x-anser-ui"];
     const label = ui?.label?.[language] || t(field.title || fieldNames[key] || key);
     const placeholder = typeof field.default === "string" || typeof field.default === "number" ? String(field.default) : undefined;
     const secret = field.writeOnly || field.format === "password" || /password|token|secret|sendkey|webhook/.test(key);
-    const isRequired = required.has(key) || matchesCondition(ui?.required_when, value, fields);
+    const saved = savedCredentials?.includes(key);
+    const isRequired = !saved && (required.has(key) || matchesCondition(ui?.required_when, value, fields));
     let control;
     if (field.enum) {
       const options = field.enum;
@@ -71,6 +96,15 @@ export function ChannelFields({ channel, value, update }: {
     }
     const help = ui?.description?.[language]
       || (field.description ? t(field.description) : field.type === "array" ? t("以逗号分隔多个值。") : undefined);
-    return <EuiFormRow key={key} label={label} helpText={help} fullWidth>{control}</EuiFormRow>;
+    const links = Array.isArray(ui?.links) ? ui.links.flatMap((link) => {
+      const url = externalHelpUrl(link?.url);
+      const text = link?.label?.[language];
+      return url && text ? [<EuiLink key={url} href={url} target="_blank" rel="noopener noreferrer" external>{text}</EuiLink>] : [];
+    }) : [];
+    return <EuiFormRow key={key} label={label} helpText={(help || saved || links.length > 0) ? <span className="field-help">
+      {help && <span>{help}</span>}
+      {saved && <span>{t("留空保留已保存的凭据。更改关联设置时，请重新填写。")}</span>}
+      {links.length > 0 && <span className="field-help-links">{links}</span>}
+    </span> : undefined} fullWidth>{control}</EuiFormRow>;
   })}</div>;
 }

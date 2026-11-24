@@ -18,6 +18,7 @@ use axum::routing::{delete, get, post};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 
 use crate::auth::{self, Identity, Rate};
 use crate::channel_runtime::{Change, ChannelRuntime, RuntimeState};
@@ -96,6 +97,7 @@ pub fn router() -> Router<Arc<App>> {
             get(account).put(update_account).delete(delete_account),
         )
         .route("/v1/accounts/{id}/test", post(test_account))
+        .route("/v1/accounts/{id}/config", get(account_config))
         .route(
             "/v1/proxies",
             get(crate::proxies::list).post(crate::proxies::create),
@@ -107,6 +109,7 @@ pub fn router() -> Router<Arc<App>> {
                 .delete(crate::proxies::delete),
         )
         .route("/v1/proxies/{id}/test", post(crate::proxies::test_proxy))
+        .route("/v1/proxies/test", post(crate::proxies::test_draft))
         .route("/v1/plugins", get(crate::plugins::list))
         .route("/v1/plugins/market", get(crate::github_market::search))
         .route(
@@ -331,6 +334,7 @@ struct AccountUpdate {
     name: Option<String>,
     channel: Option<String>,
     config: Option<Value>,
+    config_revision: Option<String>,
     tags: Option<Vec<String>>,
     weight: Option<u32>,
     priority: Option<i32>,
@@ -361,6 +365,122 @@ async fn account(
 ) -> ApiResult<Json<Account>> {
     identity.admin_global()?;
     Ok(Json(app.store.account(&id).await?.public()?))
+}
+
+#[derive(Deserialize)]
+struct AccountEditor {
+    fields: Vec<String>,
+    #[serde(default)]
+    credentials: std::collections::BTreeMap<String, Vec<String>>,
+    #[serde(default)]
+    reset_on_credential_change: std::collections::BTreeMap<String, Vec<String>>,
+}
+
+async fn account_editor(app: &App, channel: &str) -> ApiResult<AccountEditor> {
+    let schema = app
+        .host
+        .config_schema(channel)
+        .await
+        .map_err(ApiError::channel)?;
+    let editor: AccountEditor =
+        serde_json::from_value(schema["x-anser-ui"]["account_editor"].clone())
+            .map_err(|_| ApiError::from(DataError::Missing))?;
+    let writable_secret = |key: &str| {
+        schema["properties"][key]["writeOnly"].as_bool() == Some(true)
+            || schema["properties"][key]["format"].as_str() == Some("password")
+    };
+    if editor.fields.iter().any(|key| {
+        key == "proxy" || schema["properties"].get(key).is_none() || writable_secret(key)
+    }) || editor
+        .credentials
+        .keys()
+        .any(|key| key == "proxy" || !writable_secret(key))
+    {
+        return Err(DataError::Missing.into());
+    }
+    Ok(editor)
+}
+
+async fn account_config(
+    State(app): State<Arc<App>>,
+    identity: Identity,
+    ApiPath(id): ApiPath<String>,
+) -> ApiResult<impl IntoResponse> {
+    identity.admin_global()?;
+    let account = app.store.account(&id).await?;
+    let editor = account_editor(&app, &account.channel).await?;
+    let saved = app.cipher.open(&id, &account.encrypted_config)?;
+    let config: serde_json::Map<String, Value> = editor
+        .fields
+        .iter()
+        .filter_map(|key| {
+            saved
+                .get(key)
+                .filter(|value| !value.is_null())
+                .map(|value| (key.clone(), value.clone()))
+        })
+        .collect();
+    let saved_credentials: Vec<_> = editor
+        .credentials
+        .keys()
+        .filter(|key| saved.get(*key).is_some_and(|value| !value.is_null()))
+        .collect();
+    Ok((
+        [(header::CACHE_CONTROL, "no-store")],
+        Json(json!({
+            "config": config,
+            "saved_credentials": saved_credentials,
+            "revision": config_revision(&account.encrypted_config)
+        })),
+    ))
+}
+
+fn config_revision(encrypted: &[u8]) -> String {
+    format!("{:x}", Sha256::digest(encrypted))
+}
+
+fn merge_account_config(editor: &AccountEditor, saved: &Value, draft: Value) -> ApiResult<Value> {
+    let Value::Object(fields) = draft else {
+        return Err(ApiError::bad("Expected a channel configuration object"));
+    };
+    if fields
+        .keys()
+        .any(|key| !editor.fields.contains(key) && !editor.credentials.contains_key(key))
+    {
+        return Err(ApiError::bad(
+            "Channel settings include a field that cannot be edited here",
+        ));
+    }
+    let mut result = saved
+        .as_object()
+        .cloned()
+        .ok_or_else(|| ApiError::bad("Saved channel configuration is invalid"))?;
+    for (key, bindings) in &editor.credentials {
+        if fields.contains_key(key)
+            || bindings.iter().any(|field| {
+                (!editor.credentials.contains_key(field) || fields.contains_key(field))
+                    && fields.get(field).filter(|value| !value.is_null())
+                        != saved.get(field).filter(|value| !value.is_null())
+            })
+        {
+            result.remove(key);
+        }
+    }
+    for key in &editor.fields {
+        result.remove(key);
+    }
+    for (credential, reset_fields) in &editor.reset_on_credential_change {
+        if fields
+            .get(credential)
+            .is_some_and(|value| Some(value) != saved.get(credential))
+        {
+            for key in reset_fields {
+                result.remove(key);
+            }
+        }
+    }
+    result.extend(fields.into_iter().filter(|(_, value)| !value.is_null()));
+    Ok(Value::Object(result))
 }
 
 async fn create_account(
@@ -396,6 +516,22 @@ async fn update_account(
     identity.admin_global()?;
     let previous = app.store.account(&id).await?;
     let mut account = previous.public()?;
+    let mut config = input.config;
+    if let Some(revision) = input.config_revision {
+        if revision != config_revision(&previous.encrypted_config) {
+            return Err(ApiError::new(
+                StatusCode::CONFLICT,
+                "account_config_changed",
+                "Channel settings changed. Reopen the editor and try again.",
+            ));
+        }
+        let editor = account_editor(&app, &account.channel).await?;
+        let draft = config.take().ok_or_else(|| {
+            ApiError::bad("A configuration revision requires a channel configuration")
+        })?;
+        let saved = app.cipher.open(&id, &previous.encrypted_config)?;
+        config = Some(merge_account_config(&editor, &saved, draft)?);
+    }
     if input
         .channel
         .is_some_and(|channel| channel != account.channel)
@@ -427,7 +563,7 @@ async fn update_account(
     validate_account(&account)?;
     let clear_inline = input.inline_proxy == Some(InlineProxy::Clear);
     let keep_inline = input.inline_proxy == Some(InlineProxy::Keep) || account.proxy_id.is_some();
-    let encrypted = match input.config {
+    let encrypted = match config {
         Some(mut config) => {
             if let Some(fields) = config.as_object_mut() {
                 if clear_inline {

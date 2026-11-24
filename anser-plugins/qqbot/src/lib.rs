@@ -83,13 +83,15 @@ impl ChannelService for Qqbot {
     fn config_schema(&self) -> Value {
         json!({
             "$schema":"https://json-schema.org/draft/2020-12/schema",
+            "x-anser-version": env!("CARGO_PKG_VERSION"),
             "type":"object",
+            "x-anser-ui": {"label":{"en":"QQ Bot","zh-CN":"QQ 机器人"},"account_editor": {"fields":["app_id","recipient_kind","recipient_id","sandbox"],"credentials":{"app_secret":["app_id","sandbox"]}}},
             "properties":{
-                "app_id":{"type":"string","pattern":"^[0-9]+$","maxLength":32},
-                "app_secret":{"type":"string","format":"password","writeOnly":true,"maxLength":512},
-                "recipient_kind":{"type":"string","enum":["user","group","guild_channel"],"default":"group"},
-                "recipient_id":{"type":"string","pattern":"^[A-Za-z0-9_-]+$","maxLength":128},
-                "sandbox":{"type":"boolean","default":false},
+                "app_id":{"x-anser-ui":{"label":{"en":"Application ID","zh-CN":"应用 ID"}},"type":"string","pattern":"^[0-9]+$","maxLength":32},
+                "app_secret":{"x-anser-ui":{"label":{"en":"Application secret","zh-CN":"应用密钥"}},"type":"string","format":"password","writeOnly":true,"maxLength":512},
+                "recipient_kind":{"x-anser-ui":{"label":{"en":"Recipient type","zh-CN":"接收方类型"},"option_labels":{"group":{"en":"Group","zh-CN":"群聊"},"guild_channel":{"en":"Guild channel","zh-CN":"频道子频道"},"user":{"en":"User","zh-CN":"用户"}}},"type":"string","enum":["user","group","guild_channel"],"default":"group"},
+                "recipient_id":{"x-anser-ui":{"label":{"en":"Recipient ID","zh-CN":"接收方 ID"}},"type":"string","pattern":"^[A-Za-z0-9_-]+$","maxLength":128},
+                "sandbox":{"x-anser-ui":{"label":{"en":"Use sandbox","zh-CN":"使用沙箱"}},"type":"boolean","default":false},
                 "proxy":{"type":"string","format":"uri","writeOnly":true}
             },
             "required":["app_id","app_secret","recipient_id"],"additionalProperties":false

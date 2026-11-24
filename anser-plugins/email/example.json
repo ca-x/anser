@@ -4,6 +4,8 @@
   "encryption": "starttls",
   "username": "notifications@example.com",
   "password": "replace-with-app-password",
-  "from": "Anser <notifications@example.com>",
+  "from": "notifications@example.com",
+  "from_name": "Anser",
+  "email_style": "styled",
   "to": ["operator@example.com"]
 }

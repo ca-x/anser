@@ -84,12 +84,14 @@ impl ChannelService for Wecom {
     fn config_schema(&self) -> Value {
         json!({
             "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "x-anser-version": env!("CARGO_PKG_VERSION"),
             "type": "object",
+            "x-anser-ui": {"label":{"en":"WeCom","zh-CN":"企业微信应用"},"account_editor": {"fields":["corpid","agentid","touser"],"credentials":{"secret":["corpid","agentid"]}}},
             "properties": {
-                "corpid":{"type":"string","minLength":1,"maxLength":128},
-                "agentid":{"type":"integer","minimum":1,"maximum":2147483647},
-                "secret":{"type":"string","minLength":1,"maxLength":512,"format":"password","writeOnly":true},
-                "touser":{"type":"string","minLength":1,"maxLength":2048,"default":"@all"},
+                "corpid":{"x-anser-ui":{"label":{"en":"Organization ID","zh-CN":"企业 ID"}},"type":"string","minLength":1,"maxLength":128},
+                "agentid":{"x-anser-ui":{"label":{"en":"Application agent ID","zh-CN":"自建应用 ID"}},"type":"integer","minimum":1,"maximum":2147483647},
+                "secret":{"x-anser-ui":{"label":{"en":"Application secret","zh-CN":"应用密钥"}},"type":"string","minLength":1,"maxLength":512,"format":"password","writeOnly":true},
+                "touser":{"x-anser-ui":{"label":{"en":"Default recipients","zh-CN":"默认接收人"}},"type":"string","minLength":1,"maxLength":2048,"default":"@all"},
                 "proxy":{"type":"string","format":"uri","writeOnly":true}
             },
             "required": ["corpid", "agentid", "secret"],

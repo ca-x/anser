@@ -61,10 +61,12 @@ impl ChannelService for Slack {
     fn config_schema(&self) -> Value {
         json!({
             "$schema":"https://json-schema.org/draft/2020-12/schema",
+            "x-anser-version": env!("CARGO_PKG_VERSION"),
             "type":"object",
+            "x-anser-ui": {"label":{"en":"Slack","zh-CN":"Slack"},"account_editor": {"fields":["channel_id"],"credentials":{"bot_token":[]}}},
             "properties":{
-                "bot_token":{"type":"string","pattern":"^xoxb-[A-Za-z0-9-]+$","maxLength":512,"writeOnly":true,"format":"password"},
-                "channel_id":{"type":"string","pattern":"^[CGDU][A-Z0-9]+$","maxLength":64},
+                "bot_token":{"x-anser-ui":{"label":{"en":"Bot token","zh-CN":"机器人令牌"}},"type":"string","pattern":"^xoxb-[A-Za-z0-9-]+$","maxLength":512,"writeOnly":true,"format":"password"},
+                "channel_id":{"x-anser-ui":{"label":{"en":"Channel ID","zh-CN":"频道 ID"}},"type":"string","pattern":"^[CGDU][A-Z0-9]+$","maxLength":64},
                 "proxy":{"type":"string","format":"uri","writeOnly":true}
             },
             "required":["bot_token","channel_id"],"additionalProperties":false

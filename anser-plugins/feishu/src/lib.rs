@@ -149,16 +149,18 @@ impl ChannelService for Feishu {
     fn config_schema(&self) -> Value {
         json!({
             "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "x-anser-version": env!("CARGO_PKG_VERSION"),
             "type": "object",
+            "x-anser-ui": {"label":{"en":"Lark","zh-CN":"飞书"},"account_editor": {"fields":["mode","app_id","receive_id","receive_id_type","region"],"credentials":{"webhook":["mode"],"signing_secret":["mode","webhook"],"app_secret":["mode","app_id","region"]}}},
             "properties": {
-                "mode":{"type":"string","enum":["webhook","app"]},
-                "webhook":{"type":"string","format":"uri","writeOnly":true,"x-anser-ui":{"visible_when":{"field":"mode","equals":"webhook"},"required_when":{"field":"mode","equals":"webhook"}}},
-                "signing_secret":{"type":"string","minLength":1,"maxLength":512,"format":"password","writeOnly":true,"x-anser-ui":{"visible_when":{"field":"mode","equals":"webhook"}}},
-                "app_id":{"type":"string","minLength":1,"maxLength":512,"x-anser-ui":{"visible_when":{"field":"mode","equals":"app"},"required_when":{"field":"mode","equals":"app"}}},
-                "app_secret":{"type":"string","minLength":1,"maxLength":512,"format":"password","writeOnly":true,"x-anser-ui":{"visible_when":{"field":"mode","equals":"app"},"required_when":{"field":"mode","equals":"app"}}},
-                "receive_id":{"type":"string","minLength":1,"maxLength":512,"x-anser-ui":{"visible_when":{"field":"mode","equals":"app"},"required_when":{"field":"mode","equals":"app"}}},
-                "receive_id_type":{"type":"string","enum":["open_id","user_id","union_id","email","chat_id"],"default":"open_id","x-anser-ui":{"visible_when":{"field":"mode","equals":"app"}}},
-                "region":{"type":"string","enum":["feishu","lark"],"default":"feishu","x-anser-ui":{"visible_when":{"field":"mode","equals":"app"}}},
+                "mode":{"x-anser-ui":{"label":{"en":"Connection method","zh-CN":"接入方式"},"option_labels":{"app":{"en":"Application","zh-CN":"应用"},"webhook":{"en":"Custom bot","zh-CN":"自定义机器人"}}},"type":"string","enum":["webhook","app"]},
+                "webhook":{"type":"string","format":"uri","writeOnly":true,"x-anser-ui":{"label":{"en":"Webhook URL","zh-CN":"机器人回调地址"},"visible_when":{"field":"mode","equals":"webhook"},"required_when":{"field":"mode","equals":"webhook"}}},
+                "signing_secret":{"type":"string","minLength":1,"maxLength":512,"format":"password","writeOnly":true,"x-anser-ui":{"label":{"en":"Signing secret","zh-CN":"签名密钥"},"visible_when":{"field":"mode","equals":"webhook"}}},
+                "app_id":{"type":"string","minLength":1,"maxLength":512,"x-anser-ui":{"label":{"en":"Application ID","zh-CN":"应用 ID"},"visible_when":{"field":"mode","equals":"app"},"required_when":{"field":"mode","equals":"app"}}},
+                "app_secret":{"type":"string","minLength":1,"maxLength":512,"format":"password","writeOnly":true,"x-anser-ui":{"label":{"en":"Application secret","zh-CN":"应用密钥"},"visible_when":{"field":"mode","equals":"app"},"required_when":{"field":"mode","equals":"app"}}},
+                "receive_id":{"type":"string","minLength":1,"maxLength":512,"x-anser-ui":{"label":{"en":"Recipient ID","zh-CN":"接收目标 ID"},"visible_when":{"field":"mode","equals":"app"},"required_when":{"field":"mode","equals":"app"}}},
+                "receive_id_type":{"type":"string","enum":["open_id","user_id","union_id","email","chat_id"],"default":"open_id","x-anser-ui":{"label":{"en":"Recipient ID type","zh-CN":"接收目标类型"},"option_labels":{"chat_id":{"en":"Chat ID","zh-CN":"会话 ID"},"email":{"en":"Email","zh-CN":"电子邮箱"},"open_id":{"en":"Open ID","zh-CN":"Open ID"},"union_id":{"en":"Union ID","zh-CN":"Union ID"},"user_id":{"en":"User ID","zh-CN":"用户 ID"}},"visible_when":{"field":"mode","equals":"app"}}},
+                "region":{"type":"string","enum":["feishu","lark"],"default":"feishu","x-anser-ui":{"label":{"en":"Provider region","zh-CN":"服务区域"},"option_labels":{"feishu":{"en":"China","zh-CN":"中国站"},"lark":{"en":"International","zh-CN":"国际站"}},"visible_when":{"field":"mode","equals":"app"}}},
                 "proxy":{"type":"string","format":"uri","writeOnly":true}
             },
             "required":["mode"],

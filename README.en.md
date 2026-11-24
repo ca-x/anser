@@ -68,6 +68,8 @@ The delivery overview shows the queue, successful deliveries, dead letters, and 
 
 ![Delivery and attempt details](docs/screenshots/en/server-delivery.png)
 
+![Editing an SMTP account with a connection preset, sender display name, and email style](docs/screenshots/en/server-email.png)
+
 ![Choosing a LazyCat notification device. Green dots indicate online devices and gray dots indicate offline devices (sample devices).](docs/screenshots/en/server-account-device.png)
 
 ![Channel plugin runtime and account settings](docs/screenshots/en/server-plugin.png)

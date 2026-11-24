@@ -56,12 +56,20 @@ export function Proxies({ api }: { api: Api }) {
 }
 
 const defaultProbeUrl = "https://www.cloudflare.com/cdn-cgi/trace";
+type ProbeResult = { status: number; latency_ms: number };
+
+function ProbeFeedback({ result }: { result?: ProbeResult }) {
+  const t = useT();
+  return result ? <EuiCallOut color="success" iconType="check" title={t("代理连接成功")} announceOnMount>
+    {t("HTTP {status}，耗时 {ms} 毫秒", { status: String(result.status), ms: String(result.latency_ms) })}
+  </EuiCallOut> : null;
+}
 
 function ProxyProbe({ api, proxy, close }: { api: Api; proxy: OutboundProxy; close: () => void }) {
   const t = useT();
   const form = useId();
   const [url, setUrl] = useState(defaultProbeUrl);
-  const [result, setResult] = useState<{ status: number; latency_ms: number }>();
+  const [result, setResult] = useState<ProbeResult>();
   const task = useMutation();
   return <Drawer size="s" title={t("测试代理「{name}」", { name: proxy.name })} close={close}
     footer={<EuiButton fill type="submit" form={form} isLoading={task.busy}>{t("测试连接")}</EuiButton>}>
@@ -79,9 +87,7 @@ function ProxyProbe({ api, proxy, close }: { api: Api; proxy: OutboundProxy; clo
           onChange={(event) => { setUrl(event.target.value); setResult(undefined); task.clear(); }} />
       </EuiFormRow>
       <Failure message={task.error} />
-      {result && <EuiCallOut color="success" iconType="check" title={t("代理连接成功")}>
-        {t("HTTP {status}，耗时 {ms} 毫秒", { status: String(result.status), ms: String(result.latency_ms) })}
-      </EuiCallOut>}
+      <ProbeFeedback result={result} />
     </form>
   </Drawer>;
 }
@@ -94,18 +100,36 @@ function ProxyEditor({ api, proxy, close, done }: { api: Api; proxy?: OutboundPr
   const [url, setUrl] = useState(proxy?.url ?? "");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [result, setResult] = useState<ProbeResult>();
   const task = useMutation();
+  const probe = useMutation();
+  const busy = task.busy || probe.busy;
   const hasConnectionFields = !proxy || replace;
-  const closeWhenIdle = () => { if (!task.busy) close(); };
+  const closeWhenIdle = () => { if (!busy) close(); };
+  const clearProbe = () => { setResult(undefined); probe.clear(); };
+  const credentials = () => ({ username: username || undefined, password: password || undefined });
+  const testConnection = () => {
+    clearProbe();
+    void probe.run(async () => {
+      if (hasConnectionFields) {
+        setResult(await api.write<ProbeResult>("/proxies/test", "POST", {
+          proxy_url: proxyOrigin(url), ...credentials(),
+        }));
+      } else if (proxy) {
+        setResult(await api.write<ProbeResult>(`/proxies/${segment(proxy.id)}/test`, "POST", {}));
+      }
+    });
+  };
   return <Drawer size="s" title={t(proxy ? "编辑代理配置" : "新增代理配置")} close={closeWhenIdle}
     footer={<>
-      <EuiButtonEmpty disabled={task.busy} onClick={closeWhenIdle}>{t("取消")}</EuiButtonEmpty>
-      <EuiButton fill type="submit" form={id} isLoading={task.busy}>{t("保存代理配置")}</EuiButton>
+      <EuiButtonEmpty disabled={busy} onClick={closeWhenIdle}>{t("取消")}</EuiButtonEmpty>
+      <EuiButton fill type="submit" form={id} disabled={probe.busy} isLoading={task.busy}>{t("保存代理配置")}</EuiButton>
     </>}>
     <form id={id} className="stack" onSubmit={(event) => {
       event.preventDefault();
+      if (busy) return;
       void task.run(async () => {
-        const connection = hasConnectionFields ? { url: proxyOrigin(url), username: username || undefined, password: password || undefined } : undefined;
+        const connection = hasConnectionFields ? { url: proxyOrigin(url), ...credentials() } : undefined;
         await api.write(proxy ? `/proxies/${segment(proxy.id)}` : "/proxies", proxy ? "PUT" : "POST", { name: name.trim(), ...connection });
         done();
       });
@@ -114,7 +138,8 @@ function ProxyEditor({ api, proxy, close, done }: { api: Api; proxy?: OutboundPr
       <EuiFormRow label={t("名称")} fullWidth>
         <EuiFieldText required readOnly={task.busy} fullWidth value={name} onChange={(event) => setName(event.target.value)} />
       </EuiFormRow>
-      {proxy && <EuiSwitch label={t("替换连接和凭据")} disabled={task.busy} checked={replace} onChange={(event) => {
+      {proxy && <EuiSwitch label={t("替换连接和凭据")} disabled={busy} checked={replace} onChange={(event) => {
+        clearProbe();
         setReplace(event.target.checked);
         setUrl(proxy.url);
         setUsername("");
@@ -122,18 +147,30 @@ function ProxyEditor({ api, proxy, close, done }: { api: Api; proxy?: OutboundPr
       }} />}
       {hasConnectionFields && <>
         <EuiFormRow label={t("代理地址")} helpText={t("输入代理的 HTTP 或 HTTPS 地址及端口。凭据请填写在下方。")} fullWidth>
-          <EuiFieldText type="url" required readOnly={task.busy} fullWidth placeholder="http://proxy.example.com:3128"
-            value={url} onChange={(event) => setUrl(event.target.value)} />
+          <EuiFieldText type="url" required readOnly={busy} fullWidth placeholder="http://proxy.example.com:3128"
+            value={url} onChange={(event) => { clearProbe(); setUrl(event.target.value); }} />
         </EuiFormRow>
         <EuiFormRow label={t("代理用户名")} helpText={t("用户名和密码一起填写。无需身份验证时，两项都留空。")} fullWidth>
-          <EuiFieldText fullWidth readOnly={task.busy} required={password !== ""} autoComplete="off" autoCapitalize="none"
-            spellCheck={false} value={username} onChange={(event) => setUsername(event.target.value)} />
+          <EuiFieldText fullWidth readOnly={busy} required={password !== ""} autoComplete="off" autoCapitalize="none"
+            spellCheck={false} value={username} onChange={(event) => { clearProbe(); setUsername(event.target.value); }} />
         </EuiFormRow>
         <EuiFormRow label={t("代理密码")} fullWidth>
-          <EuiFieldPassword type="password" fullWidth readOnly={task.busy} required={username !== ""} autoComplete="new-password"
-            value={password} onChange={(event) => setPassword(event.target.value)} />
+          <EuiFieldPassword type="password" fullWidth readOnly={busy} required={username !== ""} autoComplete="new-password"
+            value={password} onChange={(event) => { clearProbe(); setPassword(event.target.value); }} />
         </EuiFormRow>
       </>}
+      {proxy && !replace && <EuiFormRow label={t("代理地址")} fullWidth>
+        <EuiFieldText fullWidth readOnly value={proxy.url} />
+      </EuiFormRow>}
+      <div className="stack">
+        <EuiButton size="s" iconType="play" type="button" isLoading={probe.busy} onClick={testConnection}
+          disabled={task.busy || (hasConnectionFields && (!url.trim() || !!username !== !!password))}>
+          {t("测试连接")}
+        </EuiButton>
+        <small className="muted">{t("测试请求发往 Cloudflare。")}</small>
+        <Failure message={probe.error} />
+        <ProbeFeedback result={result} />
+      </div>
     </form>
   </Drawer>;
 }

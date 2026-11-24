@@ -81,12 +81,14 @@ impl ChannelService for Chanify {
     fn config_schema(&self) -> Value {
         json!({
             "$schema":"https://json-schema.org/draft/2020-12/schema",
+            "x-anser-version": env!("CARGO_PKG_VERSION"),
             "type":"object",
+            "x-anser-ui": {"label":{"en":"Chanify","zh-CN":"Chanify"},"account_editor": {"fields":["server_url","sound","priority"],"credentials":{"token":["server_url"]}}},
             "properties":{
-                "server_url":{"type":"string","format":"uri","default":DEFAULT_URL},
-                "token":{"type":"string","minLength":1,"maxLength":4096,"format":"password","writeOnly":true},
-                "sound":{"type":"boolean","default":false},
-                "priority":{"type":"integer","enum":[5,10],"default":10,"description":"Use 5 for low priority or 10 for normal priority."},
+                "server_url":{"x-anser-ui":{"label":{"en":"Server URL","zh-CN":"服务器地址"}},"type":"string","format":"uri","default":DEFAULT_URL},
+                "token":{"x-anser-ui":{"label":{"en":"Access token","zh-CN":"访问令牌"}},"type":"string","minLength":1,"maxLength":4096,"format":"password","writeOnly":true},
+                "sound":{"x-anser-ui":{"label":{"en":"Play sound","zh-CN":"播放铃声"}},"type":"boolean","default":false},
+                "priority":{"x-anser-ui":{"label":{"en":"Notification priority","zh-CN":"通知优先级"},"description":{"en":"Use 5 for low priority or 10 for normal priority.","zh-CN":"低优先级填 5，普通优先级填 10。"}},"type":"integer","enum":[5,10],"default":10,"description":"Use 5 for low priority or 10 for normal priority."},
                 "proxy":{"type":"string","format":"uri","writeOnly":true}
             },
             "required":["token"],"additionalProperties":false

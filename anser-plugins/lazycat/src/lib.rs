@@ -108,8 +108,9 @@ impl ChannelService for Lazycat {
         let id = json!({"type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[!-~]+$"});
         json!({
             "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "x-anser-version": env!("CARGO_PKG_VERSION"),
             "type": "object",
-            "x-anser-ui": {"widget": "lazycat_devices"},
+            "x-anser-ui": {"label":{"en":"LazyCat Notifications","zh-CN":"懒猫微服通知"},"widget": "lazycat_devices"},
             "properties": {
                 "user_id": id,
                 "device_id": id,

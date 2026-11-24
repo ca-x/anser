@@ -117,16 +117,18 @@ impl ChannelService for Bark {
             json!({"type":"string","pattern":"^[A-Za-z0-9_-]{1,128}$","writeOnly":true});
         json!({
             "$schema":"https://json-schema.org/draft/2020-12/schema",
+            "x-anser-version": env!("CARGO_PKG_VERSION"),
             "type":"object",
+            "x-anser-ui": {"label":{"en":"Bark","zh-CN":"Bark"},"account_editor": {"fields":["server_url","group","sound","level"],"credentials":{"device_key":["server_url","device_keys"],"device_keys":["server_url","device_key"],"encryption_key":["server_url","device_key","device_keys"]}}},
             "properties":{
-                "server_url":{"type":"string","format":"uri","default":default_server()},
+                "server_url":{"x-anser-ui":{"label":{"en":"Server URL","zh-CN":"服务器地址"}},"type":"string","format":"uri","default":default_server()},
                 "device_key":device_key,
-                "device_keys":{"type":"array","minItems":1,"maxItems":MAX_DEVICES,"uniqueItems":true,"items":device_key,"writeOnly":true},
-                "group":{"type":"string","maxLength":128},
-                "sound":{"type":"string","maxLength":128},
-                "level":{"enum":["passive","active","timeSensitive","critical"]},
-                "encryption_key":{"type":"string","minLength":1,"maxLength":32,"description":"AES-CBC key. UTF-8 byte length must be 16, 24 or 32.","writeOnly":true},
-                "proxy":{"type":"string","format":"uri"}
+                "device_keys":{"x-anser-ui":{"label":{"en":"Device keys","zh-CN":"设备密钥列表"}},"type":"array","minItems":1,"maxItems":MAX_DEVICES,"uniqueItems":true,"items":device_key,"writeOnly":true},
+                "group":{"x-anser-ui":{"label":{"en":"Notification group","zh-CN":"通知分组"}},"type":"string","maxLength":128},
+                "sound":{"x-anser-ui":{"label":{"en":"Notification sound","zh-CN":"通知铃声"}},"type":"string","maxLength":128},
+                "level":{"x-anser-ui":{"label":{"en":"Interruption level","zh-CN":"打扰级别"},"option_labels":{"active":{"en":"Active","zh-CN":"主动"},"critical":{"en":"Critical","zh-CN":"重要警报"},"passive":{"en":"Passive","zh-CN":"静默"},"timeSensitive":{"en":"Time sensitive","zh-CN":"时效性"}}},"enum":["passive","active","timeSensitive","critical"]},
+                "encryption_key":{"x-anser-ui":{"label":{"en":"Encryption key","zh-CN":"加密密钥"},"description":{"en":"Use an AES-CBC key of 16, 24, or 32 UTF-8 bytes.","zh-CN":"请使用长度为 16、24 或 32 个 UTF-8 字节的 AES-CBC 密钥。"}},"type":"string","minLength":1,"maxLength":32,"description":"AES-CBC key. UTF-8 byte length must be 16, 24 or 32.","writeOnly":true},
+                "proxy":{"type":"string","format":"uri","writeOnly":true}
             },
             "oneOf":[{"required":["device_key"]},{"required":["device_keys"]}],
             "additionalProperties":false

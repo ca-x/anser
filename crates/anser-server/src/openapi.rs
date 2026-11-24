@@ -76,7 +76,15 @@ pub async fn document() -> Json<Value> {
                 "DELETE / Delete account",
             ],
         ),
+        (
+            "/v1/proxies/test",
+            &["POST / Test an unsaved outbound proxy"],
+        ),
         ("/v1/accounts/{id}/test", &["POST / Test channel account"]),
+        (
+            "/v1/accounts/{id}/config",
+            &["GET / Read editable channel settings without credentials"],
+        ),
         (
             "/v1/plugins",
             &["GET / List installed plugins by capability"],
@@ -425,6 +433,7 @@ fn request_schema(path: &str, method: &str) -> Option<&'static str> {
         ("POST", "/v1/proxies") => Some("ProxyCreate"),
         ("PUT", "/v1/proxies/{id}") => Some("ProxyUpdate"),
         ("POST", "/v1/proxies/{id}/test") => Some("ProxyTest"),
+        ("POST", "/v1/proxies/test") => Some("ProxyDraftTest"),
         ("POST", "/v1/accounts") => Some("AccountCreate"),
         ("PUT", "/v1/accounts/{id}") => Some("AccountUpdate"),
         ("POST", "/v1/accounts/{id}/test") => Some("Message"),
@@ -470,11 +479,14 @@ fn success_schema(path: &str, method: &str) -> Option<(&'static str, Value)> {
         ("POST", "/v1/api-keys/{id}/rotate") => ("200", reference("IssuedKey")),
         ("GET", "/v1/proxies") => ("200", page("Proxy")),
         ("POST", "/v1/proxies") => ("201", reference("Proxy")),
-        ("POST", "/v1/proxies/{id}/test") => ("200", reference("ProxyTestResult")),
+        ("POST", "/v1/proxies/{id}/test" | "/v1/proxies/test") => {
+            ("200", reference("ProxyTestResult"))
+        }
         ("GET" | "PUT", "/v1/proxies/{id}") => ("200", reference("Proxy")),
         ("GET", "/v1/accounts") => ("200", page("Account")),
         ("POST", "/v1/accounts") => ("201", reference("Account")),
         ("GET" | "PUT", "/v1/accounts/{id}") => ("200", reference("Account")),
+        ("GET", "/v1/accounts/{id}/config") => ("200", reference("AccountConfig")),
         ("GET", "/v1/plugins/market") => ("200", page("GithubPlugin")),
         ("GET", "/v1/settings/mcp") => (
             "200",
@@ -545,6 +557,7 @@ fn schemas() -> Value {
         json!({"type":"object","writeOnly":true,"description":"See the channel's config_schema."});
     let mut account_update = account_in.clone();
     account_update["inline_proxy"] = json!({"type":"string","enum":["keep","clear"],"description":"Keep the stored inline proxy if the replacement config omits proxy. Clear removes the inline proxy even when it is supplied. Set proxy_id to null and inline_proxy to clear for a direct connection. Omit for legacy replacement behavior."});
+    account_update["config_revision"] = json!({"type":"string","description":"Revision from the account settings endpoint. Omitted credentials stay saved while their bound connection fields are unchanged. Send null to clear a credential."});
     let mut account_out = account_fields.clone();
     account_out["id"] = string.clone();
     let proxy_input = json!({
@@ -631,10 +644,14 @@ fn schemas() -> Value {
             "Account":{"type":"object","properties":account_out},
             "AccountCreate":{"type":"object","required":["name","channel","config"],"properties":account_in},
             "AccountUpdate":{"type":"object","properties":account_update},
+            "AccountConfig":{"type":"object","required":["config","saved_credentials","revision"],"properties":{
+                "config":{"type":"object"},"saved_credentials":strings,"revision":string
+            }},
             "Proxy":{"type":"object","required":["id","name","url","authenticated"],"properties":{"id":string,"name":string,"url":{"type":"string","format":"uri","description":"Credential-free HTTP(S) origin"},"authenticated":boolean}},
             "ProxyCreate":{"type":"object","required":["name","url"],"properties":proxy_input},
             "ProxyUpdate":{"type":"object","required":["name"],"properties":proxy_input},
             "ProxyTest":{"type":"object","properties":{"url":{"type":"string","format":"uri","default":"https://www.cloudflare.com/cdn-cgi/trace"}}},
+            "ProxyDraftTest":{"type":"object","required":["proxy_url"],"properties":{"proxy_url":{"type":"string","format":"uri"},"username":secret,"password":secret,"url":{"type":"string","format":"uri","default":"https://www.cloudflare.com/cdn-cgi/trace"}}},
             "ProxyTestResult":{"type":"object","required":["status","latency_ms"],"properties":{"status":integer,"latency_ms":integer}},
             "LazycatDevices":{"type":"object","required":["user_id","devices"],"properties":{"user_id":{"type":"string","description":"UID verified by the LazyCat ingress."},"devices":{"type":"array","items":reference("LazycatDevice")},"max_selection":{"type":"integer"},"configured_device_ids":{"type":"array","items":{"type":"string"}}}},
             "LazycatDevice":{"type":"object","required":["device_id","name","online"],"properties":{"device_id":string,"name":string,"online":boolean}},

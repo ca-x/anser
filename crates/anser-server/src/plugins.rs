@@ -50,7 +50,9 @@ pub(crate) async fn list(
                 kind: PluginKind::Channel,
                 id: channel.id,
                 display_name: channel.display_name,
-                version: None,
+                version: channel.config_schema["x-anser-version"]
+                    .as_str()
+                    .map(str::to_owned),
                 config_schema: channel.config_schema,
             },
             enabled: settings.get(id).copied().unwrap_or(true),

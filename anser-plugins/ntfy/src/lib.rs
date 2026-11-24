@@ -82,15 +82,17 @@ impl ChannelService for Ntfy {
     fn config_schema(&self) -> Value {
         json!({
             "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "x-anser-version": env!("CARGO_PKG_VERSION"),
             "type": "object",
+            "x-anser-ui": {"label":{"en":"ntfy","zh-CN":"ntfy"},"account_editor": {"fields":["server_url","topic","username","priority"],"credentials":{"token":["server_url","username"],"password":["server_url","username","token"]}}},
             "properties": {
-                "server_url": {"type": "string", "format": "uri", "default": default_server()},
-                "topic": {"type": "string", "pattern": "^[A-Za-z0-9_-]{1,64}$"},
-                "token": {"type": "string", "minLength": 1, "writeOnly": true},
-                "username": {"type": "string", "minLength": 1},
-                "password": {"type": "string", "writeOnly": true},
-                "priority": {"type": "integer", "minimum": 1, "maximum": 5, "default": default_priority()},
-                "proxy": {"type": "string", "format": "uri"}
+                "server_url": {"x-anser-ui":{"label":{"en":"Server URL","zh-CN":"服务器地址"}},"type": "string", "format": "uri", "default": default_server()},
+                "topic": {"x-anser-ui":{"label":{"en":"Topic","zh-CN":"主题"}},"type": "string", "pattern": "^[A-Za-z0-9_-]{1,64}$"},
+                "token": {"x-anser-ui":{"label":{"en":"Access token","zh-CN":"访问令牌"}},"type": "string", "minLength": 1, "writeOnly": true},
+                "username": {"x-anser-ui":{"label":{"en":"Username","zh-CN":"用户名"}},"type": "string", "minLength": 1},
+                "password": {"x-anser-ui":{"label":{"en":"Password","zh-CN":"密码"}},"type": "string", "writeOnly": true},
+                "priority": {"x-anser-ui":{"label":{"en":"Notification priority","zh-CN":"通知优先级"}},"type": "integer", "minimum": 1, "maximum": 5, "default": default_priority()},
+                "proxy": {"type": "string", "format": "uri", "writeOnly": true}
             },
             "required": ["topic"],
             "dependentRequired": {"username": ["password"], "password": ["username"]},

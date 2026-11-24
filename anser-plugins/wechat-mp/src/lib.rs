@@ -92,14 +92,16 @@ impl ChannelService for WechatMp {
     fn config_schema(&self) -> Value {
         json!({
             "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "x-anser-version": env!("CARGO_PKG_VERSION"),
             "type": "object",
+            "x-anser-ui": {"label":{"en":"WeChat Official Account","zh-CN":"微信公众号"},"account_editor": {"fields":["appid","template_id","openid","title_field","body_field"],"credentials":{"secret":["appid"]}}},
             "properties": {
-                "appid":{"type":"string","minLength":1,"maxLength":256},
-                "secret":{"type":"string","minLength":1,"maxLength":512,"format":"password","writeOnly":true},
-                "template_id":{"type":"string","minLength":1,"maxLength":256},
-                "openid":{"type":"string","minLength":1,"maxLength":256},
-                "title_field":{"type":"string","default":"first"},
-                "body_field":{"type":"string","default":"remark"},
+                "appid":{"x-anser-ui":{"label":{"en":"Application ID","zh-CN":"应用 ID"}},"type":"string","minLength":1,"maxLength":256},
+                "secret":{"x-anser-ui":{"label":{"en":"Application secret","zh-CN":"应用密钥"}},"type":"string","minLength":1,"maxLength":512,"format":"password","writeOnly":true},
+                "template_id":{"x-anser-ui":{"label":{"en":"Template ID","zh-CN":"模板 ID"}},"type":"string","minLength":1,"maxLength":256},
+                "openid":{"x-anser-ui":{"label":{"en":"OpenID","zh-CN":"用户 OpenID"}},"type":"string","minLength":1,"maxLength":256},
+                "title_field":{"x-anser-ui":{"label":{"en":"Template title field","zh-CN":"模板标题字段"}},"type":"string","default":"first"},
+                "body_field":{"x-anser-ui":{"label":{"en":"Template body field","zh-CN":"模板正文字段"}},"type":"string","default":"remark"},
                 "proxy":{"type":"string","format":"uri","writeOnly":true}
             },
             "required": ["appid", "secret", "template_id", "openid"],

@@ -9,8 +9,14 @@ import { useMutation, usePage, useResource } from "../resources";
 import { RowAction, Confirm, Drawer, Empty, Failure, More, PageTitle, Progress, split, Tags } from "../components/Common";
 import { blankMessage, Composer } from "../components/Composer";
 import { LazycatDeviceField, useDeviceDirectory } from "../components/LazycatDeviceField";
-import { initialProxyChoice, proxySettings, serializeConfig, serializeDeviceTarget, usesDevicePicker, type DeviceTarget } from "../form-values";
+import { initialProxyChoice, proxySettings, serializeConfig, serializeDeviceTarget, supportsAccountEditor, usesDevicePicker, type DeviceTarget } from "../form-values";
 import { ChannelFields } from "../components/ChannelFields";
+
+interface EditableAccountConfig {
+  config: JsonObject;
+  saved_credentials: string[];
+  revision: string;
+}
 
 export function Accounts({ api }: { api: Api }) {
   const channels = useResource<Page<Channel>>(api, "/channels");
@@ -101,6 +107,9 @@ export function AccountEditor({ api, account, channels, close, onDone }: {
   const advancedId = useId();
   const task = useMutation();
   const channel = channels.find((entry) => entry.id === channelId);
+  const editConfig = !!account && supportsAccountEditor(channel);
+  const savedConfig = useResource<EditableAccountConfig>(api, editConfig && account ? `/accounts/${segment(account.id)}/config` : undefined);
+  const [configDraft, setConfigDraft] = useState<JsonObject>();
   const properties = channel?.config_schema.properties;
   const supportsProxy = !!properties && typeof properties === "object" && Object.hasOwn(properties, "proxy");
   const proxies = usePage<OutboundProxy>(api, supportsProxy ? "/proxies" : undefined);
@@ -121,7 +130,11 @@ export function AccountEditor({ api, account, channels, close, onDone }: {
     if (!deviceReady) throw new Error("请先选择接收设备。");
     if (supportsProxy) Object.assign(payload, proxySettings(proxyChoice, account));
     if (lazycat && device) payload.config = serializeDeviceTarget(device);
-    if (!lazycat && (!account || replace)) {
+    if (editConfig && savedConfig.data && configDraft) {
+      if (!channel) throw new Error(t("此渠道当前不可用。"));
+      payload.config = serializeConfig(channel, configDraft);
+      payload.config_revision = savedConfig.data.revision;
+    } else if (!lazycat && !editConfig && (!account || replace)) {
       if (!channel) throw new Error("此渠道当前不可用。");
       payload.config = serializeConfig(channel, config);
     }
@@ -129,7 +142,7 @@ export function AccountEditor({ api, account, channels, close, onDone }: {
     onDone(saved);
   });
   return <Drawer title={account ? t("编辑账号") : t("新增渠道账号")} close={close}
-    footer={<><EuiButtonEmpty onClick={close}>{t("取消")}</EuiButtonEmpty><EuiButton form={formId} type="submit" fill isLoading={task.busy} disabled={!deviceReady}>{t("保存账号")}</EuiButton></>}>
+    footer={<><EuiButtonEmpty onClick={close}>{t("取消")}</EuiButtonEmpty><EuiButton form={formId} type="submit" fill isLoading={task.busy} disabled={!deviceReady || (editConfig && !savedConfig.data)}>{t("保存账号")}</EuiButton></>}>
     <form id={formId} className="stack" onSubmit={(event) => { event.preventDefault(); void save(); }}>
       <Failure message={task.error} />
       <EuiFormRow label={t("账号名称")} fullWidth><EuiFieldText required fullWidth value={name} onChange={(event) => setName(event.target.value)} /></EuiFormRow>
@@ -155,6 +168,13 @@ export function AccountEditor({ api, account, channels, close, onDone }: {
         </EuiButtonEmpty>}
       </>}
       <EuiSwitch label={t("启用账号")} checked={enabled} onChange={(event) => setEnabled(event.target.checked)} />
+      {editConfig && <>
+        <EuiHorizontalRule margin="xs" />
+        {savedConfig.loading && <Progress />}
+        <Failure message={savedConfig.error} retry={savedConfig.reload} />
+        {savedConfig.data && channel && <ChannelFields channel={channel} value={configDraft ?? savedConfig.data.config} update={setConfigDraft}
+          savedCredentials={savedConfig.data.saved_credentials} />}
+      </>}
       <EuiAccordion id={advancedId} buttonContent={t("标签与路由")}>
         <div className="stack inset">
           <EuiFormRow label={t("标签")} fullWidth><EuiFieldText fullWidth placeholder={t("如 production, urgent")} value={tags} onChange={(event) => setTags(event.target.value)} /></EuiFormRow>
@@ -167,10 +187,10 @@ export function AccountEditor({ api, account, channels, close, onDone }: {
           </EuiFormRow>
         </div>
       </EuiAccordion>
-      {!lazycat && <EuiHorizontalRule margin="xs" />}
-      {!lazycat && account && <EuiSwitch label={t("替换渠道配置")} disabled={!channelAvailable(channel)} checked={replace} onChange={(event) => setReplace(event.target.checked)} />}
-      {!lazycat && account && replace && <EuiText size="s" color="subdued"><p>{t("请填写整套新配置。原有凭据只在服务器端使用。")}</p></EuiText>}
-      {!lazycat && (!account || replace) && channel && <ChannelFields value={config} channel={channel} update={setConfig} />}
+      {!lazycat && !editConfig && <EuiHorizontalRule margin="xs" />}
+      {!lazycat && !editConfig && account && <EuiSwitch label={t("替换渠道配置")} disabled={!channelAvailable(channel)} checked={replace} onChange={(event) => setReplace(event.target.checked)} />}
+      {!lazycat && !editConfig && account && replace && <EuiText size="s" color="subdued"><p>{t("请填写整套新配置。原有凭据只在服务器端使用。")}</p></EuiText>}
+      {!lazycat && !editConfig && (!account || replace) && channel && <ChannelFields value={config} channel={channel} update={setConfig} />}
     </form>
   </Drawer>;
 }

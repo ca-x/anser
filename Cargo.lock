@@ -55,7 +55,7 @@ dependencies = [
 
 [[package]]
 name = "anser-channel-http"
-version = "0.7.1"
+version = "0.7.2"
 dependencies = [
  "anser-core",
  "anser-plugin-api",
@@ -71,7 +71,7 @@ dependencies = [
 
 [[package]]
 name = "anser-core"
-version = "0.7.1"
+version = "0.7.2"
 dependencies = [
  "jiff",
  "serde",
@@ -81,7 +81,7 @@ dependencies = [
 
 [[package]]
 name = "anser-host"
-version = "0.7.1"
+version = "0.7.2"
 dependencies = [
  "anser-core",
  "anser-plugin-api",
@@ -124,7 +124,7 @@ dependencies = [
 
 [[package]]
 name = "anser-plugin-api"
-version = "0.7.1"
+version = "0.7.2"
 dependencies = [
  "anser-core",
  "serde",
@@ -134,7 +134,7 @@ dependencies = [
 
 [[package]]
 name = "anser-plugin-bark"
-version = "0.5.5"
+version = "0.5.6"
 dependencies = [
  "aes",
  "anser-channel-http",
@@ -169,7 +169,7 @@ dependencies = [
 
 [[package]]
 name = "anser-plugin-chanify"
-version = "0.5.5"
+version = "0.5.6"
 dependencies = [
  "anser-channel-http",
  "anser-core",
@@ -181,7 +181,7 @@ dependencies = [
 
 [[package]]
 name = "anser-plugin-dingtalk"
-version = "0.5.5"
+version = "0.5.6"
 dependencies = [
  "anser-channel-http",
  "anser-core",
@@ -196,7 +196,7 @@ dependencies = [
 
 [[package]]
 name = "anser-plugin-discord"
-version = "0.5.5"
+version = "0.5.6"
 dependencies = [
  "anser-channel-http",
  "anser-core",
@@ -208,11 +208,14 @@ dependencies = [
 
 [[package]]
 name = "anser-plugin-email"
-version = "0.5.5"
+version = "0.5.6"
 dependencies = [
  "anser-channel-http",
  "anser-core",
  "anser-plugin-api",
+ "ferrum-email-components",
+ "ferrum-email-core",
+ "ferrum-email-render",
  "lettre",
  "serde",
  "serde_json",
@@ -222,7 +225,7 @@ dependencies = [
 
 [[package]]
 name = "anser-plugin-feishu"
-version = "0.5.6"
+version = "0.5.7"
 dependencies = [
  "anser-channel-http",
  "anser-core",
@@ -238,7 +241,7 @@ dependencies = [
 
 [[package]]
 name = "anser-plugin-gotify"
-version = "0.5.5"
+version = "0.5.6"
 dependencies = [
  "anser-channel-http",
  "anser-core",
@@ -250,7 +253,7 @@ dependencies = [
 
 [[package]]
 name = "anser-plugin-ifttt"
-version = "0.5.5"
+version = "0.5.6"
 dependencies = [
  "anser-channel-http",
  "anser-core",
@@ -262,7 +265,7 @@ dependencies = [
 
 [[package]]
 name = "anser-plugin-lazycat"
-version = "0.5.7"
+version = "0.5.8"
 dependencies = [
  "anser-core",
  "anser-plugin-api",
@@ -283,7 +286,7 @@ dependencies = [
 
 [[package]]
 name = "anser-plugin-ntfy"
-version = "0.5.5"
+version = "0.5.6"
 dependencies = [
  "anser-channel-http",
  "anser-core",
@@ -308,7 +311,7 @@ dependencies = [
 
 [[package]]
 name = "anser-plugin-qqbot"
-version = "0.5.5"
+version = "0.5.6"
 dependencies = [
  "anser-channel-http",
  "anser-core",
@@ -321,7 +324,7 @@ dependencies = [
 
 [[package]]
 name = "anser-plugin-serverchan"
-version = "0.5.5"
+version = "0.5.6"
 dependencies = [
  "anser-channel-http",
  "anser-core",
@@ -333,7 +336,7 @@ dependencies = [
 
 [[package]]
 name = "anser-plugin-slack"
-version = "0.5.5"
+version = "0.5.6"
 dependencies = [
  "anser-channel-http",
  "anser-core",
@@ -345,7 +348,7 @@ dependencies = [
 
 [[package]]
 name = "anser-plugin-telegram"
-version = "0.5.5"
+version = "0.5.6"
 dependencies = [
  "anser-channel-http",
  "anser-core",
@@ -381,7 +384,7 @@ dependencies = [
 
 [[package]]
 name = "anser-plugin-wechat-mp"
-version = "0.5.5"
+version = "0.5.6"
 dependencies = [
  "anser-channel-http",
  "anser-core",
@@ -395,7 +398,7 @@ dependencies = [
 
 [[package]]
 name = "anser-plugin-wecom"
-version = "0.5.5"
+version = "0.5.6"
 dependencies = [
  "anser-channel-http",
  "anser-core",
@@ -410,7 +413,7 @@ dependencies = [
 
 [[package]]
 name = "anser-queue"
-version = "0.7.1"
+version = "0.7.2"
 dependencies = [
  "anser-channel-http",
  "anser-core",
@@ -430,7 +433,7 @@ dependencies = [
 
 [[package]]
 name = "anser-sdk"
-version = "0.7.1"
+version = "0.7.2"
 dependencies = [
  "anser-channel-http",
  "anser-core",
@@ -445,7 +448,7 @@ dependencies = [
 
 [[package]]
 name = "anser-server"
-version = "0.7.1"
+version = "0.7.2"
 dependencies = [
  "anser-channel-http",
  "anser-core",
@@ -484,7 +487,7 @@ dependencies = [
 
 [[package]]
 name = "anser-store"
-version = "0.7.1"
+version = "0.7.2"
 dependencies = [
  "anser-core",
  "anser-mcd",
@@ -1497,6 +1500,30 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1e6853b52649d4ac5c0bd02320cddc5ba956bdb407c4b75a2c6b75bf51500f8c"
 dependencies = [
  "simd-adler32",
+]
+
+[[package]]
+name = "ferrum-email-components"
+version = "0.1.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "854e505ec806a086e44f12a5c94deaea0183fd47d01943ba619d23666b3992d2"
+dependencies = [
+ "ferrum-email-core",
+]
+
+[[package]]
+name = "ferrum-email-core"
+version = "0.1.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e088a6c33f332903e131733cebb499709ef3d8cc9d9d497f6664b0f5eff686f3"
+
+[[package]]
+name = "ferrum-email-render"
+version = "0.1.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6bc2e14e41eb102c0e4193ddf33d913ed2f5ca5f8397bcef891d9f6d82206823"
+dependencies = [
+ "ferrum-email-core",
 ]
 
 [[package]]

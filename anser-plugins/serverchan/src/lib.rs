@@ -115,16 +115,35 @@ impl ChannelService for Serverchan {
     fn config_schema(&self) -> Value {
         json!({
             "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "x-anser-version": env!("CARGO_PKG_VERSION"),
             "type": "object",
+            "x-anser-ui": {"label":{"en":"ServerChan","zh-CN":"Server酱"},
+                "form_fields": ["sendkey"],
+                "account_editor": {
+                    "fields": [],
+                    "credentials": {"sendkey":[]},
+                    "reset_on_credential_change": {"sendkey":["version","tags","channel","openid","noip"]}
+                }
+            },
             "properties": {
-                "sendkey":{"type":"string","pattern":"^(SCT[A-Za-z0-9_-]+|sctp[0-9]+t[A-Za-z0-9_-]+)$","writeOnly":true},
-                "version":{"enum":["turbo","3"],"description":"Optional. Inferred from the sendkey."},
-                "short":{"type":"string","maxLength":128},
-                "tags":{"type":"array","maxItems":12,"items":{"type":"string"},"description":"Server酱³ tags"},
-                "channel":{"type":"string","description":"Server酱 Turbo channel codes separated by |"},
-                "openid":{"type":"string","description":"Server酱 Turbo supported openids"},
-                "noip":{"type":"boolean","description":"Hide the server IP with Server酱 Turbo"},
-                "proxy": {"type":"string","format":"uri"}
+                "sendkey":{
+                    "type":"string","pattern":"^(SCT[A-Za-z0-9_-]+|sctp[0-9]+t[A-Za-z0-9_-]+)$","writeOnly":true,
+                    "x-anser-ui":{
+                        "label":{"en":"SendKey","zh-CN":"SendKey"},
+                        "description":{"en":"Anser detects the edition from your SendKey.","zh-CN":"雁字根据 SendKey 自动识别版本。"},
+                        "links":[
+                            {"label":{"en":"Get a Turbo SendKey","zh-CN":"申请 Turbo SendKey"},"url":"https://sct.ftqq.com/sendkey"},
+                            {"label":{"en":"Get a ServerChan³ SendKey","zh-CN":"申请 Server酱³ SendKey"},"url":"https://sc3.ft07.com/sendkey"}
+                        ]
+                    }
+                },
+                "version":{"x-anser-ui":{"label":{"en":"Service version","zh-CN":"服务版本"},"description":{"en":"Leave blank to infer the version from the SendKey.","zh-CN":"留空时根据发送密钥识别版本。"},"option_labels":{"3":{"en":"Version 3","zh-CN":"第 3 版"},"turbo":{"en":"Turbo","zh-CN":"Turbo"}}},"enum":["turbo","3"],"description":"Optional. Inferred from the sendkey."},
+                "short":{"x-anser-ui":{"label":{"en":"Short preview","zh-CN":"简短预览"}},"type":"string","maxLength":128},
+                "tags":{"x-anser-ui":{"label":{"en":"Provider tags","zh-CN":"渠道标签"},"description":{"en":"Tags for ServerChan 3.","zh-CN":"Server酱³ 标签。"}},"type":"array","maxItems":12,"items":{"type":"string"},"description":"Server酱³ tags"},
+                "channel":{"x-anser-ui":{"label":{"en":"Delivery channel codes","zh-CN":"投递渠道编码"},"description":{"en":"Separate ServerChan Turbo channel codes with |.","zh-CN":"使用 | 分隔 Server酱 Turbo 渠道编码。"}},"type":"string","description":"Server酱 Turbo channel codes separated by |"},
+                "openid":{"x-anser-ui":{"label":{"en":"OpenID","zh-CN":"用户 OpenID"},"description":{"en":"OpenIDs for ServerChan Turbo.","zh-CN":"Server酱 Turbo 支持的 OpenID。"}},"type":"string","description":"Server酱 Turbo supported openids"},
+                "noip":{"x-anser-ui":{"label":{"en":"Hide server IP","zh-CN":"隐藏服务器 IP"},"description":{"en":"Applies to ServerChan Turbo.","zh-CN":"适用于 Server酱 Turbo。"}},"type":"boolean","description":"Hide the server IP with Server酱 Turbo"},
+                "proxy": {"type":"string","format":"uri","writeOnly":true}
             },
             "required":["sendkey"],
             "additionalProperties":false

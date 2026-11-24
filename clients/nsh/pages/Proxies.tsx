@@ -114,6 +114,14 @@ export function ProxyEditor(props: {
   const username = signal("");
   const password = signal("");
   const action = operation();
+  const probe = operation();
+  const probeResult = signal<{ status: number; latency_ms: number } | undefined>(undefined);
+  const busy = () => action.busy() || probe.busy();
+
+  function clearProbe() {
+    probe.problem.set("");
+    probeResult.set(undefined);
+  }
 
   function clearCredentials() {
     username.set("");
@@ -122,27 +130,37 @@ export function ProxyEditor(props: {
 
   cleanup(clearCredentials);
 
+  function connection() {
+    const url = proxyOrigin(origin());
+    if (!authenticated()) return { url };
+    if (!username().trim() || !password())
+      throw new ApiError("invalid_proxy_auth", t("proxies.auth_required"));
+    return { url, username: username(), password: password() };
+  }
+
   function save() {
     void action.run(async () => {
       if (!name().trim()) return;
-      const input: ProxyProfileInput = { name: name().trim() };
-      if (replace()) {
-        input.url = proxyOrigin(origin());
-        if (authenticated()) {
-          if (!username().trim() || !password())
-            throw new ApiError(
-              "invalid_proxy_auth",
-              t("proxies.auth_required"),
-            );
-          input.username = username();
-          input.password = password();
-        }
-      }
+      const input: ProxyProfileInput = { name: name().trim(), ...(replace() ? connection() : {}) };
       await props.api.saveProxy(original?.id, input);
       if (action.live()) {
         clearCredentials();
         props.onSaved();
       }
+    });
+  }
+
+  function testConnection() {
+    clearProbe();
+    void probe.run(async () => {
+      let result;
+      if (replace()) {
+        const { url, ...credentials } = connection();
+        result = await props.api.probeProxy(undefined, { proxy_url: url, ...credentials });
+      } else {
+        result = await props.api.probeProxy(original?.id, {});
+      }
+      if (probe.live()) probeResult.set(result);
     });
   }
 
@@ -170,13 +188,13 @@ export function ProxyEditor(props: {
             label={action.busy() ? t("common.saving") : t("proxies.save")}
             kind="primary"
             onPress={save}
-            disabled={!name().trim() || action.busy()}
+            disabled={!name().trim() || busy()}
           />
           <Action
             label={t("common.cancel")}
             kind="quiet"
             onPress={props.onBack}
-            disabled={action.busy()}
+            disabled={busy()}
           />
         </View>
       }
@@ -187,14 +205,15 @@ export function ProxyEditor(props: {
           label={t("proxies.name")}
           value={name()}
           onChange={name.set}
-          disabled={action.busy()}
+          disabled={busy()}
         />
         <If when={original}>
           <Toggle
             label={t("proxies.replace")}
             checked={replace()}
-            disabled={action.busy()}
+            disabled={busy()}
             onChange={(value) => {
+              clearProbe();
               replace.set(value);
               if (!value) {
                 clearCredentials();
@@ -214,16 +233,17 @@ export function ProxyEditor(props: {
           <Field
             label={t("proxies.origin")}
             value={origin()}
-            onChange={origin.set}
+            onChange={(value) => { clearProbe(); origin.set(value); }}
             placeholder="https://proxy.example.com:8443"
-            disabled={action.busy()}
+            disabled={busy()}
             keyboard="url"
           />
           <Toggle
             label={t("proxies.use_auth")}
             checked={authenticated()}
-            disabled={action.busy()}
+            disabled={busy()}
             onChange={(value) => {
+              clearProbe();
               authenticated.set(value);
               if (!value) clearCredentials();
             }}
@@ -232,20 +252,32 @@ export function ProxyEditor(props: {
             <Field
               label={t("proxies.username")}
               value={username()}
-              onChange={username.set}
-              disabled={action.busy()}
+              onChange={(value) => { clearProbe(); username.set(value); }}
+              disabled={busy()}
             />
             <Field
               label={t("proxies.password")}
               value={password()}
-              onChange={password.set}
+              onChange={(value) => { clearProbe(); password.set(value); }}
               masked
-              disabled={action.busy()}
+              disabled={busy()}
             />
           </If>
           <If when={original?.authenticated && !authenticated()}>
             <Hint>{t("proxies.remove_auth_hint")}</Hint>
           </If>
+        </If>
+        <Action
+          label={probe.busy() ? t("proxies.testing") : t("proxies.test")}
+          kind="secondary"
+          class="self-start"
+          disabled={busy() || (replace() && (!origin().trim() || (authenticated() && (!username().trim() || !password()))))}
+          onPress={testConnection}
+        />
+        <Hint>{t("proxies.test_target")}</Hint>
+        <Problem message={probe.problem()} />
+        <If when={probeResult()}>
+          {(result) => <Hint>{t("proxies.test_result", { status: result().status, ms: result().latency_ms })}</Hint>}
         </If>
       </Panel>
       <If when={original}>
@@ -254,7 +286,7 @@ export function ProxyEditor(props: {
           kind="danger"
           onPress={remove}
           class="self-start"
-          disabled={action.busy()}
+          disabled={busy()}
         />
       </If>
     </WorkspacePage>

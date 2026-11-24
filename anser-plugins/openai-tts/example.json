@@ -1,0 +1,7 @@
+{
+  "server_url": "https://api.openai.com",
+  "api_key": "replace-with-an-api-key",
+  "model": "tts-1",
+  "voice": "alloy",
+  "response_format": "mp3"
+}

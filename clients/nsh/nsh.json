@@ -1,8 +1,8 @@
 {
   "name": "雁字",
   "id": "io.github.cax.anser",
-  "version": "0.7.1",
-  "build": 9,
+  "version": "0.7.2",
+  "build": 10,
   "icon": "assets/logo.png",
   "theme": "theme.json",
   "appearance": "system",
@@ -14,6 +14,7 @@
   },
   "capabilities": {
     "application": true,
+    "openUrl": { "schemes": ["https"] },
     "clipboard": true,
     "notifications": true,
     "picker": true,

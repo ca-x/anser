@@ -67,9 +67,11 @@ impl ChannelService for Discord {
     fn config_schema(&self) -> Value {
         json!({
             "$schema":"https://json-schema.org/draft/2020-12/schema",
+            "x-anser-version": env!("CARGO_PKG_VERSION"),
             "type":"object",
+            "x-anser-ui": {"label":{"en":"Discord","zh-CN":"Discord"},"account_editor": {"fields":[],"credentials":{"webhook":[]}}},
             "properties":{
-                "webhook":{"type":"string","format":"uri","writeOnly":true},
+                "webhook":{"x-anser-ui":{"label":{"en":"Webhook URL","zh-CN":"机器人回调地址"}},"type":"string","format":"uri","writeOnly":true},
                 "proxy":{"type":"string","format":"uri","writeOnly":true}
             },
             "required":["webhook"],"additionalProperties":false

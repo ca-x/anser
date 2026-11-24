@@ -54,10 +54,12 @@ impl ChannelService for Ifttt {
     fn config_schema(&self) -> Value {
         json!({
             "$schema":"https://json-schema.org/draft/2020-12/schema",
+            "x-anser-version": env!("CARGO_PKG_VERSION"),
             "type":"object",
+            "x-anser-ui": {"label":{"en":"IFTTT","zh-CN":"IFTTT"},"account_editor": {"fields":["event_name"],"credentials":{"webhook_key":[]}}},
             "properties":{
-                "event_name":{"type":"string","pattern":"^[A-Za-z0-9_-]+$","maxLength":64},
-                "webhook_key":{"type":"string","pattern":"^[A-Za-z0-9_-]+$","maxLength":256,"format":"password","writeOnly":true},
+                "event_name":{"x-anser-ui":{"label":{"en":"Event name","zh-CN":"事件名称"}},"type":"string","pattern":"^[A-Za-z0-9_-]+$","maxLength":64},
+                "webhook_key":{"x-anser-ui":{"label":{"en":"Webhook key","zh-CN":"回调密钥"}},"type":"string","pattern":"^[A-Za-z0-9_-]+$","maxLength":256,"format":"password","writeOnly":true},
                 "proxy":{"type":"string","format":"uri","writeOnly":true}
             },
             "required":["event_name","webhook_key"],"additionalProperties":false

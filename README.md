@@ -68,6 +68,8 @@ ANSER_REQUIRE_WEB=1 cargo build --locked --release -p anser-server
 
 ![投递和发送尝试详情](docs/screenshots/zh-CN/server-delivery.png)
 
+![编辑邮件账号，显示连接预设、发件人名称和邮件样式](docs/screenshots/zh-CN/server-email.png)
+
 ![选择懒猫通知设备，绿色圆点表示在线，灰色表示离线（演示设备）](docs/screenshots/zh-CN/server-account-device.png)
 
 ![渠道插件的运行和账号设置](docs/screenshots/zh-CN/server-plugin.png)

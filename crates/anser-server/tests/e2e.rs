@@ -178,6 +178,221 @@ fn json_string<'a>(value: &'a Value, key: &str) -> &'a str {
 }
 
 #[tokio::test]
+#[cfg(feature = "email")]
+async fn smtp_editor_returns_safe_fields_and_preserves_only_credentials_for_the_same_connection() {
+    let temp = tempfile::tempdir().unwrap();
+    let server = Server::start(&temp.path().join("smtp.sqlite3"));
+    let admin = Some(BOOTSTRAP_KEY);
+    let account: Value = server
+        .json(
+            Method::POST, "/v1/accounts", admin,
+            json!({"name":"Mail","channel":"email","config":{
+                "host":"smtp.example.org","username":"sender@example.org","password":"smtp-fixture-secret",
+                "from":"sender@example.org","to":["reader@example.org"]
+            }}),
+            StatusCode::CREATED,
+        )
+        .await;
+    let path = format!("/v1/accounts/{}", json_string(&account, "id"));
+    let settings = format!("{path}/config");
+    let unavailable = server
+        .request(Method::GET, &settings, None)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(unavailable.status(), StatusCode::UNAUTHORIZED);
+    let response = server
+        .request(Method::GET, &settings, admin)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.headers()["cache-control"], "no-store");
+    let original: Value = checked_json(response, StatusCode::OK).await;
+    assert!(!original.to_string().contains("smtp-fixture-secret"));
+    assert_eq!(original["saved_credentials"], json!(["password"]));
+    let mut config = original["config"].clone();
+    assert_eq!(config["host"], "smtp.example.org");
+    config["from_name"] = json!("雁字提醒");
+    config["email_style"] = json!("plain");
+    let revision = json_string(&original, "revision");
+    let _: Value = server
+        .json(
+            Method::PUT,
+            &path,
+            admin,
+            json!({"config":config,"config_revision":revision}),
+            StatusCode::OK,
+        )
+        .await;
+    let updated: Value = server.get(&settings, admin).await;
+    assert_eq!(updated["config"], config);
+    assert_eq!(updated["saved_credentials"], json!(["password"]));
+    let _: Value = server
+        .json(
+            Method::PUT,
+            &path,
+            admin,
+            json!({"config":config,"config_revision":revision}),
+            StatusCode::CONFLICT,
+        )
+        .await;
+    config["host"] = json!("smtp.other.example.org");
+    let rejected = server
+        .request(Method::PUT, &path, admin)
+        .json(&json!({
+            "config":config,"config_revision":updated["revision"]
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert!(rejected.status().is_client_error());
+    assert_eq!(server.get::<Value>(&settings, admin).await, updated);
+    config["password"] = json!("new-fixture-password");
+    let _: Value = server
+        .json(
+            Method::PUT,
+            &path,
+            admin,
+            json!({
+                "config":config,"config_revision":updated["revision"]
+            }),
+            StatusCode::OK,
+        )
+        .await;
+    let changed: Value = server.get(&settings, admin).await;
+    assert_eq!(changed["config"]["host"], "smtp.other.example.org");
+    assert_eq!(changed["saved_credentials"], json!(["password"]));
+    assert!(!changed.to_string().contains("new-fixture-password"));
+}
+
+#[tokio::test]
+#[cfg(feature = "serverchan")]
+async fn serverchan_editor_only_requests_sendkey_and_accepts_switching_editions() {
+    let temp = tempfile::tempdir().unwrap();
+    let server = Server::start(&temp.path().join("serverchan.sqlite3"));
+    let admin = Some(BOOTSTRAP_KEY);
+    let channel: Value = server.get("/v1/channels/serverchan", admin).await;
+    let schema = &channel["config_schema"];
+    assert_eq!(schema["x-anser-ui"]["form_fields"], json!(["sendkey"]));
+    let links = schema["properties"]["sendkey"]["x-anser-ui"]["links"]
+        .as_array()
+        .unwrap();
+    assert_eq!(links[0]["url"], "https://sct.ftqq.com/sendkey");
+    assert_eq!(links[1]["url"], "https://sc3.ft07.com/sendkey");
+    let account: Value = server
+        .json(
+            Method::POST,
+            "/v1/accounts",
+            admin,
+            json!({"name":"ServerChan","channel":"serverchan","config":{
+                "sendkey":"SCT_Fixture","version":"turbo","channel":"9","short":"Keep this"
+            }}),
+            StatusCode::CREATED,
+        )
+        .await;
+    let path = format!("/v1/accounts/{}", json_string(&account, "id"));
+    let settings = format!("{path}/config");
+    let edit: Value = server.get(&settings, admin).await;
+    assert_eq!(edit["config"], json!({}));
+    assert_eq!(edit["saved_credentials"], json!(["sendkey"]));
+    let _: Value = server
+        .json(
+            Method::PUT,
+            &path,
+            admin,
+            json!({"config":{"sendkey":"sctp123tFixture"},"config_revision":edit["revision"]}),
+            StatusCode::OK,
+        )
+        .await;
+}
+
+#[tokio::test]
+async fn draft_proxy_test_requires_admin_and_never_creates_a_profile() {
+    let temp = tempfile::tempdir().unwrap();
+    let server = Server::start(&temp.path().join("proxy-draft.sqlite3"));
+    let path = "/v1/proxies/test";
+    let admin = Some(BOOTSTRAP_KEY);
+    let draft =
+        json!({"proxy_url":"http://proxy.example.org:3128","url":"http://example.org/trace"});
+    let _: Value = server
+        .json(
+            Method::POST,
+            path,
+            None,
+            draft.clone(),
+            StatusCode::UNAUTHORIZED,
+        )
+        .await;
+    let _: Value = server
+        .json(Method::POST, path, admin, draft, StatusCode::BAD_REQUEST)
+        .await;
+    let _: Value = server
+        .json(
+            Method::POST,
+            path,
+            admin,
+            json!({
+                "proxy_url":"http://proxy.example.org:3128","username":"only-one-field"
+            }),
+            StatusCode::BAD_REQUEST,
+        )
+        .await;
+    let saved: Value = server.get("/v1/proxies", admin).await;
+    assert_eq!(saved["items"], json!([]));
+}
+
+#[tokio::test]
+async fn compiled_plugins_declare_safe_account_forms_and_own_their_capability_schema() {
+    let temp = tempfile::tempdir().unwrap();
+    let server = Server::start(&temp.path().join("catalog.sqlite3"));
+    let catalog: Value = server.get("/v1/plugins", Some(BOOTSTRAP_KEY)).await;
+    for plugin in catalog["items"].as_array().unwrap() {
+        let id = json_string(plugin, "id");
+        let version = json_string(plugin, "version");
+        assert!(semver::Version::parse(version).is_ok(), "{id}");
+        let schema = &plugin["config_schema"];
+        assert_eq!(schema["type"], "object", "{id}");
+        let props = schema["properties"].as_object().unwrap();
+        if plugin["kind"] != "channel" {
+            assert!(schema["x-anser-ui"]["label"]["en"].is_string(), "{id}");
+            assert!(schema["x-anser-ui"]["label"]["zh-CN"].is_string(), "{id}");
+            continue;
+        }
+        if schema["x-anser-ui"]["widget"] == "lazycat_devices" {
+            assert_eq!(id, "lazycat");
+            continue;
+        }
+        assert!(schema["x-anser-ui"]["label"]["en"].is_string(), "{id}");
+        assert!(schema["x-anser-ui"]["label"]["zh-CN"].is_string(), "{id}");
+        let editor = &schema["x-anser-ui"]["account_editor"];
+        let safe_fields = editor["fields"]
+            .as_array()
+            .unwrap_or_else(|| panic!("{id}"));
+        let credentials = editor["credentials"]
+            .as_object()
+            .unwrap_or_else(|| panic!("{id}"));
+        for field in safe_fields {
+            let name = field.as_str().unwrap();
+            assert_ne!(name, "proxy", "{id}");
+            assert!(props.contains_key(name), "{id}: {name}");
+            assert_ne!(props[name]["writeOnly"], true, "{id}: {name}");
+        }
+        for (name, bindings) in credentials {
+            assert_eq!(props[name]["writeOnly"], true, "{id}: {name}");
+            for binding in bindings.as_array().unwrap() {
+                assert!(
+                    props.contains_key(binding.as_str().unwrap()),
+                    "{id}: {name}"
+                );
+            }
+        }
+        if let Some(proxy) = props.get("proxy") {
+            assert_eq!(proxy["writeOnly"], true, "{id}");
+        }
+    }
+}
+
+#[tokio::test]
 async fn topic_plugin_catalog_persists_approved_listings_and_respects_membership() {
     const MARKET: &str = "/v1/topics/plugin-news/plugin-listings";
     const TOPIC: &str = "/v1/topics/plugin-news";

@@ -4,6 +4,7 @@ import { ApiError, type AnserApi } from "../api";
 import { channelName } from "../channelNames";
 import type {
   Account,
+  EditableAccountConfig,
   Channel,
   Format,
   JsonObject,
@@ -25,6 +26,7 @@ import {
 import {
   channelConfigDraft,
   ChannelConfig,
+  supportsAccountEditor,
   supportsProxy,
   usesDevicePicker,
 } from "../components/ChannelConfig";
@@ -195,7 +197,25 @@ export function AccountEditor(props: {
   const replaceConfig = signal(!original);
   const device = signal<LazycatTarget | undefined>(undefined);
   const deviceAvailable = signal(false);
-  const config = channelConfigDraft(channel);
+  const editConfig = () => !!original && supportsAccountEditor(channel());
+  const savedConfig = signal<EditableAccountConfig | undefined>(undefined);
+  const initialValues = signal<Record<string, string> | undefined>(undefined);
+  const config = channelConfigDraft(channel, () => savedConfig()?.saved_credentials ?? []);
+  const loadConfig = operation();
+  function loadSavedConfig() {
+    if (!original) return;
+    void loadConfig.run(async () => {
+      const saved = await props.api.accountConfig(original.id);
+      if (!loadConfig.live()) return;
+      const values = Object.fromEntries(Object.entries(saved.config).map(([key, value]) => [
+        key, typeof value === "object" ? JSON.stringify(value) : String(value),
+      ]));
+      initialValues.set(values);
+      config.values.set(values);
+      savedConfig.set(saved);
+    });
+  }
+  if (editConfig()) loadSavedConfig();
   const action = operation();
   const test = operation();
   const testing = signal(false);
@@ -240,7 +260,11 @@ export function AccountEditor(props: {
           data.proxy_id = selected;
         }
       }
-      if (replaceConfig()) {
+      const loaded = savedConfig();
+      if (editConfig() && loaded && config.values() !== initialValues()) {
+        data.config = config.value();
+        data.config_revision = loaded.revision;
+      } else if (replaceConfig()) {
         if (devicePicker()) {
           const target = device();
           if (!target || !deviceAvailable())
@@ -309,6 +333,7 @@ export function AccountEditor(props: {
             disabled={
               action.busy() ||
               test.busy() ||
+              (editConfig() && !savedConfig()) ||
               (replaceConfig() &&
                 devicePicker() &&
                 !deviceAvailable())
@@ -419,7 +444,7 @@ export function AccountEditor(props: {
       </Panel>
       <If when={channelId() && !devicePicker()}>
         <Section title={t("common.channel_configuration")}>
-          <If when={original}>
+          <If when={original && !editConfig()}>
             <Toggle
               label={t("accounts.replace_saved_configuration")}
               checked={replaceConfig()}
@@ -430,8 +455,14 @@ export function AccountEditor(props: {
             />
             <Hint>{t("accounts.saved_credentials_are_hidden_enter_the")}</Hint>
           </If>
-          <If when={replaceConfig()}>
-            <ChannelConfig draft={config} />
+          <If when={editConfig() && !savedConfig()}>
+            <ReadState loading={loadConfig.busy()} problem={loadConfig.problem()} empty emptyLabel={t("controls.loading")} />
+            <If when={loadConfig.problem()}>
+              <Action label={t("common.refresh")} onPress={loadSavedConfig} />
+            </If>
+          </If>
+          <If when={replaceConfig() || savedConfig()}>
+            <ChannelConfig draft={config} guided={editConfig()} />
           </If>
         </Section>
       </If>

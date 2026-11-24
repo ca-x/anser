@@ -119,6 +119,15 @@ pub struct ProxyTest {
     url: Option<String>,
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProxyDraftTest {
+    proxy_url: String,
+    username: Option<String>,
+    password: Option<String>,
+    url: Option<String>,
+}
+
 #[derive(Serialize)]
 pub struct ProxyTestResult {
     status: u16,
@@ -132,15 +141,29 @@ pub async fn test_proxy(
     ApiJson(input): ApiJson<ProxyTest>,
 ) -> ApiResult<Json<ProxyTestResult>> {
     identity.admin_global()?;
-    let target = probe_url(input.url.as_deref())?;
+    let encrypted = app.store.encrypted_proxy(&id).await?;
+    let connection = app.cipher.open_proxy(&id, &encrypted)?;
+    probe(input.url.as_deref(), &connection).await
+}
+
+pub async fn test_draft(
+    identity: Identity,
+    ApiJson(input): ApiJson<ProxyDraftTest>,
+) -> ApiResult<Json<ProxyTestResult>> {
+    identity.admin_global()?;
+    let url = proxy_connection_url(&input.proxy_url, input.username, input.password)?;
+    let connection = Zeroizing::new(String::from(url));
+    probe(input.url.as_deref(), &connection).await
+}
+
+async fn probe(url: Option<&str>, connection: &str) -> ApiResult<Json<ProxyTestResult>> {
+    let target = probe_url(url)?;
     let mut policy = NetworkPolicy::from_env();
     if target.as_str() == DEFAULT_PROBE {
         policy = policy.with_proxy_probe_host("www.cloudflare.com");
     }
-    let encrypted = app.store.encrypted_proxy(&id).await?;
-    let connection = app.cipher.open_proxy(&id, &encrypted)?;
     let start = Instant::now();
-    let result = client_with_policy(&target, Some(&connection), &policy)
+    let result = client_with_policy(&target, Some(connection), &policy)
         .await
         .map_err(|error| ApiError::channel(HostError::Send(error)))?
         .get(target)
@@ -193,43 +216,14 @@ impl SealedConnection {
         username: Option<String>,
         password: Option<String>,
     ) -> ApiResult<Self> {
-        let username = username.map(Zeroizing::new);
-        let password = password.map(Zeroizing::new);
-        if input_url.len() > 4096 {
-            return Err(invalid_url());
-        }
-        let mut url = anser_channel_http::url(input_url).map_err(|_| invalid_url())?;
-        if url.path() != "/" || url.query().is_some() {
-            return Err(invalid_url());
-        }
+        let authenticated = username.is_some();
+        let url = proxy_connection_url(input_url, username, password)?;
         let sanitized = url.origin().ascii_serialization();
-        if let (Some(username), Some(password)) = (&username, &password) {
-            if username.trim().is_empty()
-                || username.len() > 512
-                || username.chars().any(|ch| ch.is_control() || ch == ':')
-                || password.is_empty()
-                || password.len() > 2048
-                || password.chars().any(char::is_control)
-            {
-                return Err(ApiError::bad(
-                    "Proxy Basic authentication credentials are invalid",
-                ));
-            }
-            // URL setters preserve existing percent escapes, so escape literal percent
-            // signs before storing a reversible URI representation for the channel.
-            let username = Zeroizing::new(username.replace('%', "%25"));
-            let password = Zeroizing::new(password.replace('%', "%25"));
-            url.set_username(&username).map_err(|_| invalid_url())?;
-            url.set_password(Some(password.as_str()))
-                .map_err(|_| invalid_url())?;
-        } else if username.is_some() || password.is_some() {
-            return Err(ApiError::bad("Provide both a proxy username and password"));
-        }
         let url = Zeroizing::new(String::from(url));
         let encrypted = app.cipher.seal_proxy(id, &url)?;
         Ok(Self {
             url: sanitized,
-            authenticated: username.is_some(),
+            authenticated,
             encrypted,
         })
     }
@@ -241,6 +235,45 @@ impl SealedConnection {
             encrypted: &self.encrypted,
         }
     }
+}
+
+fn proxy_connection_url(
+    input_url: &str,
+    username: Option<String>,
+    password: Option<String>,
+) -> ApiResult<reqwest::Url> {
+    let username = username.map(Zeroizing::new);
+    let password = password.map(Zeroizing::new);
+    if input_url.len() > 4096 {
+        return Err(invalid_url());
+    }
+    let mut url = anser_channel_http::url(input_url).map_err(|_| invalid_url())?;
+    if url.path() != "/" || url.query().is_some() {
+        return Err(invalid_url());
+    }
+    if let (Some(username), Some(password)) = (&username, &password) {
+        if username.trim().is_empty()
+            || username.len() > 512
+            || username.chars().any(|ch| ch.is_control() || ch == ':')
+            || password.is_empty()
+            || password.len() > 2048
+            || password.chars().any(char::is_control)
+        {
+            return Err(ApiError::bad(
+                "Proxy Basic authentication credentials are invalid",
+            ));
+        }
+        // URL setters preserve existing percent escapes, so escape literal percent
+        // signs before storing a reversible URI representation for the channel.
+        let username = Zeroizing::new(username.replace('%', "%25"));
+        let password = Zeroizing::new(password.replace('%', "%25"));
+        url.set_username(&username).map_err(|_| invalid_url())?;
+        url.set_password(Some(password.as_str()))
+            .map_err(|_| invalid_url())?;
+    } else if username.is_some() || password.is_some() {
+        return Err(ApiError::bad("Provide both a proxy username and password"));
+    }
+    Ok(url)
 }
 
 fn invalid_url() -> ApiError {
