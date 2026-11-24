@@ -117,6 +117,7 @@ impl StoredMessage {
             created_at: self.created_at,
             inbox_deliveries: self.inbox_deliveries,
             inbox_recipient: self.inbox_recipient,
+            audio_path: None,
             deliveries: Vec::new(),
         })
     }
@@ -419,6 +420,14 @@ impl Store {
             .bind(id).bind(key_id).bind(key_id).bind(key_id).bind(prefix).bind(prefix).bind(prefix)
             .fetch_optional(&mut *tx).await?.ok_or(DataError::Missing)?;
         let mut message = row.detail()?;
+        message.audio_path = sqlx::query_scalar(
+            "SELECT '/v1/speech/audio/' || token || '.mp3'
+             FROM notification_audio WHERE message_id=? AND expires_at>?",
+        )
+        .bind(id)
+        .bind(now_ms())
+        .fetch_optional(&mut *tx)
+        .await?;
         // Only the unrestricted admin history view has access to account display names.
         let show_account_names = key_id.is_none() && prefix.is_none();
         let deliveries: Vec<DeliveryView> = sqlx::query_as("SELECT d.id,d.channel,d.account_id,r.subscription_id,d.state,d.due_at,

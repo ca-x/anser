@@ -1,8 +1,13 @@
+mod audio;
+mod tray;
+
 use nsh_core::prelude::*;
 
 #[native_module("anser-native")]
 fn native(registry: &mut Registry) {
     registry.module::<SystemTheme>();
+    registry.class::<audio::LinuxAudio>();
+    registry.module::<tray::DesktopTray>();
 }
 
 #[module]

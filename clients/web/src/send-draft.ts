@@ -2,6 +2,7 @@ import type { Message, Receipt } from "./api";
 
 export interface SendDraft {
   inbox: boolean;
+  speech: boolean;
   recipient: string;
   topic: string;
   channel: string;
@@ -19,7 +20,7 @@ export interface SendDraft {
 
 function emptyDraft(): SendDraft {
   return {
-    inbox: false, recipient: "", topic: "", channel: "", account: "", message: { title: "", body: "", format: "text" },
+    inbox: false, speech: false, recipient: "", topic: "", channel: "", account: "", message: { title: "", body: "", format: "text" },
     tags: "", url: "", attachment: "", callback: "", extra: "",
     templateEnabled: false, templateId: "", templateVariables: {},
   };

@@ -96,8 +96,15 @@ const authErrors = new Map([
   ["invalid_avatar", "profile.avatar_rejected"],
 ]);
 
+const topicPasswordErrors = new Map([
+  ["topic_password_required", "api.topic_password_required"],
+  ["invalid_topic_password", "api.invalid_topic_password"],
+]);
+
 export class AnserApi {
   readonly origin: string;
+  readonly credentialSession = Symbol();
+  onUnauthorized?: () => void;
   readonly #key: string | undefined;
   readonly #session = new AbortController();
 
@@ -119,13 +126,14 @@ export class AnserApi {
     body?: unknown,
     signal?: AbortSignal,
     idempotencyKey?: string,
+    timeoutMs = path.includes("wait=true") ? 45000 : 15000,
   ): Promise<T> {
     const abort = new AbortController();
     const onAbort = () => abort.abort();
     const session = this.#session.signal;
     const timeout = setTimeout(
       onAbort,
-      path.includes("wait=true") ? 45000 : 15000,
+      timeoutMs,
     );
     signal?.addEventListener("abort", onAbort, { once: true });
     session.addEventListener("abort", onAbort, { once: true });
@@ -158,7 +166,9 @@ export class AnserApi {
         if (message)
           throw new ApiError(payload.code, t(message), response.status);
       }
-      if (response.status === 401)
+      if (response.status === 401) {
+        if (this.#key && path !== "/auth/logout" && !abort.signal.aborted)
+          this.onUnauthorized?.();
         throw new ApiError(
           "unauthorized",
           this.#key
@@ -166,6 +176,7 @@ export class AnserApi {
             : t("api.invalid_credentials_or_pairing_code"),
           401,
         );
+      }
       if (
         response.status === 403 &&
         path === "/channels/lazycat/devices" &&
@@ -173,12 +184,17 @@ export class AnserApi {
       ) {
         throw new ApiError(payload.code, t("devices.identity_required"), 403);
       }
-      if (response.status === 403)
+      if (response.status === 403) {
+        const code = payload?.code;
+        const key = code && topicPasswordErrors.get(code);
+        if (code && key)
+          throw new ApiError(code, t(key), 403);
         throw new ApiError(
           "forbidden",
           t("api.your_credentials_do_not_allow_this"),
           403,
         );
+      }
       if (!response.ok) {
         throw new ApiError(
           payload?.code ?? "http_error",
@@ -252,7 +268,9 @@ export class AnserApi {
   }
 
   info(signal?: AbortSignal) {
-    return this.request<{ version: string }>("/info", "GET", undefined, signal);
+    return this.request<{ version: string; features?: { speech_publish?: boolean } }>(
+      "/info", "GET", undefined, signal,
+    );
   }
 
   logout() {
@@ -308,7 +326,13 @@ export class AnserApi {
   readInbox(id: number) {
     return this.request<void>(`/inbox/${id}/read`, "POST");
   }
-  sendInbox(recipient: string, message: Message, idempotencyKey: string) {
+  sendInbox(recipient: string, message: Message, idempotencyKey: string, speech = false) {
+    if (speech) {
+      return this.request<{ message_id: string }>("/speech/send", "POST", {
+        destination: { kind: "inbox", username: recipient },
+        message,
+      }, undefined, idempotencyKey, 65_000);
+    }
     return this.request<{ id: number; message_id?: string }>(
       "/inbox/send",
       "POST",
@@ -398,6 +422,10 @@ export class AnserApi {
       undefined,
       signal,
     );
+  }
+
+  account(id: string, signal?: AbortSignal) {
+    return this.request<Account>(`/accounts/${segment(id)}`, "GET", undefined, signal);
   }
 
   proxies(cursor?: string | null, signal?: AbortSignal) {
@@ -523,6 +551,7 @@ export class AnserApi {
       message,
       undefined,
       idempotencyKey,
+      message.speech ? (wait ? 100_000 : 65_000) : undefined,
     );
   }
   history(cursor?: string | null, signal?: AbortSignal) {

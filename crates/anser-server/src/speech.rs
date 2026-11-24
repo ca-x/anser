@@ -61,70 +61,33 @@ pub(crate) async fn send(
     {
         return Ok((status, Json(receipt)));
     }
-    let mut config = crate::transform_settings::resolve(
-        &app,
-        "openai-tts",
-        input.config,
-        input.config_revision.as_deref(),
-    )
-    .await?;
-    let fields = config
-        .as_object_mut()
-        .ok_or_else(|| ApiError::bad("Plugin configuration must be a JSON object"))?;
-    let retention_days = fields
-        .get("audio_retention_days")
-        .filter(|value| !value.is_null())
-        .map_or(Some(DEFAULT_AUDIO_RETENTION_DAYS), |value| {
-            value.as_u64().and_then(|days| u16::try_from(days).ok())
-        });
-    let retention_ms = retention_days
-        .and_then(audio_retention_ms)
-        .ok_or_else(|| ApiError::bad("Audio retention must be between 1 and 365 days"))?;
-    fields.insert("response_format".into(), "mp3".into());
-    let speech = SpeechWrite {
-        token: random_secret().to_string(),
-        bytes: Vec::new(),
-        retention_ms,
-    };
-    let link = match &input.destination {
+    let external = match &input.destination {
         Destination::Inbox { username } => {
             if username.trim().is_empty() || username.len() > 64 {
                 return Err(ApiError::bad("Invalid recipient"));
             }
-            None
+            if !app.store.user_named(username).await?.enabled {
+                return Err(anser_store::DataError::Missing.into());
+            }
+            false
         }
         Destination::Topic { name } => {
             // Reject unknown or disabled topics before calling the speech provider.
             if !app.store.topic(name).await?.enabled {
                 return Err(ApiError::bad("The topic is disabled"));
             }
-            Some(public_link(&app, &speech)?)
+            true
         }
-        Destination::Channels => Some(public_link(&app, &speech)?),
+        Destination::Channels => true,
     };
-    let output =
-        crate::plugins::transform_message(&app, "openai-tts", config, input.message).await?;
-    let artifact = output
-        .artifacts
-        .into_iter()
-        .next()
-        .filter(|artifact| artifact.content_type == "audio/mpeg")
-        .ok_or_else(ApiError::internal)?;
-    let speech = SpeechWrite {
-        bytes: STANDARD
-            .decode(artifact.content_base64)
-            .map_err(|_| ApiError::internal())?,
-        ..speech
-    };
-    let mut message = output.message;
-    if let Some(link) = link {
-        // Some channel APIs omit Message.url. Putting the link first also keeps
-        // it available when a provider truncates long notification text.
-        let body = anser_channel_http::plain_body(&message, 4096);
-        message.body = format!("{link}\n\n{body}");
-        message.format = anser_core::MessageFormat::Text;
-        message.url = Some(link);
-    }
+    let (message, speech) = synthesize(
+        &app,
+        input.message,
+        input.config,
+        input.config_revision.as_deref(),
+        external,
+    )
+    .await?;
 
     if let Destination::Inbox { username } = input.destination {
         let receipt = app
@@ -168,6 +131,65 @@ pub(crate) async fn send(
         Some(speech),
     )
     .await
+}
+
+pub(crate) async fn synthesize(
+    app: &App,
+    message: Message,
+    config: Option<Value>,
+    config_revision: Option<&str>,
+    external: bool,
+) -> ApiResult<(Message, SpeechWrite)> {
+    crate::api::validate_message(&message)?;
+    let mut config =
+        crate::transform_settings::resolve(app, "openai-tts", config, config_revision).await?;
+    let fields = config
+        .as_object_mut()
+        .ok_or_else(|| ApiError::bad("Plugin configuration must be a JSON object"))?;
+    let retention_days = fields
+        .get("audio_retention_days")
+        .filter(|value| !value.is_null())
+        .map_or(Some(DEFAULT_AUDIO_RETENTION_DAYS), |value| {
+            value.as_u64().and_then(|days| u16::try_from(days).ok())
+        });
+    let retention_ms = retention_days
+        .and_then(audio_retention_ms)
+        .ok_or_else(|| ApiError::bad("Audio retention must be between 1 and 365 days"))?;
+    fields.insert("response_format".into(), "mp3".into());
+    let speech = SpeechWrite {
+        token: random_secret().to_string(),
+        bytes: Vec::new(),
+        retention_ms,
+    };
+    let link = if external {
+        Some(public_link(app, &speech)?)
+    } else {
+        None
+    };
+    let output = crate::plugins::transform_message(app, "openai-tts", config, message).await?;
+    let artifact = output
+        .artifacts
+        .into_iter()
+        .next()
+        .filter(|artifact| artifact.content_type == "audio/mpeg")
+        .ok_or_else(ApiError::internal)?;
+    let speech = SpeechWrite {
+        bytes: STANDARD
+            .decode(artifact.content_base64)
+            .map_err(|_| ApiError::internal())?,
+        ..speech
+    };
+    let mut message = output.message;
+    if let Some(link) = link {
+        // Keep audio available on channels that omit Message.url.
+        let body = anser_channel_http::plain_body(&message, 4096);
+        message.body = format!("{link}\n\n{body}");
+        message.format = anser_core::MessageFormat::Text;
+        if message.url.is_none() {
+            message.url = Some(link);
+        }
+    }
+    Ok((message, speech))
 }
 
 fn public_link(app: &App, speech: &SpeechWrite) -> ApiResult<String> {

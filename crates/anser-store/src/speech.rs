@@ -44,12 +44,21 @@ impl Store {
         inbox: bool,
     ) -> Result<Option<anser_core::api::Receipt>> {
         let prefix = if inbox { "inbox speech" } else { "speech" };
+        self.existing_receipt(key_id, &format!("{prefix} {key}"))
+            .await
+    }
+
+    pub async fn existing_receipt(
+        &self,
+        key_id: &str,
+        key: &str,
+    ) -> Result<Option<anser_core::api::Receipt>> {
         let entry: Option<(String, String)> = sqlx::query_as(
             "SELECT m.id,m.status FROM idempotency i JOIN messages m ON m.id=i.message_id
              WHERE i.key_id=? AND i.request_key=? AND i.expires_at>?",
         )
         .bind(key_id)
-        .bind(format!("{prefix} {key}"))
+        .bind(key)
         .bind(now_ms())
         .fetch_optional(&self.0)
         .await?;

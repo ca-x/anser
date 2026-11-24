@@ -144,7 +144,7 @@ List both the proxy host and the notification destination host in `ANSER_OUTBOUN
 
 The plugin page groups installed plugins into channels, tasks, and content transforms. The certificate task checks multiple HTTPS sites with a configurable warning window. wttr.in provides current conditions, today, tomorrow, and custom forecasts of 1 to 3 days. The separate Open-Meteo task supports weekly and custom forecasts of 1 to 16 days. Under **Scheduled tasks**, choose a task and destination, then set an interval in minutes, hours, or days, a weekly schedule, or a one-time date and time. The server publishes its output to the selected Topic or default route. The marketplace searches public GitHub repositories tagged `anser-plugin`. Topic announcements are a separate view within the marketplace.
 
-Under **Content transforms → OpenAI TTS**, choose a model and voice and save the settings for previews and voice notifications. Connected Anser clients play new voice notifications in order. Recipients can turn off autoplay in the inbox. Other channels receive the text and an expiring audio link. Set `ANSER_PUBLIC_URL` to a reachable HTTPS origin for topic and default-route voice sends.
+Under **Content transforms → OpenAI TTS**, choose a model and voice and save the settings. Turn on **Send voice notification** when composing to use that model and voice. In the console, play stored audio from **Delivery details**. Connected Anser clients play new voice notifications in order. Recipients can turn off autoplay under Notification settings in the inbox. Other channels receive the text and an expiring audio link. Set `ANSER_PUBLIC_URL` to a reachable HTTPS origin for topic and default-route voice sends.
 
 ## API and channels
 

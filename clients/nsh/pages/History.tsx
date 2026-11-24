@@ -1,3 +1,4 @@
+import { speechBody, type SpeechPlayback } from "../components/Speech";
 import { t } from "nsh/i18n";
 import { cleanup, effect, resource, signal, Text, View } from "nsh";
 import { channelName } from "../channelNames";
@@ -169,6 +170,7 @@ export function MessageDetail(props: {
   id: string;
   onBack: () => void;
   onReplay?: (id: string) => void;
+  speech: SpeechPlayback;
 }) {
   const current = resource(
     () => props.id,
@@ -251,7 +253,7 @@ export function MessageDetail(props: {
                   : `${destination(message())} / `}
                 {localTime(message().created_at)}
               </Hint>
-              <If when={message().message?.body}>
+              <If when={speechBody(message().message?.body ?? "", message().audio_path)}>
                 {(body) => (
                   <View selectable>
                     <Text class="text-base leading-6 text-foreground">
@@ -259,6 +261,10 @@ export function MessageDetail(props: {
                     </Text>
                   </View>
                 )}
+              </If>
+              <If when={message().audio_path}>
+                {(path) => <Action label={t("speech.play")} class="self-start"
+                  onPress={() => props.speech.replay(props.api.origin, { audio_path: path(), title: message().message?.title ?? "" })} />}
               </If>
               <View class="gap-1.5 border-t border-border pt-3">
                 <If when={inboxReceipt(message())}>

@@ -207,7 +207,10 @@ pub fn router() -> Router<Arc<App>> {
 }
 
 async fn info() -> Json<Value> {
-    Json(json!({"version": env!("CARGO_PKG_VERSION")}))
+    Json(json!({
+        "version": env!("CARGO_PKG_VERSION"),
+        "features": {"speech_publish": cfg!(feature = "openai-tts")}
+    }))
 }
 
 async fn health(State(app): State<Arc<App>>) -> (StatusCode, Json<Value>) {
@@ -1051,11 +1054,12 @@ pub(crate) async fn enqueue_prepared(
     wait: Wait,
     headers: &HeaderMap,
     input: PublishRequest,
-    speech: Option<anser_store::speech::SpeechWrite>,
+    mut speech: Option<anser_store::speech::SpeechWrite>,
 ) -> ApiResult<(StatusCode, Json<Receipt>)> {
     identity.require("send")?;
     identity.topic(topic)?;
-    let (mut input, template) = input.into_parts()?;
+    let synthesize = input.speech;
+    let (mut input, mut template) = input.into_parts()?;
     if template.is_some() {
         validate_message_metadata(&input.message)?;
     } else {
@@ -1091,6 +1095,32 @@ pub(crate) async fn enqueue_prepared(
         Some(topic) => verify_topic(app, identity, topic, input.topic_password.take()).await?,
         None => None,
     };
+    if synthesize && speech.is_none() {
+        identity.admin_global()?;
+        if let Some(key) = &key
+            && let Some(existing) = app.store.existing_receipt(&identity.key_id, key).await?
+        {
+            return wait_receipt(app, existing, wait).await;
+        }
+        if let Some(name) = topic
+            && !app.store.topic(name).await?.enabled
+        {
+            return Err(ApiError::bad("The topic is disabled"));
+        }
+        if let Some(usage) = template.take() {
+            app.store
+                .render_message(
+                    identity.user.as_ref().map(|user| user.id.as_str()),
+                    usage,
+                    &mut input.message,
+                )
+                .await?;
+        }
+        let (message, audio) =
+            crate::speech::synthesize(app, input.message, None, None, true).await?;
+        input.message = message;
+        speech = Some(audio);
+    }
     let channels: Vec<_> = app
         .host
         .ids()

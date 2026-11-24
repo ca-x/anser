@@ -1084,6 +1084,77 @@ mod durable_delivery {
     }
 
     #[tokio::test]
+    async fn default_delivery_retries_temporary_errors_but_stops_on_permanent_errors() {
+        let temp = tempfile::tempdir().unwrap();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let observed = calls.clone();
+        let (provider, _mock_server) = listen_mock(Router::new().route(
+            "/",
+            post(move |Json(input): Json<Value>| {
+                let calls = calls.clone();
+                async move {
+                    if input["title"] == "invalid credentials" {
+                        return StatusCode::UNAUTHORIZED.into_response();
+                    }
+                    match calls.fetch_add(1, Ordering::SeqCst) {
+                        0 => (StatusCode::TOO_MANY_REQUESTS, [(header::RETRY_AFTER, "1")])
+                            .into_response(),
+                        1 => StatusCode::SERVICE_UNAVAILABLE.into_response(),
+                        _ => Json(json!({"event":"message","id":"recovered"})).into_response(),
+                    }
+                }
+            }),
+        ))
+        .await;
+        let server = Server::start(&temp.path().join("retry.sqlite3"));
+        let _: Value = server
+            .json(
+                Method::POST,
+                "/v1/accounts",
+                Some(BOOTSTRAP_KEY),
+                json!({"name":"Retry fixture","channel":"ntfy",
+                    "config":{"server_url":format!("http://{provider}/"),"topic":"retries"}}),
+                StatusCode::CREATED,
+            )
+            .await;
+        let receipt: Receipt = server
+            .json(
+                Method::POST,
+                "/v1/send",
+                Some(BOOTSTRAP_KEY),
+                json!({"title":"temporary","channels":["ntfy"]}),
+                StatusCode::ACCEPTED,
+            )
+            .await;
+        let detail = wait_for(&server, &receipt.message_id, |value| {
+            value.status == "success"
+        })
+        .await;
+        assert_eq!(observed.load(Ordering::SeqCst), 3);
+        let attempts = &detail.deliveries[0].attempts;
+        assert_eq!(attempts.len(), 3);
+        assert!(attempts[1].started_at >= attempts[0].finished_at.unwrap() + 900);
+        assert!(attempts[0].error_code.is_some() && attempts[1].error_code.is_some());
+        assert!(attempts[2].error_code.is_none());
+
+        let receipt: Receipt = server
+            .json(
+                Method::POST,
+                "/v1/send",
+                Some(BOOTSTRAP_KEY),
+                json!({"title":"invalid credentials","channels":["ntfy"]}),
+                StatusCode::ACCEPTED,
+            )
+            .await;
+        let detail = wait_for(&server, &receipt.message_id, |value| {
+            value.status == "failed"
+        })
+        .await;
+        assert_eq!(detail.deliveries[0].attempts.len(), 1);
+        assert!(detail.deliveries[0].next_retry_at.is_none());
+    }
+
+    #[tokio::test]
     async fn restarts_a_waiting_ntfy_attempt_without_republishing_the_idempotency_key() {
         let temp = tempfile::tempdir().unwrap();
         let database = temp.path().join("anser.sqlite3");
@@ -3062,6 +3133,8 @@ async fn speech_delivery_reuses_audio_for_inbox_and_topic_links() {
                 async move {
                     assert_eq!(headers["authorization"], "Bearer fixture-provider");
                     assert_eq!(input["response_format"], "mp3");
+                    assert_eq!(input["model"], "tts-1");
+                    assert_eq!(input["voice"], "alloy");
                     count.fetch_add(1, Ordering::SeqCst);
                     ([("content-type", "audio/mpeg")], "ID3fixture-mp3")
                 }
@@ -3126,6 +3199,13 @@ async fn speech_delivery_reuses_audio_for_inbox_and_topic_links() {
     assert_eq!(inbox["items"].as_array().unwrap().len(), 1);
     assert_eq!(inbox["items"][0]["body"], "Your build is ready.");
     let audio_path = inbox["items"][0]["audio_path"].as_str().unwrap().to_owned();
+    let inbox_detail: Value = server
+        .get(
+            &format!("/v1/messages/{}", first["message_id"].as_str().unwrap()),
+            Some(&admin),
+        )
+        .await;
+    assert_eq!(inbox_detail["audio_path"], audio_path);
     let audio = server
         .request(Method::GET, &audio_path, None)
         .header("Range", "bytes=0-2")
@@ -3190,8 +3270,50 @@ async fn speech_delivery_reuses_audio_for_inbox_and_topic_links() {
         detail["message"]["url"],
         format!("https://notify.example.test{path}")
     );
+    assert_eq!(detail["audio_path"], path);
     assert_ne!(path, audio_path);
     assert_eq!(provider_calls.load(Ordering::SeqCst), 2);
+    let _: Value = server
+        .json(
+            Method::PUT,
+            "/v1/plugins/content_transform/openai-tts/config",
+            Some(&admin),
+            json!({"config": {
+                "server_url":provider_url, "api_key":"fixture-provider", "model":"tts-1",
+                "voice":"alloy", "audio_retention_days":1
+            }}),
+            StatusCode::OK,
+        )
+        .await;
+    let normal_publish = json!({"speech":true,"title":"Saved model","body":"Saved voice"});
+    let denied = server
+        .request(Method::POST, "/v1/topics/speech/publish", Some(&alice))
+        .json(&normal_publish)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(denied.status(), StatusCode::FORBIDDEN);
+    for expected in [3, 3] {
+        let published: Value = checked_json(
+            server
+                .request(Method::POST, "/v1/topics/speech/publish", Some(&admin))
+                .header("Idempotency-Key", "normal-voice")
+                .json(&normal_publish)
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::ACCEPTED,
+        )
+        .await;
+        let detail: Value = server
+            .get(
+                &format!("/v1/messages/{}", published["message_id"].as_str().unwrap()),
+                Some(&admin),
+            )
+            .await;
+        assert!(detail["audio_path"].as_str().is_some());
+        assert_eq!(provider_calls.load(Ordering::SeqCst), expected);
+    }
     drop(server);
 
     let restarted = Server::start(&database);

@@ -2,7 +2,7 @@ import { useChannelName, useT } from "../preferences";
 import { useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
 import {
   EuiAccordion, EuiBasicTable, EuiButton, EuiButtonEmpty, EuiButtonGroup, EuiCallOut, EuiFieldPassword, EuiFieldText, EuiFormRow,
-  EuiLink, EuiSelect, EuiText, EuiTextArea,
+  EuiLink, EuiSelect, EuiSwitch, EuiText, EuiTextArea,
 } from "@elastic/eui";
 import { Api, ApiError, errorMessage, segment, type Account, type Attempt, type Channel, type Delivery as DeliveryRecord, type MessageDetail, type NotificationTemplate, type Page, type Publish, type Receipt, type Topic, type User } from "../api";
 import { RowAction, useDate, Empty, Failure, JsonInput, More, object, PageTitle, Progress, split, Status, Tags } from "../components/Common";
@@ -52,6 +52,21 @@ export function Messages({ api, navigate }: { api: Api; navigate: Navigate }) {
   </>;
 }
 
+function DeliveryAudio({ path }: { path: string }) {
+  const t = useT();
+  const [failed, setFailed] = useState(false);
+  const audio = useRef<HTMLAudioElement>(null);
+  return <div className="delivery-audio">
+    <audio ref={audio} controls preload="none" src={path} aria-label={t("播放语音通知")}
+      onError={() => setFailed(true)} onPlaying={() => setFailed(false)} />
+    {failed && <EuiButtonEmpty size="s" iconType="refresh" onClick={() => {
+      const player = audio.current;
+      player?.load();
+      void player?.play().catch(() => setFailed(true));
+    }}>{t("语音播放失败，重试")}</EuiButtonEmpty>}
+  </div>;
+}
+
 export function MessageView({ api, id, navigate }: { api: Api; id: string; navigate: Navigate }) {
   const t = useT();
   const date = useDate();
@@ -65,6 +80,12 @@ export function MessageView({ api, id, navigate }: { api: Api; id: string; navig
     return () => clearTimeout(timer);
   }, [pending, data.data, data.error, data.fetching, data.reload]);
   const detail = data.data;
+  const path = detail?.audio_path;
+  const audio = path && /^\/v1\/speech\/audio\/[A-Za-z0-9_-]{43}\.mp3$/.test(path) ? path : undefined;
+  const text = detail?.message.body ?? "";
+  const [firstLine] = text.split("\n\n", 1);
+  const body = audio && firstLine.startsWith("https://") && firstLine.endsWith(audio)
+    ? text.slice(firstLine.length + 2) : text;
 
   return <>
     <EuiButtonEmpty iconType="chevronSingleLeft" flush="left" size="s" onClick={() => navigate("/admin/messages")}>{t("投递记录")}</EuiButtonEmpty>
@@ -81,7 +102,8 @@ export function MessageView({ api, id, navigate }: { api: Api; id: string; navig
     {detail && <>
       <section className="detail-intro">
         <div className="detail-meta"><Status value={detail.status} /><span>{detail.topic || t("直接投递")}</span><time dateTime={new Date(detail.created_at).toISOString()}>{date(detail.created_at)}</time>{!!detail.message.tags?.length && <Tags values={detail.message.tags} />}</div>
-        {detail.message.body && <pre className="message-body">{detail.message.body}</pre>}
+        {body && <pre className="message-body">{body}</pre>}
+        {audio && <DeliveryAudio key={audio} path={audio} />}
         <code className="message-id">{detail.id}</code>
       </section>
       <section className="stack">
@@ -132,7 +154,7 @@ export function Send({ api, session, navigate }: { api: Api; session: SendSessio
   const channels = useResource<Page<Channel>>(api, "/channels");
   const accounts = usePage<Account>(api, "/accounts");
   const { draft, busy, receipt, error } = useSyncExternalStore(session.subscribe, session.snapshot);
-  const { inbox, recipient, topic, channel, account, message, tags, url, attachment, callback, extra,
+  const { inbox, speech, recipient, topic, channel, account, message, tags, url, attachment, callback, extra,
     templateEnabled, templateId, templateVariables } = draft;
   const templateName = useTemplateName();
   const sourceControl = useId();
@@ -175,7 +197,7 @@ export function Send({ api, session, navigate }: { api: Api; session: SendSessio
   const knownAccounts = selectedAccount && !listedAccount ? [...accounts.items, selectedAccount] : accounts.items;
   const availableAccounts = knownAccounts.filter((item) => item.enabled && channelIds.has(item.channel));
   const accountsComplete = !!channels.data && !channels.error && !accounts.loading && !accounts.error && !accounts.next;
-  const availableChannels = catalog.filter((item) => !accountsComplete || availableAccounts.some((entry) => entry.channel === item.id));
+  const availableChannels = catalog.filter((item) => availableAccounts.some((entry) => entry.channel === item.id));
   const choices = availableAccounts.filter((item) => !channel || item.channel === channel);
   const availableTopics = topics.items.filter((item) => item.enabled);
   if (selectedTopic?.enabled && !listedTopic) availableTopics.push(selectedTopic);
@@ -200,7 +222,9 @@ export function Send({ api, session, navigate }: { api: Api; session: SendSessio
         let result: Receipt | undefined;
         if (inbox) {
           const username = recipient.trim();
-          result = await session.submit(JSON.stringify({ recipient: username, payload: manual }), (key) => api.sendInbox(username, manual, key));
+          result = await session.submit(JSON.stringify({ recipient: username, payload: manual, speech }), (key) => speech
+            ? api.sendSpeech({ destination: { kind: "inbox", username }, message: manual }, key)
+            : api.sendInbox(username, manual, key));
         } else {
           const payload: Publish = useTemplate && selectedTemplate ? {
             template_id: selectedTemplate.id,
@@ -208,6 +232,7 @@ export function Send({ api, session, navigate }: { api: Api; session: SendSessio
               name, Object.hasOwn(templateVariables, name) ? templateVariables[name] : "",
             ])),
           } : manual;
+          if (speech) payload.speech = true;
           payload.tags = split(tags);
           payload.url = url || undefined;
           payload.attachments = attachment ? [{ url: attachment }] : undefined;
@@ -310,6 +335,10 @@ export function Send({ api, session, navigate }: { api: Api; session: SendSessio
           </EuiFormRow>)}
         </fieldset>}
       </> : <Composer message={message} update={(message) => session.edit({ message })} />}
+      <EuiFormRow fullWidth helpText={speech ? t("使用服务器保存的模型和音色。") : undefined}>
+        <EuiSwitch label={t("发送语音通知")} checked={speech}
+          disabled={busy} onChange={(event) => session.edit({ speech: event.target.checked })} />
+      </EuiFormRow>
       {!inbox && <EuiAccordion id={advanced} initialIsOpen={!!(tags || url || attachment || callback || extra)} buttonContent={t("链接、标签与投递回调")}>
         <div className="stack inset">
           <EuiFormRow label={t("消息标签")} fullWidth><EuiFieldText fullWidth value={tags} onChange={(event) => session.edit({ tags: event.target.value })} /></EuiFormRow>

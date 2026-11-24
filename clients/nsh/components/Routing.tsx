@@ -102,10 +102,12 @@ export function strategyDraft(initial?: Strategy) {
 export function StrategyEditor(props: {
   draft: ReturnType<typeof strategyDraft>;
   optional?: boolean;
+  disabled?: boolean;
 }) {
   return (
     <View class="gap-3">
       <Choice
+        disabled={props.disabled}
         label={t("routing.routing_mode")}
         value={props.draft.mode() ?? (props.optional ? "inherit" : "broadcast")}
         items={
@@ -124,6 +126,7 @@ export function StrategyEditor(props: {
       />
       <If when={props.draft.mode() === "broadcast"}>
         <Choice
+          disabled={props.disabled}
           label={t("routing.broadcast_success_criteria")}
           value={props.draft.criteria()}
           items={[
@@ -136,6 +139,7 @@ export function StrategyEditor(props: {
         />
       </If>
       <Toggle
+        disabled={props.disabled}
         label={t("routing.customize_retry_timing_and_attempts")}
         checked={props.draft.configureRetry()}
         onChange={props.draft.configureRetry.set}
@@ -143,6 +147,7 @@ export function StrategyEditor(props: {
       <If when={props.draft.configureRetry()}>
         <View class="gap-3">
           <Choice
+            disabled={props.disabled}
             label={t("routing.backoff")}
             value={props.draft.backoff()}
             items={[
@@ -158,6 +163,7 @@ export function StrategyEditor(props: {
           <View class="gap-3 md:flex-row">
             <View class="flex-1">
               <Field
+                disabled={props.disabled}
                 label={t("routing.attempts_per_account")}
                 keyboard="numeric"
                 value={props.draft.attempts()}
@@ -166,6 +172,7 @@ export function StrategyEditor(props: {
             </View>
             <View class="flex-1">
               <Field
+                disabled={props.disabled}
                 label={t("routing.initial_delay_ms")}
                 keyboard="numeric"
                 value={props.draft.delay()}
@@ -176,6 +183,7 @@ export function StrategyEditor(props: {
           <View class="gap-3 md:flex-row">
             <View class="flex-1">
               <Field
+                disabled={props.disabled}
                 label={t("routing.maximum_delay_ms")}
                 keyboard="numeric"
                 value={props.draft.maximum()}
@@ -184,6 +192,7 @@ export function StrategyEditor(props: {
             </View>
             <View class="flex-1">
               <Field
+                disabled={props.disabled}
                 label={t("routing.message_lifetime_ms")}
                 keyboard="numeric"
                 value={props.draft.ttl()}
@@ -192,11 +201,13 @@ export function StrategyEditor(props: {
             </View>
           </View>
           <Toggle
+            disabled={props.disabled}
             label={t("routing.randomize_retry_intervals")}
             checked={props.draft.jitter()}
             onChange={props.draft.jitter.set}
           />
           <Toggle
+            disabled={props.disabled}
             label={t("routing.keep_trying_within_the_message_lifetime")}
             checked={props.draft.untilSuccess()}
             onChange={props.draft.untilSuccess.set}

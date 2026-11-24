@@ -18,6 +18,8 @@ use crate::error::{ApiError, ApiJson, ApiPath, ApiQuery, ApiResult};
 pub(crate) struct PublishRequest {
     #[serde(flatten)]
     publish: Publish,
+    #[serde(default)]
+    pub(crate) speech: bool,
     template_id: Option<String>,
     template_name: Option<String>,
     variables: Option<BTreeMap<String, String>>,
@@ -27,6 +29,7 @@ impl From<Publish> for PublishRequest {
     fn from(publish: Publish) -> Self {
         Self {
             publish,
+            speech: false,
             template_id: None,
             template_name: None,
             variables: None,

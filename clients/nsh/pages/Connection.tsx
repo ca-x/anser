@@ -1,7 +1,7 @@
 import { t } from "nsh/i18n";
 import { AboutContent } from "./About";
 import { cleanup, effect, Scroll, signal, Text, View } from "nsh";
-import { AnserApi, ApiError } from "../api";
+import { AnserApi, ApiError, validateOrigin } from "../api";
 import type { Channel, User } from "../contracts";
 import type { Pairing } from "../pairing";
 import { parsePairing } from "../pairing";
@@ -19,7 +19,17 @@ import { operation } from "../state";
 import { PreferenceControls } from "../components/Preferences";
 import { ServerProfiles } from "../components/ServerProfiles";
 import type { Preferences } from "../preferences";
-import type { Servers } from "../servers";
+import { serverLabel, type Servers } from "../servers";
+
+type AuthMethod = "password" | "key" | "pairing";
+
+function canonicalOrigin(value: string) {
+  try {
+    return validateOrigin(value);
+  } catch {
+    return undefined;
+  }
+}
 
 export function Connection(props: {
   preferences: Preferences;
@@ -27,13 +37,18 @@ export function Connection(props: {
   initialOrigin?: string;
   embedded?: boolean;
   pairing?: Pairing;
+  replacing?: boolean;
   linkError?: string;
-  onConnect: (api: AnserApi, channels: Channel[], user?: User) => void;
+  onPairingHandled?: (invitation: Pairing) => void;
+  onConnect: (api: AnserApi, channels: Channel[], user?: User, catalogUnavailable?: boolean, authMethod?: AuthMethod) => void;
 }) {
-  const address = signal(props.initialOrigin ?? props.servers.items()[0]?.origin ?? "");
+  const initialOrigin = props.initialOrigin ?? props.servers.last() ?? props.servers.items()[0]?.origin ?? "";
+  const address = signal(initialOrigin);
+  const chosenOrigin = signal<string | undefined>(initialOrigin);
   const managing = signal(false);
-  const saved = () => props.servers.items().some((item) => item.origin === address());
-  const method = signal("password");
+  const showSavedServers = () => !props.embedded && props.servers.items().length > 0 && !pair()?.code;
+  const saved = () => props.servers.items().some((item) => item.origin === chosenOrigin());
+  const method = signal<"password" | "key">("password");
   const username = signal("");
   const key = signal("");
   const password = signal("");
@@ -45,31 +60,52 @@ export function Connection(props: {
   const showPreferences = signal(false);
   const showAbout = signal(false);
   const connect = operation();
+  const canSubmit = () => Boolean(address().trim() && (
+    method() === "key" ? key().trim() : username().trim() && password() &&
+      (!challenge() || verificationCode().trim())
+  ));
   let pending: AnserApi | undefined;
+  let seenPairing: Pairing | undefined;
   cleanup(() => pending?.close());
   effect(() => {
     const imported = props.pairing;
-    if (imported) usePairing(imported);
+    if (!imported || imported === seenPairing || connect.busy()) return;
+    seenPairing = imported;
+    usePairing(imported);
+    if (!imported.code) props.onPairingHandled?.(imported);
   });
 
   function usePairing(imported: Pairing) {
-    choose(imported.origin);
+    changeAddress(imported.origin);
+    chosenOrigin.set(imported.origin);
+    if (imported.code) resetCredentials();
     pair.set(imported.code ? imported : undefined);
     link.set("");
     showImport.set(false);
+    managing.set(false);
   }
 
   function choose(origin: string) {
-    if (origin !== address()) {
-      address.set(origin);
-      username.set("");
-      password.set("");
-      key.set("");
-      resetChallenge();
-      pair.set(undefined);
-      connect.problem.set("");
-    }
+    if (connect.busy()) return;
+    changeAddress(origin);
+    chosenOrigin.set(origin);
     managing.set(false);
+  }
+
+  function changeAddress(value: string) {
+    const previous = address();
+    if (value === previous) return;
+    const nextOrigin = canonicalOrigin(value);
+    if (!nextOrigin || nextOrigin !== canonicalOrigin(previous)) resetCredentials();
+    address.set(value);
+    connect.problem.set("");
+  }
+
+  function resetCredentials() {
+    username.set("");
+    password.set("");
+    key.set("");
+    resetChallenge();
   }
 
   function resetChallenge() {
@@ -78,6 +114,7 @@ export function Connection(props: {
   }
 
   function credentialChanged(set: (value: string) => void, value: string) {
+    if (connect.busy()) return;
     set(value);
     resetChallenge();
     connect.problem.set("");
@@ -85,36 +122,36 @@ export function Connection(props: {
 
   function submit(withCode = false) {
     void connect.run(async () => {
-      const invitation = pair();
-      if (withCode && !invitation?.code) return;
-      if (
-        withCode &&
-        invitation &&
-        !(await confirm(
-          t("connection.connect_using_a_pairing_code"),
-          invitation.origin,
-          t("connection.connect_to_this_server"),
-          false,
-        ))
-      )
-        return;
+      const invitation = withCode ? pair() : undefined;
+      if (withCode ? !invitation?.code : !canSubmit()) return;
+      const loginMethod = invitation ? "pairing" : method();
+      const origin = validateOrigin(invitation?.origin ?? address());
+      const loginName = username().trim();
+      const loginPassword = password();
+      const loginKey = key().trim();
+      const loginCode = challenge() ? verificationCode().trim() : undefined;
+      const pairingCode = invitation?.code;
+      const replacing = props.replacing;
+
+      if (pairingCode || replacing) {
+        const accepted = await confirm(
+          t(replacing ? "connection.replace_existing_sign_in" : "connection.connect_using_a_pairing_code"),
+          origin,
+          t(replacing ? "connection.replace_sign_in" : "connection.connect_to_this_server"),
+          Boolean(replacing),
+        );
+        if (!accepted || !connect.live()) return;
+      }
 
       let user: User | undefined;
       let api: AnserApi;
-      if ((withCode && invitation?.code) || method() === "password") {
-        const publicApi = new AnserApi(
-          withCode ? invitation!.origin : address(),
-          undefined,
-        );
+      if (loginMethod !== "key") {
+        const publicApi = new AnserApi(origin, undefined);
         pending = publicApi;
         const signed = await (
-          withCode && invitation?.code
-            ? publicApi.exchange(invitation.code)
-            : publicApi.login(
-                username().trim(),
-                password(),
-                challenge() ? verificationCode().trim() : undefined,
-              )
+          pairingCode
+            ? publicApi.exchange(pairingCode)
+            : publicApi.login(loginName, loginPassword, loginCode)
         )
           .catch((error: unknown) => {
             if (
@@ -137,19 +174,27 @@ export function Connection(props: {
         user = signed.user;
         api = new AnserApi(publicApi.origin, signed.token);
       } else {
-        api = new AnserApi(address(), key());
+        api = new AnserApi(origin, loginKey);
       }
       pending = api;
       try {
-        const channels = await api.channels();
+        let catalogUnavailable = false;
+        const channels = await api.channels().catch((error: unknown) => {
+          // The successful exchange consumed a one-time code. Keep the session
+          // and retry the catalog independently when it could not load.
+          if (loginMethod === "key" || (error instanceof ApiError && error.status === 401))
+            throw error;
+          catalogUnavailable = true;
+          return [];
+        });
+        if (!connect.live()) return;
         if (!user) user = await api.me().catch(() => undefined);
         if (!connect.live()) return;
         pending = undefined;
-        password.set("");
-        key.set("");
-        resetChallenge();
+        resetCredentials();
         pair.set(undefined);
-        props.onConnect(api, channels, user);
+        if (invitation) props.onPairingHandled?.(invitation);
+        props.onConnect(api, channels, user, catalogUnavailable, loginMethod);
       } finally {
         if (pending === api) {
           pending = undefined;
@@ -163,8 +208,15 @@ export function Connection(props: {
     void connect.run(async () => usePairing(parsePairing(link())));
   }
 
+  function dismissPairing() {
+    const invitation = pair();
+    if (invitation) props.onPairingHandled?.(invitation);
+    pair.set(undefined);
+    connect.problem.set("");
+  }
+
   const content = () => (
-      <View class={props.embedded ? "w-full max-w-lg self-center gap-4" : "w-full max-w-lg self-center gap-5 px-4 pt-8 pb-10 md:gap-6 md:px-6 md:pt-16"}>
+      <View class={props.embedded ? "w-full max-w-lg self-center gap-4" : "w-full max-w-lg self-center gap-5 px-4 pt-8 pb-10 md:gap-5 md:px-6 md:pt-10"}>
         <If when={!props.embedded}><Brand /></If>
         <If when={managing()}>
           <ServerProfiles
@@ -183,26 +235,73 @@ export function Connection(props: {
           <Text role="header" class="text-[22px] font-semibold text-foreground">
             {t("connection.connect_to_an_anser_server")}
           </Text>
+          <If when={!props.embedded && !pair()?.code}>
+            <View class="flex-row flex-wrap items-center gap-2">
+              <Action
+                label={t(showImport() ? "connection.hide_link_import" : "connection.import_connection_link")}
+                kind="quiet"
+                onPress={() => showImport.update((value) => !value)}
+                disabled={connect.busy()}
+              />
+              <Action
+                label={t("servers.manage")}
+                accessibilityLabel={t("servers.title")}
+                kind="quiet"
+                onPress={() => managing.set(true)}
+                disabled={connect.busy()}
+              />
+            </View>
+          </If>
           <Problem message={connect.problem() || props.linkError || ""} />
-          <If when={!saved() || Boolean(pair()?.code)}>
+          <If when={showImport() && !pair()?.code}>
+            <View class="gap-2 rounded-(--radius) border border-border bg-muted p-3">
+              <Hint>{t("connection.scan_the_pairing_qr_code_with")}</Hint>
+              <Field
+                label={t("connection.connection_link")}
+                value={link()}
+                onChange={link.set}
+                onSubmit={importLink}
+                placeholder="anser://connect?server=…"
+                disabled={connect.busy()}
+                masked
+              />
+              <Action
+                label={t("connection.preview_server")}
+                onPress={importLink}
+                class="self-start"
+                disabled={connect.busy() || !link().trim()}
+              />
+            </View>
+          </If>
+          <If when={showSavedServers()}>
+            <Choice
+              label={t("servers.title")}
+              value={saved() ? address() : ""}
+              items={[
+                ...props.servers.items().map(({ origin }) => ({ value: origin, title: props.servers.label(origin) })),
+                { value: "", title: t("servers.connect_another") },
+              ]}
+              disabled={connect.busy()}
+              onChange={(value) => choose(value ?? "")}
+            />
+          </If>
+          <If when={!saved() && !pair()?.code}>
           <Field
             label={t("connection.server_address")}
             keyboard="url"
             value={address()}
             onChange={(value) => {
-              credentialChanged(address.set, value);
-              pair.set(undefined);
+              if (connect.busy()) return;
+              chosenOrigin.set(undefined);
+              changeAddress(value);
             }}
             placeholder="https://anser.example.com"
             testID="server-address"
             disabled={connect.busy()}
           />
           </If>
-          <If when={saved() && !pair()?.code}>
+          <If when={saved() && !showSavedServers() && !pair()?.code}>
             <Text class="text-base font-semibold text-foreground">{props.servers.label(address())}</Text>
-          </If>
-          <If when={!props.embedded && props.servers.items().length}>
-            <Action label={t("servers.title")} kind="quiet" class="self-start" disabled={connect.busy()} onPress={() => managing.set(true)} />
           </If>
           <If
             when={pair()?.code}
@@ -212,7 +311,7 @@ export function Connection(props: {
                   label={t("connection.sign_in_method")}
                   value={method()}
                   onChange={(value) => {
-                    method.set(value ?? "password");
+                    method.set(value === "key" ? "key" : "password");
                     key.set("");
                     password.set("");
                     resetChallenge();
@@ -291,20 +390,18 @@ export function Connection(props: {
                   }
                   kind="primary"
                   onPress={() => submit()}
-                  disabled={
-                    connect.busy() ||
-                    !address().trim() ||
-                    (method() === "key"
-                      ? !key().trim()
-                      : !username().trim() ||
-                        !password() ||
-                        (challenge() && !verificationCode().trim()))
-                  }
+                  disabled={connect.busy() || !canSubmit()}
                 />
               </View>
             }
           >
             <View class="gap-3">
+              <View selectable class="min-w-0 gap-1">
+                <Text class="text-base font-semibold text-foreground">{pair()?.origin}</Text>
+                <If when={pair()?.origin && props.servers.label(pair()!.origin) !== serverLabel(pair()!.origin)}>
+                  <Hint>{props.servers.label(pair()!.origin)}</Hint>
+                </If>
+              </View>
               <Hint>{t("connection.confirm_that_you_trust_this_server")}</Hint>
               <Action
                 label={t("connection.connect_using_pairing_code")}
@@ -315,46 +412,13 @@ export function Connection(props: {
               <Action
                 label={t("connection.use_another_sign_in_method")}
                 kind="quiet"
-                onPress={() => pair.set(undefined)}
+                onPress={dismissPairing}
                 disabled={connect.busy()}
               />
             </View>
           </If>
         </Panel>
         <If when={!props.embedded}>
-        <Action
-          label={
-            showImport()
-              ? t("connection.hide_link_import")
-              : t("connection.import_connection_link")
-          }
-          kind="quiet"
-          class="self-start"
-          onPress={() => showImport.update((value) => !value)}
-          disabled={connect.busy()}
-        />
-        <If when={showImport()}>
-          <Panel>
-            <Hint>{t("connection.scan_the_pairing_qr_code_with")}</Hint>
-            <Field
-              label={t("connection.connection_link")}
-              value={link()}
-              onChange={link.set}
-              onSubmit={importLink}
-              placeholder="anser://connect?server=…"
-              masked
-            />
-            <Action
-              label={t("connection.preview_server")}
-              onPress={importLink}
-              disabled={!link().trim()}
-            />
-          </Panel>
-        </If>
-        <If when={!props.servers.items().length}>
-          <Action label={t("servers.title")} kind="quiet" class="self-start" onPress={() => managing.set(true)} />
-        </If>
-
         <Action
           label={t("preferences.title")}
           kind="quiet"

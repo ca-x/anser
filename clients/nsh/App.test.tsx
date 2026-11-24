@@ -47,6 +47,7 @@ function baseNetwork(): Exclude<
       );
       return { body: page([channel]) };
     },
+    [`${endpoints}/info`]: { body: { version: "0.7.6", features: { speech_publish: true } } },
     [`${endpoints}/accounts`]: { body: page() },
     [`${endpoints}/auth/profile`]: { body: { nickname: null, avatar: null } },
     [`${endpoints}/topics`]: { body: page([topic]) },
@@ -154,6 +155,92 @@ for (const method of ["deep link", "pasted link"] as const) {
     ).toBe(true);
   });
 }
+
+test("clears login credentials when the unsaved origin changes", async () => {
+  const app = await open("./App.tsx", { locale: "zh-CN", network: baseNetwork() });
+  await app.type("id:server-address", origin);
+  await app.type("id:username", "alice");
+  await app.type("id:password", "not-for-other-server");
+  await app.clear("id:server-address");
+  await app.type("id:server-address", "https://other.example.test");
+  expect(app.enabled("role:button[连接]")).toBe(false);
+  expect(app.requests()).toEqual([]);
+});
+
+test("keeps the previous server and draft when linking another server", async () => {
+  const other = "https://other.example.test";
+  let exchangeCount = 0;
+  let catalogCount = 0;
+  const app = await open("./App.tsx", {
+    platform: "linux", width: 1120, height: 860, storage: chinesePreferences,
+    network: {
+      ...baseNetwork(),
+      [`POST ${other}/v1/auth/pair/exchange`]: () => {
+        exchangeCount++;
+        return { body: { token: "other-fixture", user } };
+      },
+      [`${other}/v1/channels`]: () => {
+        catalogCount++;
+        return catalogCount === 1 ? { status: 503 } : { body: page([channel]) };
+      },
+      [`${other}/v1/auth/profile`]: { body: { nickname: null, avatar: null } },
+      [`${other}/v1/inbox*`]: { body: page([], "0") },
+      [`${other}/v1/accounts`]: { body: page() },
+      [`${other}/v1/topics`]: { body: page([topic]) },
+    },
+  });
+  await login(app);
+  await app.type("label:正文", "Keep this private draft");
+  await app.openWithUrl(`anser://connect?server=${encodeURIComponent(other)}&code=${pairingCode}`);
+  await app.press("查看连接邀请");
+  await app.press("返回");
+  expect(app.value("label:正文")).toBe("Keep this private draft");
+  await app.openWithUrl(`anser://connect?server=${encodeURIComponent(other)}&code=${pairingCode}`);
+  await app.press("查看连接邀请");
+  await app.waitFor(`text:${other}`);
+  app.onDialog(() => "连接此服务器");
+  await app.press("使用配对码连接");
+  await app.waitFor("role:button[发送通知]");
+  await app.waitUntil(() => catalogCount >= 2);
+  expect(exchangeCount).toBe(1);
+  expect(app.requests().some((request) => request.url.endsWith("/auth/logout"))).toBe(false);
+  await app.press("role:button[服务器]");
+  await app.press("label:打开 anser.example.test");
+  await app.waitFor("role:button[发送通知]");
+  expect(app.value("label:正文")).toBe("Keep this private draft");
+});
+
+test("continues receiving speech from a connected server in another workspace", async () => {
+  const other = "https://other.example.test";
+  const speechPath = "/v1/speech/audio/" + "d".repeat(43) + ".mp3";
+  let sent = false;
+  const app = await open("./App.tsx", {
+    platform: "linux", width: 1120, height: 860, storage: chinesePreferences,
+    network: {
+      ...baseNetwork(),
+      [`${endpoints}/inbox?*`]: () => ({
+        body: page(sent ? [{ ...inboxItem, title: "Background server voice", audio_path: speechPath }] : [], "0"),
+      }),
+      [`POST ${other}/v1/auth/pair/exchange`]: { body: { token: "other-fixture", user } },
+      [`${other}/v1/channels`]: { body: page([channel]) },
+      [`${other}/v1/auth/profile`]: { body: { nickname: null, avatar: null } },
+      [`${other}/v1/inbox*`]: { body: page([], "0") },
+      [`${other}/v1/accounts`]: { body: page() },
+      [`${other}/v1/topics`]: { body: page([topic]) },
+    },
+  });
+  await login(app);
+  await app.waitUntil(() => app.requests().some((request) => request.url.startsWith(endpoints + "/inbox?")));
+  await app.openWithUrl(`anser://connect?server=${encodeURIComponent(other)}&code=${pairingCode}`);
+  await app.press("查看连接邀请");
+  app.onDialog(() => "连接此服务器");
+  await app.press("使用配对码连接");
+  await app.waitFor("role:button[发送通知]");
+  await app.waitUntil(() => app.requests().some((request) => request.url.startsWith(other + "/v1/inbox")));
+  sent = true;
+  await app.waitFor("Background server voice");
+  expect(app.audio().some((call) => call.command === "open" && call.src === origin + speechPath)).toBe(true);
+});
 
 test("continues a draft across tabs and safely retries the same notification", async () => {
   const submissions: { key: string; body: string }[] = [];
@@ -325,6 +412,7 @@ test("manages saved server names, defaults, and the desktop sidebar", async () =
   expect(JSON.parse(app.storage()["anser.servers"])).toEqual({
     profiles: [{ origin, name: "家庭服务" }, { origin: other, name: "云端服务" }],
     defaults: [origin, other],
+    last: origin,
   });
   expect(app.layout("id:desktop-sidebar")?.width).toBe(208);
   await app.press("收起侧栏");
@@ -336,6 +424,81 @@ test("manages saved server names, defaults, and the desktop sidebar", async () =
   expect(app.enabled("role:button[发送通知]")).toBe(false);
   await app.press("展开侧栏");
   expect(app.layout("id:desktop-sidebar")?.width).toBe(208);
+});
+
+test("keeps the server list and last server when closing and reopening the app", async () => {
+  const first = "https://old.example.test";
+  const app = await open("./App.tsx", {
+    platform: "linux", locale: "zh-CN",
+    storage: {
+      "anser.servers": JSON.stringify({ profiles: [{ origin: first, name: "旧服务器" }], defaults: [first] }),
+    },
+    network: baseNetwork(),
+  });
+  await app.press("role:button[服务器]");
+  await app.press("输入其他服务器地址");
+  await login(app);
+  await app.waitUntil(() => JSON.parse(app.storage()["anser.servers"]).last === origin);
+
+  await app.quitRequest();
+  expect(app.quit()).toBe(true);
+  const stored = app.storage();
+  expect(JSON.stringify(stored).includes("fixture-token")).toBe(false);
+  expect(JSON.stringify(stored).includes("fixture-password")).toBe(false);
+  const restarted = await open("./App.tsx", { platform: "linux", locale: "zh-CN", storage: stored });
+  await restarted.waitFor("anser.example.test");
+  await restarted.press("role:button[服务器]");
+  await restarted.waitFor("旧服务器");
+  expect(JSON.parse(stored["anser.servers"]).defaults).toEqual([first]);
+});
+
+test("keeps the desktop window alive in the tray and restores it on reopening", async () => {
+  const app = await open("./App.tsx", {
+    platform: "linux", locale: "zh-CN",
+    storage: { "anser.preferences": JSON.stringify({ closeBehavior: "tray" }) },
+  });
+  await app.waitFor("偏好设置");
+  await app.window("main").pressClose();
+  await app.waitUntil(() => {
+    const state = app.window("main").state();
+    return state !== null && (!state.visible || state.minimized);
+  });
+  expect(app.quit()).toBe(false);
+  await app.reopen();
+  expect(app.window("main").state()?.visible).toBe(true);
+  await app.quitRequest();
+  expect(app.quit()).toBe(true);
+});
+
+test("sends to enabled configured accounts without opening account setup", async () => {
+  const app = await open("./App.tsx", {
+    platform: "linux", locale: "zh-CN", width: 1120, height: 900,
+    network: {
+      ...baseNetwork(),
+      [`${endpoints}/channels`]: { body: page([{ ...channel, can_manage: true }, { ...channel, id: "bark", can_manage: true }]) },
+      [`${endpoints}/accounts`]: { body: page([
+        { id: "enabled", channel: "ntfy", name: "家庭设备", enabled: true },
+        { id: "disabled", channel: "bark", name: "已禁用设备", enabled: false },
+      ]) },
+      [`POST ${endpoints}/send`]: ({ body }) => {
+        expect(JSON.parse(body ?? "{}").channels).toEqual([{ account_id: "enabled" }]);
+        expect(JSON.parse(body ?? "{}").speech).toBe(true);
+        return { status: 202, body: { message_id: "m2", status: "pending" } };
+      },
+      [`${endpoints}/messages/m2`]: { body: {
+        id: "m2", status: "success", message: { title: "Configured route", body: "", format: "text" },
+        created_at: 1780000000000,
+      } },
+    },
+  });
+  await login(app);
+  await app.press("role:checkbox[家庭设备 · ntfy]");
+  expect(app.shows("已禁用设备")).toBe(false);
+  expect(app.shows("Bark")).toBe(false);
+  await app.press("role:switch[发送语音通知]");
+  await app.type("label:标题", "Configured route");
+  await app.press("role:button[发送通知]");
+  await app.waitFor("投递详情");
 });
 
 test("signs in separately and retries only the failed server for the same notification", async () => {
@@ -432,7 +595,7 @@ test("renders an inbox interaction and submits a declared response", async () =>
   await app.waitFor("收件箱 (1)");
   await app.press("收件箱 (1)");
   await app.waitFor("Incoming test");
-  await app.press("查看");
+  await app.press("id:inbox-item-1");
   await app.waitFor("同意");
   await app.type("label:附上原因", "超过四个字符");
   await app.waitFor("请填写不超过 4 个字符。");
@@ -486,8 +649,8 @@ test("opens a reply to its sender, restores a body-only reply and shows its inbo
   await app.waitFor("收件箱 (1)");
   await app.press("收件箱 (1)");
   await app.waitFor("Hello Alice");
-  await app.waitFor("查看");
-  await app.press("查看");
+  await app.waitFor("id:inbox-item-1");
+  await app.press("id:inbox-item-1");
   await app.waitFor("Hello Alice");
   expect(
     app.requests().some((request) => request.url.endsWith("/1/read")),
@@ -530,7 +693,7 @@ test("keeps reply recipients separate from new messages and locks the reply addr
   await app.type("label:收件人用户名", "mira");
   await app.type("label:正文", "New message");
   await app.press("返回");
-  await app.press("查看");
+  await app.press("id:inbox-item-1");
   await app.press("回复 bob");
   expect(app.shows("label:收件人用户名")).toBe(false);
   await app.waitFor("发给 bob");
@@ -542,7 +705,7 @@ test("keeps reply recipients separate from new messages and locks the reply addr
   expect(app.value("label:收件人用户名")).toBe("mira");
   expect(app.value("label:正文")).toBe("New message");
   await app.press("返回");
-  await app.press("查看");
+  await app.press("id:inbox-item-1");
   await app.press("回复 bob");
   await app.waitFor("发给 bob");
   expect(app.value("label:正文")).toBe("Private reply");
@@ -819,7 +982,7 @@ test("manages plugin runtime and configures an account for that plugin", async (
     },
   });
   await login(app);
-  await app.press("role:button[账号]");
+  await app.press("role:button[渠道账号]");
   await app.press("插件管理");
   await app.waitFor("text:飞书");
   await app.waitFor("text:Server酱");
@@ -902,7 +1065,7 @@ test("configures a transform with saved credentials and provider voice choices",
     },
   });
   await login(app);
-  await app.press("role:button[账号]");
+  await app.press("role:button[渠道账号]");
   await app.press("插件管理");
   await app.press("配置文本转语音");
   await app.waitFor("Alloy");
@@ -934,8 +1097,8 @@ test("uses English provider names and exposes plugin management to a global admi
   await app.press("API Key");
   await app.type("label:API Key", "fixture-token");
   await app.press("role:button[Connect]");
-  await app.waitFor("role:button[Accounts]");
-  await app.press("role:button[Accounts]");
+  await app.waitFor("role:button[Channel accounts]");
+  await app.press("role:button[Channel accounts]");
   await app.press("Plugins");
   await app.waitFor("text:Lark");
   await app.waitFor("text:ServerChan");
@@ -959,7 +1122,7 @@ test("hides plugin management from a member session", async () => {
     },
   });
   await login(app);
-  expect(app.shows("role:button[账号]")).toBe(false);
+  expect(app.shows("role:button[渠道账号]")).toBe(false);
   expect(app.shows("插件管理")).toBe(false);
 });
 
@@ -1157,7 +1320,7 @@ test("admin manages reusable proxy profiles without reading credentials", async 
     },
   });
   await login(app);
-  await app.press("role:button[账号]");
+  await app.press("role:button[渠道账号]");
   await app.press("代理配置");
   await app.press("添加代理配置");
   await app.type("label:配置名称", proxyProfile.name);
@@ -1246,7 +1409,7 @@ test("links and removes a proxy profile while preserving the saved account confi
     },
   });
   await login(app);
-  await app.press("role:button[账号]");
+  await app.press("role:button[渠道账号]");
   await app.waitFor("Operations");
   await app.press("查看");
   await app.press("替换已保存的配置");
@@ -1341,7 +1504,7 @@ test("chooses discovered LazyCat devices on creation and preserves or replaces t
     },
   });
   await login(app);
-  await app.press("role:button[账号]");
+  await app.press("role:button[渠道账号]");
   await app.press("添加账号");
   await app.type("label:账号名称", "个人设备");
   await app.press("label:渠道");
@@ -1458,7 +1621,7 @@ test("account configuration JSON rejects inline proxies and replacement retains 
     },
   });
   await login(app);
-  await app.press("role:button[账号]");
+  await app.press("role:button[渠道账号]");
   await app.waitFor("旧配置");
   await app.press("查看");
   await app.waitFor("保留当前连接");
@@ -1512,7 +1675,7 @@ test("creates a channel account with a saved proxy profile", async () => {
     },
   });
   await login(app);
-  await app.press("role:button[账号]");
+  await app.press("role:button[渠道账号]");
   await app.press("添加账号");
   await app.type("label:账号名称", "Via profile");
   await app.press("label:渠道");
@@ -1567,7 +1730,7 @@ test("applies SMTP presets and requires a fresh password when the server changes
     },
   });
   await login(app);
-  await app.press("role:button[账号]");
+  await app.press("role:button[渠道账号]");
   await app.press("添加账号");
   await app.type("label:账号名称", "提醒邮件");
   await app.press("label:渠道");
@@ -1620,7 +1783,7 @@ test("opens a saved plugin form with settings filled and credentials empty", asy
     },
   });
   await login(app);
-  await app.press("role:button[账号]");
+  await app.press("role:button[渠道账号]");
   await app.waitFor("QQ 邮件");
   await app.press("查看");
   await app.waitFor("label:发件人显示名称");
@@ -1735,7 +1898,7 @@ test("tests a saved channel account and replays a dead letter from delivery hist
     },
   });
   await login(app);
-  await app.press("role:button[账号]");
+  await app.press("role:button[渠道账号]");
   await app.waitFor("Desk account");
   await app.press("查看");
   await app.press("测试已保存的账号");
@@ -1876,5 +2039,8 @@ test("hands only newly received, same-server voice notifications to playback", a
   await login(app);
   await app.waitFor("id:speech-playing");
   await app.waitFor("New speech");
+  const path = origin + audioPath("b");
+  expect(app.audio().filter((call) => call.command === "open").map((call) => call.src)).toEqual([path]);
   await app.press("role:button[停止播放]");
+  expect(app.audio().some((call) => call.command === "close" && call.src === path)).toBe(true);
 });

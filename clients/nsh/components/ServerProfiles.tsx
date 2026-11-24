@@ -11,23 +11,40 @@ export function ServerTags(props: {
   onToggle: (origin: string) => void;
   disabled?: boolean;
 }) {
+  return <SelectionTags
+    items={props.items.map((item) => ({ id: item.origin, label: serverLabel(item.origin, item.name) }))}
+    selected={props.selected} onToggle={props.onToggle} disabled={props.disabled} />;
+}
+
+export function SelectionTags(props: {
+  items: { id: string; label: string }[];
+  selected: string[];
+  onToggle: (origin: string) => void;
+  disabled?: boolean;
+}) {
   return (
     <View class="flex-row flex-wrap gap-2">
-      <Each of={props.items} key={(profile) => profile.origin}>
-        {(profile) => {
-          const selected = () => props.selected.includes(profile().origin);
+      <Each of={props.items} key={(item) => item.id}>
+        {(item) => {
+          const selected = () => props.selected.includes(item().id);
           return (
             <Checkbox
               checked={selected()}
-              accessibilityLabel={serverLabel(profile().origin, profile().name)}
+              accessibilityLabel={item().label}
               disabled={props.disabled}
-              onChange={() => props.onToggle(profile().origin)}
-              indicatorClass="w-4 items-center justify-center"
-              indicator={<If when={selected()}><Text accessibilityElementsHidden class="text-accent-foreground">✓</Text></If>}
+              onChange={() => props.onToggle(item().id)}
+              indicatorClass="size-4 shrink-0 items-center justify-center"
+              indicator={
+                <If when={selected()} else={
+                  <View accessibilityElementsHidden class="size-3 rounded-full border border-input" />
+                }>
+                  <Text accessibilityElementsHidden class="text-accent-foreground">✓</Text>
+                </If>
+              }
               class={`min-h-11 max-w-full flex-row items-center gap-1.5 rounded-full border px-3 py-1.5 focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 transition-colors duration-100 motion-reduce:transition-none ${selected() ? "border-primary bg-accent" : "border-border bg-card hover:bg-muted"}`}
             >
-              <Text class={`line-clamp-1 min-w-0 text-sm ${selected() ? "font-semibold text-accent-foreground" : "text-foreground"}`}>
-                {serverLabel(profile().origin, profile().name)}
+              <Text class={`line-clamp-1 min-w-0 text-sm font-medium ${selected() ? "text-accent-foreground" : "text-foreground"}`}>
+                {item().label}
               </Text>
             </Checkbox>
           );
@@ -43,6 +60,7 @@ export function ServerProfiles(props: {
   selected?: string;
   isConnected?: (origin: string) => boolean;
   onChoose: (origin: string) => void;
+  onConnect?: (origin: string) => void;
   onChange?: (previous: string, origin: string) => void;
 }) {
   const editor = signal<ServerProfile | undefined>();
@@ -57,12 +75,13 @@ export function ServerProfiles(props: {
     editor.set(profile);
   }
 
-  function save() {
+  function save(connect = false) {
     const entry = editor();
     if (!entry) return;
     try {
       const profile = props.servers.save(origin(), name(), entry.origin || undefined);
       if (entry.origin) props.onChange?.(entry.origin, profile.origin);
+      if (connect) props.onConnect?.(profile.origin);
       editor.set(undefined);
     } catch (error) {
       problem.set(messageFor(error));
@@ -91,7 +110,7 @@ export function ServerProfiles(props: {
               const connected = () => Boolean(props.isConnected?.(server().origin));
               const active = () => props.active === server().origin;
               return (
-                <View class="min-w-0 flex-row items-center gap-1 rounded-(--radius) border border-border bg-card px-1">
+                <View class="min-w-0 flex-row items-center gap-1 rounded-(--radius) border border-border bg-card p-1">
                   <Button
                     accessibilityLabel={t("servers.select_name", { name: label() })}
                     selected={active() || props.selected === server().origin}
@@ -99,9 +118,9 @@ export function ServerProfiles(props: {
                     onPress={() => props.onChoose(server().origin)}
                   >
                     <Text class="line-clamp-1 text-sm font-semibold text-foreground">{label()}</Text>
-                    <If when={active() || connected()}>
-                      <Text class="text-xs text-muted-foreground">{active() ? t("servers.current") : t("servers.connected")}</Text>
-                    </If>
+                    <Text class="text-xs text-muted-foreground">
+                      {t(active() ? "servers.current" : connected() ? "servers.connected" : "servers.not_connected")}
+                    </Text>
                   </Button>
                   <Action
                     label={t("servers.edit_short")}
@@ -137,7 +156,11 @@ export function ServerProfiles(props: {
               <Action label={t("servers.remove")} kind="danger" onPress={() => void remove(entry())} />
             </If>
             <Action label={t("common.cancel")} kind="quiet" onPress={() => editor.set(undefined)} />
-            <Action label={t("servers.save")} kind="primary" disabled={!origin().trim()} onPress={save} />
+            <Action label={t("servers.save")} kind={props.onConnect && !entry().origin ? "secondary" : "primary"}
+              disabled={!origin().trim()} onPress={() => save()} />
+            <If when={props.onConnect && !entry().origin}>
+              <Action label={t("servers.save_and_sign_in")} kind="primary" disabled={!origin().trim()} onPress={() => save(true)} />
+            </If>
           </View>
         </Panel>
       )}

@@ -166,6 +166,19 @@ impl Store {
     }
 }
 
+impl Store {
+    /// Resolve a template before giving a copy to an external text transformation.
+    pub async fn render_message(
+        &self,
+        owner: Option<&str>,
+        usage: Usage,
+        message: &mut Message,
+    ) -> Result<()> {
+        let mut connection = self.0.acquire().await?;
+        render(&mut connection, owner, usage, message).await
+    }
+}
+
 /// Render against the same database snapshot used to commit the message.
 pub(crate) async fn render(
     tx: &mut SqliteConnection,

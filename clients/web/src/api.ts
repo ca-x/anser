@@ -132,6 +132,7 @@ export interface NotificationTemplate {
   updated_at: number;
 }
 export interface Publish extends Partial<Message> {
+  speech?: boolean;
   template_id?: string;
   variables?: Record<string, string>;
   channels?: (string | Target)[];
@@ -159,7 +160,7 @@ export interface Delivery {
   next_retry_at?: number | null;
   attempts: Attempt[];
 }
-export interface MessageDetail { id: string; topic?: string | null; status: string; message: Message; created_at: number; inbox_deliveries?: number; inbox_recipient?: string | null; deliveries?: Delivery[] }
+export interface MessageDetail { id: string; topic?: string | null; status: string; message: Message; created_at: number; inbox_deliveries?: number; inbox_recipient?: string | null; audio_path?: string; deliveries?: Delivery[] }
 
 export const segment = encodeURIComponent;
 
@@ -192,7 +193,7 @@ export class Api {
     }, timeoutMs);
   }
   send(topic: string | undefined, message: Publish, key: string) {
-    return this.submit<Receipt>(topic ? `/topics/${segment(topic)}/publish` : "/send", message, key);
+    return this.submit<Receipt>(topic ? `/topics/${segment(topic)}/publish` : "/send", message, key, message.speech ? 65_000 : undefined);
   }
   sendSpeech(value: JsonObject, key: string) {
     return this.request<Receipt>("/speech/send", {
@@ -212,12 +213,12 @@ export class Api {
     }
   }
 
-  private submit<T>(path: string, value: unknown, key: string) {
+  private submit<T>(path: string, value: unknown, key: string, timeoutMs?: number) {
     return this.request<T>(path, {
       method: "POST",
       headers: { "Idempotency-Key": key },
       body: JSON.stringify(value),
-    });
+    }, timeoutMs);
   }
 
   private async request<T>(path: string, init: RequestInit, timeoutMs = 30_000): Promise<T> {

@@ -480,7 +480,7 @@ fn success_schema(path: &str, method: &str) -> Option<(&'static str, Value)> {
         ("POST", "/v1/auth/totp/confirm") => ("200", reference("TotpConfirmation")),
         ("GET", "/v1/info") => (
             "200",
-            json!({"type":"object","required":["version"],"properties":{"version":{"type":"string","example":env!("CARGO_PKG_VERSION")}}}),
+            json!({"type":"object","required":["version"],"properties":{"version":{"type":"string","example":env!("CARGO_PKG_VERSION")},"features":{"type":"object","properties":{"speech_publish":{"type":"boolean"}}}}}),
         ),
         ("GET" | "PUT", "/v1/auth/profile") => ("200", reference("UserProfile")),
         ("GET", "/v1/auth/me") | ("PUT", "/v1/users/{id}") => ("200", reference("User")),
@@ -631,7 +631,7 @@ fn schemas() -> Value {
                     reference("TemplatePublish")
                 ],
                 "type":"object","properties":{
-                    "expire_at":time,"callback_url":{"type":"string","format":"uri"},"topic_password":secret,
+                    "speech":{"type":"boolean","default":false,"description":"Generate speech using saved server settings. Requires global admin authorization."},"expire_at":time,"callback_url":{"type":"string","format":"uri"},"topic_password":secret,
                     "channels":{"type":"array","items":{"oneOf":[string,reference("Target")]}},"strategy":reference("Strategy")
                 }
             },
@@ -733,7 +733,7 @@ fn schemas() -> Value {
             "Channel":{"type":"object","required":["id","display_name","enabled","available","can_manage","config_schema","capabilities"],"properties":{"id":string,"display_name":string,"enabled":{"type":"boolean","description":"Persisted desired state"},"available":{"type":"boolean","description":"Current service availability"},"can_manage":{"type":"boolean","description":"Whether the requesting identity may manage global channel runtime"},"config_schema":{"type":"object"},"capabilities":{"type":"object"}}},
             "ChannelRuntime":{"type":"object","required":["id","enabled","available"],"properties":{"id":string,"enabled":{"type":"boolean","description":"Persisted desired state"},"available":{"type":"boolean","description":"Current service availability"}}},
             "ChannelChange":{"type":"object","properties":{"enabled":boolean,"reload":boolean},"oneOf":[{"required":["enabled"],"properties":{"reload":{"enum":[false]}}},{"required":["reload"],"properties":{"reload":{"enum":[true]}},"not":{"required":["enabled"]}}]},
-            "MessageDetail":{"type":"object","properties":{"id":string,"topic":string,"status":delivery_status,"message":reference("Message"),"created_at":time,"inbox_deliveries":{"type":"integer","format":"int64","minimum":0,"description":"Native inbox entries committed at send time. Independent of device activity and read status."},"inbox_recipient":{"type":"string","description":"Destination username supplied by the sender of a direct native notification. Omitted for topic messages."},"deliveries":{"type":"array","items":reference("Delivery")}}},
+            "MessageDetail":{"type":"object","properties":{"id":string,"topic":string,"status":delivery_status,"message":reference("Message"),"created_at":time,"inbox_deliveries":{"type":"integer","format":"int64","minimum":0,"description":"Native inbox entries committed at send time. Independent of device activity and read status."},"inbox_recipient":{"type":"string","description":"Destination username supplied by the sender of a direct native notification. Omitted for topic messages."},"audio_path":{"type":"string","description":"Relative path to the available speech recording, included in message detail only."},"deliveries":{"type":"array","items":reference("Delivery")}}},
             "Delivery":{"type":"object","properties":{"id":string,"channel":string,"account_id":string,"account_name":{"type":"string","description":"Current account display name when accessible to a global administrator."},"subscription_id":string,"status":delivery_status,"next_retry_at":time,"attempts":{"type":"array","items":reference("Attempt")}}},
             "Attempt":{"type":"object","properties":{"n":integer,"started_at":time,"finished_at":time,"error_code":string,"error_msg":string,"latency":integer}},
         }),

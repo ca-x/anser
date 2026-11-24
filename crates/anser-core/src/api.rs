@@ -251,6 +251,9 @@ pub struct MessageDetail {
     /// Destination username supplied by the sender of a direct inbox notification.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub inbox_recipient: Option<String>,
+    /// Relative URL for an available Anser speech recording. Only included in message detail.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub audio_path: Option<String>,
     pub deliveries: Vec<Delivery>,
 }
 

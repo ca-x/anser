@@ -1,9 +1,10 @@
 import { t } from "nsh/i18n";
 import { announce, cleanup, signal, Text, View } from "nsh";
+import { Button } from "nsh/base";
 import { messageFor, type AnserApi } from "../api";
 import type { Format, InboxInteraction, InboxItem, InteractionReply } from "../contracts";
-import type { SpeechPlayback } from "../components/Speech";
-import type { InboxState } from "../inbox";
+import { canPlaySpeech, speechBody, type SpeechPlayback } from "../components/Speech";
+import type { InboxState, SystemNotifications } from "../inbox";
 import {
   Action,
   Choice,
@@ -17,7 +18,6 @@ import {
 import { localTime } from "../components/DeliveryStatus";
 import {
   messagePreview,
-  RecordRow,
   WorkspacePage,
 } from "../components/Workspace";
 import { operation } from "../state";
@@ -32,58 +32,84 @@ function sender(item: InboxItem) {
 
 export function Inbox(props: {
   state: InboxState;
-  speech: SpeechPlayback;
+  notifications: SystemNotifications;
+  onNotificationSettings: () => void;
   onOpen: (id: number) => void;
   onSend: () => void;
 }) {
   const state = props.state;
+  const notifications = props.notifications;
+  const notificationLabel = () => {
+    const serviceUnavailable = notifications.enabled() &&
+      !notifications.native() && !notifications.checkingPermission();
+    if (notifications.nativeMessage() || serviceUnavailable)
+      return t("inbox.notification_settings_attention");
+    return t(notifications.enabled() ? "inbox.notification_settings" : "inbox.notification_settings_off");
+  };
   return (
     <WorkspacePage title={t("common.inbox")}>
       <View class="flex-row flex-wrap items-center justify-between gap-2">
-        <Action
-          label={t("common.refresh")}
-          kind="quiet"
-          onPress={state.reload}
-          disabled={state.loading()}
-        />
+        <View class="min-w-0 flex-row flex-wrap items-center gap-1">
+          <Action
+            label={t("common.refresh")}
+            kind="quiet"
+            onPress={state.reload}
+            disabled={state.loading()}
+          />
+          <Action
+            label={notificationLabel()}
+            kind="quiet"
+            onPress={props.onNotificationSettings}
+          />
+        </View>
         <Action
           label={t("inbox.message_a_user")}
           kind="primary"
           onPress={props.onSend}
         />
       </View>
-      <Panel>
-        <Toggle
-          label={t("inbox.show_system_notifications_for_this_session")}
-          checked={state.native()}
-          onChange={state.changeNative}
-        />
-        <Toggle label={t("speech.autoplay")} checked={props.speech.auto()} onChange={props.speech.changeAuto} />
-        <Hint>{t("inbox.messages_arrive_while_the_app_is")}</Hint>
-        <Problem message={state.nativeMessage()} />
-      </Panel>
       <ReadState
         loading={state.loading()}
         problem={state.problem()}
         empty={!state.items().length}
         emptyLabel={t("inbox.no_incoming_notifications")}
       />
-      <Each of={state.items()} key={(item) => item.id}>
-        {(item) => (
-          <RecordRow
-            title={messagePreview(item()) ?? t("history.notification")}
-            subtitle={`${sender(item())} / ${localTime(item().created_at)}`}
-            status={
-              <If when={item().read_at == null}>
-                <Text class="text-sm font-semibold text-warning">
-                  {t("inbox.unread")}
-                </Text>
-              </If>
-            }
-            onPress={() => props.onOpen(item().id)}
-          />
-        )}
-      </Each>
+      <If when={state.items().length > 0}>
+        <View class="rounded-(--radius) border border-border bg-card">
+          <Each of={state.items()} key={(item) => item.id}>
+            {(item, index) => {
+              const title = () => canPlaySpeech(item().audio_path)
+                ? item().title.trim() || t("speech.notification")
+                : messagePreview(item()) ?? t("history.notification");
+              const unread = () => item().read_at == null;
+              const subtitle = () => `${sender(item())} · ${localTime(item().created_at)}`;
+              const divider = () => index() < state.items().length - 1 ? "border-b border-border" : "";
+              const accessibleLabel = () => [
+                t("inbox.open_message", { title: title() }),
+                unread() ? t("inbox.unread") : "",
+                subtitle(),
+              ].filter(Boolean).join(" · ");
+              return (
+                <Button
+                  testID={`inbox-item-${item().id}`}
+                  accessibilityLabel={accessibleLabel()}
+                  onPress={() => props.onOpen(item().id)}
+                  class={`min-h-16 min-w-0 flex-row items-center gap-3 rounded-(--radius) px-3 py-2.5 hover:bg-muted active:bg-accent focus-visible:ring-2 focus-visible:ring-ring ${divider()}`}
+                >
+                  <View class="min-w-0 flex-1 gap-0.5">
+                    <Text class={`line-clamp-2 text-base text-card-foreground ${unread() ? "font-semibold" : "font-medium"}`}>{title()}</Text>
+                    <Text class="line-clamp-1 text-sm text-muted-foreground">{subtitle()}</Text>
+                  </View>
+                  <If when={unread()}>
+                    <Text class="text-xs font-semibold text-warning">{t("inbox.unread")}</Text>
+                  </If>
+                  <Text accessibilityElementsHidden class="text-lg text-muted-foreground">›</Text>
+                </Button>
+              );
+            }}
+          </Each>
+        </View>
+      </If>
     </WorkspacePage>
   );
 }
@@ -114,12 +140,12 @@ export function InboxDetail(props: {
               role="header"
               class="text-[19px] font-semibold text-foreground"
             >
-              {message().title.trim() || t("history.notification")}
+              {message().title.trim() || t(canPlaySpeech(message().audio_path) ? "speech.notification" : "history.notification")}
             </Text>
             <Hint>
               {sender(message())} / {localTime(message().created_at)}
             </Hint>
-            <If when={message().body}>
+            <If when={speechBody(message().body, message().audio_path)}>
               {(body) => (
                 <View selectable>
                   <Text class="text-base leading-6 text-foreground">
@@ -128,8 +154,8 @@ export function InboxDetail(props: {
                 </View>
               )}
             </If>
-            <If when={message().audio_path}>
-              <Action label={t("speech.play")} onPress={() => props.speech.replay(message())} class="self-start" />
+            <If when={canPlaySpeech(message().audio_path)}>
+              <Action label={t("speech.play")} onPress={() => props.speech.replay(props.api.origin, message())} class="self-start" />
             </If>
             <If when={message().interaction_id}>
               <InteractionControls api={props.api} id={props.id} />
@@ -224,6 +250,7 @@ export function inboxDraft(fixedRecipient = "") {
   const title = signal("");
   const body = signal("");
   const format = signal<Format>("text");
+  const speech = signal(false);
   const busy = signal(false);
   const problem = signal("");
   const sent = signal<{ recipient: string; messageId?: string } | undefined>(
@@ -244,10 +271,10 @@ export function inboxDraft(fixedRecipient = "") {
     sent.set(undefined);
     try {
       const message = { title: title().trim(), body: body(), format: format() };
-      const content = JSON.stringify([target, message]);
+      const content = JSON.stringify([target, message, speech()]);
       if (!pending || pending.content !== content)
         pending = { content, key: crypto.randomUUID() };
-      const receipt = await api.sendInbox(target, message, pending.key);
+      const receipt = await api.sendInbox(target, message, pending.key, speech());
       pending = undefined;
       title.set("");
       body.set("");
@@ -264,6 +291,7 @@ export function inboxDraft(fixedRecipient = "") {
     title,
     body,
     format,
+    speech,
     busy,
     problem,
     sent,
@@ -275,6 +303,7 @@ export function inboxDraft(fixedRecipient = "") {
 export function InboxSend(props: {
   api: AnserApi;
   draft: ReturnType<typeof inboxDraft>;
+  canSendSpeech: boolean;
   onBack: () => void;
   onDelivery: (id: string) => void;
 }) {
@@ -284,6 +313,7 @@ export function InboxSend(props: {
     title,
     body,
     format,
+    speech,
     busy,
     problem,
     sent,
@@ -375,6 +405,10 @@ export function InboxSend(props: {
           ]}
           onChange={(value) => format.set((value ?? "text") as Format)}
         />
+        <If when={props.canSendSpeech}>
+          <Toggle label={t("speech.send_as_voice")} checked={speech()} onChange={speech.set} />
+          <If when={speech()}><Hint>{t("speech.uses_server_settings")}</Hint></If>
+        </If>
       </Panel>
     </WorkspacePage>
   );

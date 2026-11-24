@@ -14,7 +14,14 @@ const storageKey = "anser.preferences";
 
 type Language = "system" | "en" | "zh-CN";
 type Appearance = "system" | "light" | "dark" | "omarchy";
-type Settings = { language: Language; appearance: Appearance; sidebarCollapsed?: true };
+type Settings = {
+  language: Language;
+  appearance: Appearance;
+  sidebarCollapsed?: boolean;
+  closeBehavior?: "tray";
+  systemNotifications?: boolean;
+  speechAutoplay?: false;
+};
 
 function resolveAppearance(value: unknown, omarchyAvailable: boolean): Appearance {
   if (value === "light" || value === "dark") return value;
@@ -27,11 +34,14 @@ function parseSettings(raw: string | null, omarchyAvailable: boolean): Settings 
   try {
     const value: unknown = JSON.parse(raw);
     if (typeof value !== "object" || value === null) return undefined;
-    const { language, appearance, sidebarCollapsed } = value as Partial<Settings>;
+    const { language, appearance, sidebarCollapsed, closeBehavior, systemNotifications, speechAutoplay } = value as Partial<Settings>;
     return {
       language: language === "en" || language === "zh-CN" ? language : "system",
       appearance: resolveAppearance(appearance, omarchyAvailable),
-      ...(sidebarCollapsed === true ? { sidebarCollapsed: true as const } : {}),
+      ...(sidebarCollapsed === true ? { sidebarCollapsed: true } : {}),
+      ...(closeBehavior === "tray" ? { closeBehavior } : {}),
+      ...(systemNotifications === true ? { systemNotifications } : {}),
+      ...(speechAutoplay === false ? { speechAutoplay } : {}),
     };
   } catch {
     return undefined;
@@ -47,6 +57,7 @@ export function createPreferences() {
   const ready = signal(false);
   const saved = signal(true);
   let live = true;
+  let pending = Promise.resolve();
   let revision = 0;
   let appliedAppearance: Appearance | undefined;
   cleanup(() => {
@@ -85,7 +96,7 @@ export function createPreferences() {
   function update(next: Settings) {
     const target = ++revision;
     apply(next);
-    void Storage.setItem(storageKey, JSON.stringify(next)).then(
+    pending = Storage.setItem(storageKey, JSON.stringify(next)).then(
       () => {
         if (live && revision === target) saved.set(true);
       },
@@ -114,9 +125,19 @@ export function createPreferences() {
       });
     },
     toggleSidebar() {
-      const { language, appearance, sidebarCollapsed } = settings();
-      update(sidebarCollapsed ? { language, appearance } : { language, appearance, sidebarCollapsed: true });
+      const { sidebarCollapsed, ...rest } = settings();
+      update(sidebarCollapsed ? rest : { ...rest, sidebarCollapsed: true });
     },
+    changeCloseBehavior(value: string | null) {
+      update({ ...settings(), closeBehavior: value === "tray" ? "tray" : undefined });
+    },
+    changeSystemNotifications(enabled: boolean) {
+      update({ ...settings(), systemNotifications: enabled || undefined });
+    },
+    changeSpeechAutoplay(enabled: boolean) {
+      update({ ...settings(), speechAutoplay: enabled ? undefined : false });
+    },
+    flush: () => pending,
   };
 }
 

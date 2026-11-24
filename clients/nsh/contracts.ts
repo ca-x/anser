@@ -153,6 +153,7 @@ export interface Message {
 }
 
 export interface Publish extends Message {
+  speech?: boolean;
   channels?: Target[];
   strategy?: Strategy;
   expire_at?: number;
@@ -192,6 +193,7 @@ export interface HistoryEntry {
   deliveries?: Delivery[];
   inbox_deliveries?: number;
   inbox_recipient?: string | null;
+  audio_path?: string;
 }
 
 export interface User {
