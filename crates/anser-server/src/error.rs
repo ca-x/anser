@@ -103,6 +103,33 @@ impl From<anser_store::DataError> for ApiError {
                 "Delivery queue is full",
             ),
             Forbidden => Self::forbidden(),
+            TemplateMissing => Self::new(
+                StatusCode::NOT_FOUND,
+                "template_not_found",
+                "Notification template not found",
+            ),
+            Template(error) => {
+                use anser_core::template::Error;
+                let code = match error {
+                    Error::Definition => "invalid_template",
+                    Error::Variables => "invalid_template_variables",
+                    Error::Content => "invalid_rendered_notification",
+                };
+                Self::new(
+                    StatusCode::BAD_REQUEST,
+                    code,
+                    match error {
+                        Error::Definition => "Invalid template name, content length or placeholder",
+                        Error::Variables => {
+                            "Template variables must match the placeholders in the template"
+                        }
+                        Error::Content => {
+                            "Rendered title and body must fit the message limits and cannot both be blank"
+                        }
+                    },
+                )
+            }
+
             InvalidFactor => Self::auth(),
             Sql(_) | Json(_) | Batch => {
                 // Never print database bind values or provider error bodies.

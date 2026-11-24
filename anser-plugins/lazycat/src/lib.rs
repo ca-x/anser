@@ -109,6 +109,7 @@ impl ChannelService for Lazycat {
         json!({
             "$schema": "https://json-schema.org/draft/2020-12/schema",
             "type": "object",
+            "x-anser-ui": {"widget": "lazycat_devices"},
             "properties": {
                 "user_id": id,
                 "device_id": id,

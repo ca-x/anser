@@ -1,6 +1,6 @@
 import { useId, useState } from "react";
 import {
-  EuiBadge, EuiBasicTable, EuiButton, EuiButtonEmpty, EuiFieldPassword,
+  EuiBadge, EuiBasicTable, EuiButton, EuiButtonEmpty, EuiCallOut, EuiFieldPassword,
   EuiFieldText, EuiFormRow, EuiSwitch,
 } from "@elastic/eui";
 import { Api, ApiError, segment, type OutboundProxy } from "../api";
@@ -12,6 +12,7 @@ export function Proxies({ api }: { api: Api }) {
   const t = useT();
   const list = usePage<OutboundProxy>(api, "/proxies");
   const [editor, setEditor] = useState<OutboundProxy | "new">();
+  const [testing, setTesting] = useState<OutboundProxy>();
   const [removing, setRemoving] = useState<OutboundProxy>();
   const remove = useMutation();
 
@@ -26,13 +27,16 @@ export function Proxies({ api }: { api: Api }) {
         { field: "url", name: t("代理地址"), textOnly: true },
         { field: "authenticated", name: t("身份验证"), render: (authenticated: boolean) =>
           <EuiBadge color={authenticated ? "primary" : "default"}>{t(authenticated ? "已配置凭据" : "无凭据")}</EuiBadge> },
-        { name: t("操作"), render: (proxy: OutboundProxy) =>
-          <EuiButtonEmpty size="xs" color="danger" onClick={() => { remove.clear(); setRemoving(proxy); }}>{t("删除")}</EuiButtonEmpty> },
+        { name: t("操作"), render: (proxy: OutboundProxy) => <div className="row-actions">
+          <EuiButtonEmpty size="xs" onClick={() => setTesting(proxy)}>{t("测试连接")}</EuiButtonEmpty>
+          <EuiButtonEmpty size="xs" color="danger" onClick={() => { remove.clear(); setRemoving(proxy); }}>{t("删除")}</EuiButtonEmpty>
+        </div> },
       ]} />
       <More next={list.next} busy={list.busy} load={() => { void list.loadMore(); }} />
     </div> : !list.error && <Empty title={t("还没有共享代理")} description={t("添加代理后，在支持代理的渠道账号中选择它。")} />}
     {editor && <ProxyEditor api={api} proxy={editor === "new" ? undefined : editor} close={() => setEditor(undefined)}
       done={() => { setEditor(undefined); list.reload(); }} />}
+    {testing && <ProxyProbe api={api} proxy={testing} close={() => setTesting(undefined)} />}
     {removing && <Confirm title={t("删除代理「{name}」？", { name: removing.name })} label={t("删除代理配置")} busy={remove.busy}
       close={() => setRemoving(undefined)} confirm={() => { void remove.run(async () => {
         try {
@@ -48,6 +52,37 @@ export function Proxies({ api }: { api: Api }) {
       <Failure message={remove.error} />
     </Confirm>}
   </>;
+}
+
+const defaultProbeUrl = "https://www.cloudflare.com/cdn-cgi/trace";
+
+function ProxyProbe({ api, proxy, close }: { api: Api; proxy: OutboundProxy; close: () => void }) {
+  const t = useT();
+  const form = useId();
+  const [url, setUrl] = useState(defaultProbeUrl);
+  const [result, setResult] = useState<{ status: number; latency_ms: number }>();
+  const task = useMutation();
+  return <Drawer size="s" title={t("测试代理「{name}」", { name: proxy.name })} close={close}
+    footer={<EuiButton fill type="submit" form={form} isLoading={task.busy}>{t("测试连接")}</EuiButton>}>
+    <form id={form} className="stack" onSubmit={(event) => {
+      event.preventDefault();
+      if (task.busy) return;
+      setResult(undefined);
+      void task.run(async () => {
+        const target = url.trim();
+        setResult(await api.write(`/proxies/${segment(proxy.id)}/test`, "POST", { url: target === defaultProbeUrl ? undefined : target }));
+      });
+    }}>
+      <EuiFormRow label={t("测试网址")} helpText={t("默认请求 Cloudflare。自定义网址必须使用 HTTPS，并已加入服务端出站白名单。")} fullWidth>
+        <EuiFieldText fullWidth type="url" required readOnly={task.busy} value={url}
+          onChange={(event) => { setUrl(event.target.value); setResult(undefined); task.clear(); }} />
+      </EuiFormRow>
+      <Failure message={task.error} />
+      {result && <EuiCallOut color="success" iconType="check" title={t("代理连接成功")}>
+        {t("HTTP {status}，耗时 {ms} 毫秒", { status: String(result.status), ms: String(result.latency_ms) })}
+      </EuiCallOut>}
+    </form>
+  </Drawer>;
 }
 
 function ProxyEditor({ api, proxy, close, done }: { api: Api; proxy?: OutboundProxy; close: () => void; done: () => void }) {

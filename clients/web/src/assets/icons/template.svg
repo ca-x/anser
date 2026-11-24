@@ -1,0 +1,38 @@
+<!--
+MIT License
+
+Copyright (c) 2026 Kubai087 and the Kubai Icons contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-1.4 -4.4 33.8 33.8" width="24" height="24" fill="none"><defs><linearGradient id="ki-fr3oe6-loS-i2" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#D9BCAC"></stop><stop offset="1" stop-color="#D2AF9D"></stop></linearGradient><linearGradient id="ki-fr3oe6-upS-i2" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#EDDFD8"></stop><stop offset="1" stop-color="#E2CBC0"></stop></linearGradient>
+  <filter id="ki-fr3oe6-sh-i2" x="-40%" y="-40%" width="180%" height="190%" color-interpolation-filters="sRGB">
+    <feGaussianBlur in="SourceAlpha" stdDeviation="2"></feGaussianBlur><feOffset dy="2" result="o"></feOffset>
+    <feColorMatrix in="o" type="matrix" values="0 0 0 0 0.839 0 0 0 0 0.718 0 0 0 0 0.647 0 0 0 0.21 0"></feColorMatrix>
+    <feMerge><feMergeNode></feMergeNode><feMergeNode in="SourceGraphic"></feMergeNode></feMerge>
+  </filter>
+  <filter id="ki-fr3oe6-hi-i2" x="-10%" y="-10%" width="120%" height="130%" color-interpolation-filters="sRGB">
+    <feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="a"></feColorMatrix>
+    <feOffset in="a" dy="0.7"></feOffset><feGaussianBlur stdDeviation="0.35"></feGaussianBlur>
+    <feComposite in2="a" operator="arithmetic" k2="-1" k3="1"></feComposite>
+    <feColorMatrix type="matrix" values="0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.5 0"></feColorMatrix>
+    <feBlend in2="SourceGraphic" mode="overlay"></feBlend>
+  </filter><mask id="ki-fr3oe6-ol-i2-0" maskUnits="userSpaceOnUse" x="-40" y="-40" width="111" height="109"><rect x="-40" y="-40" width="111" height="109" fill="#fff"></rect><path fill="#000" fill-rule="nonzero" d="M5.2 4.4Q5.2 2.2 7.4 2.2L23.6 2.2Q25.8 2.2 25.8 4.4L25.8 15.8Q25.8 16.4 25.376 16.824L19.824 22.376Q19.4 22.8 18.8 22.8L7.4 22.8Q5.2 22.8 5.2 20.6Z"></path></mask><mask id="ki-fr3oe6-ol-i2-1" maskUnits="userSpaceOnUse" x="-40" y="-40" width="111" height="109"><rect x="-40" y="-40" width="111" height="109" fill="#fff"></rect><path fill="#000" fill-rule="nonzero" d="M25.3 16.4Q25.8 16.4 25.446 16.754L19.754 22.446Q19.4 22.8 19.4 22.3L19.4 17.6Q19.4 16.4 20.6 16.4Z"></path></mask></defs><g filter="url(#ki-fr3oe6-sh-i2)"><g filter="url(#ki-fr3oe6-hi-i2)"><path fill="url(#ki-fr3oe6-loS-i2)" d="M5.2 4.4Q5.2 2.2 7.4 2.2L23.6 2.2Q25.8 2.2 25.8 4.4L25.8 15.8Q25.8 16.4 25.376 16.824L19.824 22.376Q19.4 22.8 18.8 22.8L7.4 22.8Q5.2 22.8 5.2 20.6Z"></path></g></g><path mask="url(#ki-fr3oe6-ol-i2-0)" d="M5.2 4.4Q5.2 2.2 7.4 2.2L23.6 2.2Q25.8 2.2 25.8 4.4L25.8 15.8Q25.8 16.4 25.376 16.824L19.824 22.376Q19.4 22.8 18.8 22.8L7.4 22.8Q5.2 22.8 5.2 20.6Z" stroke="#C2947B" fill="none" stroke-width="2"></path>
+      <path d="M8.6 7.4H22.4M8.6 10.4H18" stroke="#fff" fill="none" stroke-width="1.6" stroke-linecap="round"></path>
+      <g filter="url(#ki-fr3oe6-hi-i2)"><path fill="url(#ki-fr3oe6-upS-i2)" d="M25.3 16.4Q25.8 16.4 25.446 16.754L19.754 22.446Q19.4 22.8 19.4 22.3L19.4 17.6Q19.4 16.4 20.6 16.4Z"></path></g><path mask="url(#ki-fr3oe6-ol-i2-1)" d="M25.3 16.4Q25.8 16.4 25.446 16.754L19.754 22.446Q19.4 22.8 19.4 22.3L19.4 17.6Q19.4 16.4 20.6 16.4Z" stroke="#C2947B" fill="none" stroke-width="2"></path></svg>

@@ -178,6 +178,174 @@ fn json_string<'a>(value: &'a Value, key: &str) -> &'a str {
 }
 
 #[tokio::test]
+async fn topic_plugin_catalog_persists_approved_listings_and_respects_membership() {
+    const MARKET: &str = "/v1/topics/plugin-news/plugin-listings";
+    const TOPIC: &str = "/v1/topics/plugin-news";
+    let temp = tempfile::tempdir().unwrap();
+    let database = temp.path().join("anser.sqlite3");
+    let server = Server::start(&database);
+    let admin = server.login(BOOTSTRAP_USER, BOOTSTRAP_PASSWORD).await;
+    let created: Value = server
+        .json(
+            Method::POST,
+            "/v1/topics",
+            Some(&admin),
+            json!({"name":"plugin-news","password":TOPIC_PASSWORD}),
+            StatusCode::CREATED,
+        )
+        .await;
+    assert_eq!(created["protected"], true);
+    let manifest = json!({
+        "id":"org.example.certificate-check",
+        "kind":"task",
+        "version":"1.2.3",
+        "name":"Certificate check",
+        "description":"Warns before a certificate expires.",
+        "source_url":"https://example.com/plugin/releases/1.2.3",
+        "sha256":"A".repeat(64)
+    });
+    let mut invalid = manifest.clone();
+    invalid["source_url"] = json!("https://alice:password@example.com/plugin");
+    let error: Value = server
+        .json(
+            Method::POST,
+            MARKET,
+            Some(&admin),
+            invalid,
+            StatusCode::BAD_REQUEST,
+        )
+        .await;
+    assert_eq!(error["code"], "invalid_request");
+    let mut invalid_version = manifest.clone();
+    invalid_version["version"] = json!("1.2");
+    let _: Value = server
+        .json(
+            Method::POST,
+            MARKET,
+            Some(&admin),
+            invalid_version,
+            StatusCode::BAD_REQUEST,
+        )
+        .await;
+    let publish = || {
+        server
+            .request(Method::POST, MARKET, Some(&admin))
+            .header("Idempotency-Key", "certificate-check-1.2.3")
+            .json(&manifest)
+    };
+    let first: Value = checked_json(publish().send().await.unwrap(), StatusCode::ACCEPTED).await;
+    let duplicate: Value =
+        checked_json(publish().send().await.unwrap(), StatusCode::ACCEPTED).await;
+    assert_eq!(first, duplicate);
+    assert_eq!(first["status"], "success");
+    let listing_id = json_string(&first, "message_id");
+    let page: Value = server.get(MARKET, Some(&admin)).await;
+    assert_eq!(page["items"].as_array().unwrap().len(), 1);
+    assert_eq!(page["items"][0]["message_id"], listing_id);
+    assert_eq!(page["items"][0]["manifest"]["sha256"], "a".repeat(64));
+
+    let _: Value = server
+        .json(
+            Method::POST,
+            "/v1/users",
+            Some(&admin),
+            json!({"username":"alice","password":ACCOUNT_PASSWORD}),
+            StatusCode::CREATED,
+        )
+        .await;
+    let alice = server.login("alice", ACCOUNT_PASSWORD).await;
+    let forbidden = server
+        .request(Method::GET, MARKET, Some(&alice))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(forbidden.status(), StatusCode::FORBIDDEN);
+    let rejected: Value = server
+        .json(
+            Method::POST,
+            MARKET,
+            Some(&alice),
+            manifest.clone(),
+            StatusCode::FORBIDDEN,
+        )
+        .await;
+    assert_eq!(rejected["code"], "forbidden");
+    let subscription: Value = server
+        .json(
+            Method::POST,
+            &format!("{TOPIC}/subscriptions"),
+            Some(&alice),
+            json!({"subscriber_ref":"alice","filter":["plugin-listing"],"password":TOPIC_PASSWORD}),
+            StatusCode::CREATED,
+        )
+        .await;
+    assert!(subscription["id"].is_string());
+    let mut second = manifest.clone();
+    second["id"] = json!("org.example.channel");
+    second["kind"] = json!("channel");
+    let _: Value = server
+        .json(
+            Method::POST,
+            MARKET,
+            Some(&admin),
+            second,
+            StatusCode::ACCEPTED,
+        )
+        .await;
+    let forged: Value = server
+        .json(
+            Method::POST,
+            &format!("{TOPIC}/publish"),
+            Some(&alice),
+            json!({"title":"Ordinary notification","tags":["plugin-listing"],"extras":{"plugin_listing":manifest}}),
+            StatusCode::ACCEPTED,
+        )
+        .await;
+    let inbox: Value = server.get("/v1/inbox", Some(&alice)).await;
+    assert!(inbox["items"].as_array().unwrap().iter().any(|item| {
+        item["title"] == "Certificate check 1.2.3"
+            && item["body"]
+                .as_str()
+                .unwrap()
+                .contains("https://example.com/plugin/releases/1.2.3")
+    }));
+    let page: Value = server.get(&format!("{MARKET}?limit=1"), Some(&alice)).await;
+    let cursor = json_string(&page, "next_cursor");
+    let tail: Value = server
+        .get(&format!("{MARKET}?cursor={cursor}"), Some(&alice))
+        .await;
+    assert_eq!(tail["items"].as_array().unwrap().len(), 1);
+    for listing in [&page["items"][0], &tail["items"][0]] {
+        assert_ne!(listing["message_id"], forged["message_id"]);
+    }
+    drop(server);
+
+    let server = Server::start(&database);
+    let task: Value = server
+        .get(&format!("{MARKET}?kind=task"), Some(&alice))
+        .await;
+    assert_eq!(task["items"].as_array().unwrap().len(), 1);
+    assert_eq!(task["items"][0]["message_id"], listing_id);
+    let removal = server
+        .request(Method::DELETE, TOPIC, Some(&admin))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(removal.status(), StatusCode::NO_CONTENT);
+    let _: Value = server
+        .json(
+            Method::POST,
+            "/v1/topics",
+            Some(&admin),
+            json!({"name":"plugin-news"}),
+            StatusCode::CREATED,
+        )
+        .await;
+    let recreated: Value = server.get(MARKET, Some(&alice)).await;
+    assert_eq!(recreated["items"], json!([]));
+}
+
+#[tokio::test]
 async fn lazycat_discovery_requires_a_global_admin_and_an_authenticated_ingress() {
     const DEVICES: &str = "/v1/channels/lazycat/devices";
     const PROOF: &str = "a6d39ee0db05f98202dd601619ce6717617ffaa4c03f4f7bfa8e32c6b6ac9f73";
@@ -1841,4 +2009,463 @@ async fn new_channel_schemas_are_discoverable_and_accept_the_packaged_examples()
             "{id}"
         );
     }
+}
+
+#[tokio::test]
+async fn templates_render_once_in_the_queue_and_respect_visibility() {
+    let temp = tempfile::tempdir().unwrap();
+    let database = temp.path().join("anser.sqlite3");
+    let server = Server::start(&database);
+    let mut sessions = Vec::new();
+    for user in ["template-owner", "template-reader"] {
+        let _: Value = server
+            .json(
+                Method::POST,
+                "/v1/users",
+                Some(BOOTSTRAP_KEY),
+                json!({"username":user,"password":ACCOUNT_PASSWORD}),
+                StatusCode::CREATED,
+            )
+            .await;
+        sessions.push(server.login(user, ACCOUNT_PASSWORD).await);
+    }
+    let owner = sessions[0].as_str();
+    let reader = sessions[1].as_str();
+    let issued: Value = server
+        .json(
+            Method::POST,
+            "/v1/api-keys",
+            Some(BOOTSTRAP_KEY),
+            json!({"name":"template-integration","scopes":["send"]}),
+            StatusCode::CREATED,
+        )
+        .await;
+    let send_key = json_string(&issued, "token");
+    let _: Value = server
+        .json(
+            Method::POST,
+            "/v1/topics",
+            Some(BOOTSTRAP_KEY),
+            json!({"name":"template-tests","password":TOPIC_PASSWORD}),
+            StatusCode::CREATED,
+        )
+        .await;
+    let _: Value = server
+        .json(
+            Method::POST,
+            "/v1/topics/template-tests/subscriptions",
+            Some(reader),
+            json!({"subscriber_ref":"reader","password":TOPIC_PASSWORD}),
+            StatusCode::CREATED,
+        )
+        .await;
+    let shared = json!({"name":"alert","title":"Shared {{service}}","body":"{{status}}","format":"text","shared":true});
+    let shared_template: Value = server
+        .json(
+            Method::POST,
+            "/v1/templates",
+            Some(BOOTSTRAP_KEY),
+            shared.clone(),
+            StatusCode::CREATED,
+        )
+        .await;
+    let shared_id = json_string(&shared_template, "id");
+    let private =
+        json!({"name":"alert","title":"Private {{service}}","body":"{{status}}","format":"text"});
+    let private_template: Value = server
+        .json(
+            Method::POST,
+            "/v1/templates",
+            Some(owner),
+            private,
+            StatusCode::CREATED,
+        )
+        .await;
+    assert_eq!(private_template["variables"], json!(["service", "status"]));
+    assert_eq!(private_template["can_edit"], true);
+    let private_id = json_string(&private_template, "id");
+    let private_path = format!("/v1/templates/{private_id}");
+    assert_ne!(shared_id, private_id);
+    for token in [reader, send_key, BOOTSTRAP_KEY] {
+        let unavailable: Value = checked_json(
+            server
+                .request(Method::GET, &private_path, Some(token))
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::NOT_FOUND,
+        )
+        .await;
+        assert_eq!(unavailable["code"], "template_not_found");
+    }
+    let forbidden: Value = server
+        .json(
+            Method::POST,
+            "/v1/templates",
+            Some(owner),
+            shared,
+            StatusCode::FORBIDDEN,
+        )
+        .await;
+    assert_eq!(forbidden["code"], "forbidden");
+    assert_eq!(
+        server
+            .request(
+                Method::DELETE,
+                "/v1/templates/builtin.deployment",
+                Some(BOOTSTRAP_KEY)
+            )
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    let catalog: Value = server.get("/v1/templates", Some(send_key)).await;
+    let catalog = catalog["items"].as_array().unwrap();
+    assert!(
+        catalog
+            .iter()
+            .any(|item| item["id"] == "builtin.deployment" && item["builtin"] == true)
+    );
+    assert!(
+        catalog
+            .iter()
+            .any(|item| item["id"] == shared_id && item["can_edit"] == false)
+    );
+    assert!(catalog.iter().all(|item| item["id"] != private_id));
+
+    let publish_path = "/v1/topics/template-tests/publish";
+    let mut request = json!({"template_name":"alert","variables":{"service":"雁字","status":"Ready"},"tags":["release"],"topic_password":TOPIC_PASSWORD});
+    let send = |token, resource: &Value| {
+        server
+            .request(Method::POST, publish_path, Some(token))
+            .header("Idempotency-Key", "fixture-template")
+            .json(resource)
+    };
+    let receipt: Value = checked_json(
+        send(owner, &request).send().await.unwrap(),
+        StatusCode::ACCEPTED,
+    )
+    .await;
+    let message_path = format!("/v1/messages/{}", json_string(&receipt, "message_id"));
+    assert_eq!(receipt["status"], "success");
+    let readback: Value = server.get(&message_path, Some(owner)).await;
+    assert_eq!(readback["message"]["title"], "Private 雁字");
+    assert_eq!(readback["message"]["body"], "Ready");
+    assert_eq!(readback["message"]["tags"], json!(["release"]));
+    let inbox: Value = server.get("/v1/inbox", Some(reader)).await;
+    assert_eq!(inbox["items"][0]["title"], "Private 雁字");
+
+    let corrected: Value = server
+        .json(
+            Method::PUT,
+            &private_path,
+            Some(owner),
+            json!({"name":"renamed","title":"{{changed}}","format":"text"}),
+            StatusCode::OK,
+        )
+        .await;
+    assert_eq!(corrected["variables"], json!(["changed"]));
+    assert_eq!(
+        server
+            .request(Method::DELETE, &private_path, Some(owner))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::NO_CONTENT
+    );
+    let repeated: Value = checked_json(
+        send(owner, &request).send().await.unwrap(),
+        StatusCode::ACCEPTED,
+    )
+    .await;
+    assert_eq!(receipt["message_id"], repeated["message_id"]);
+    assert_eq!(
+        server.get::<Value>(&message_path, Some(owner)).await["message"],
+        readback["message"]
+    );
+
+    request["template_id"] = json!(private_id);
+    request.as_object_mut().unwrap().remove("template_name");
+    let unavailable: Value = server
+        .json(
+            Method::POST,
+            publish_path,
+            Some(send_key),
+            request.clone(),
+            StatusCode::NOT_FOUND,
+        )
+        .await;
+    assert_eq!(unavailable["code"], "template_not_found");
+    request["template_id"] = json!(shared_id);
+    let shared_receipt: Value = checked_json(
+        send(send_key, &request).send().await.unwrap(),
+        StatusCode::ACCEPTED,
+    )
+    .await;
+    let shared_message: Value = server
+        .get(
+            &format!(
+                "/v1/messages/{}",
+                json_string(&shared_receipt, "message_id")
+            ),
+            Some(send_key),
+        )
+        .await;
+    assert_eq!(shared_message["message"]["title"], "Shared 雁字");
+
+    let invalid: Value = server
+        .json(
+            Method::POST,
+            publish_path,
+            Some(send_key),
+            json!({"template_name":"alert","variables":{"unrecognized":"value"},"topic_password":TOPIC_PASSWORD}),
+            StatusCode::BAD_REQUEST,
+        )
+        .await;
+    assert_eq!(invalid["code"], "invalid_template_variables");
+    let direct: Value = server
+        .json(
+            Method::POST,
+            "/v1/send",
+            Some(send_key),
+            json!({"template_name":"builtin.deployment","variables":{"service":"app","version":"1.0","environment":"test"}}),
+            StatusCode::UNPROCESSABLE_ENTITY,
+        )
+        .await;
+    assert_eq!(direct["code"], "no_available_targets");
+    let openapi: Value = server.get("/v1/openapi.json", None).await;
+    assert_eq!(
+        openapi["paths"]["/v1/templates"]["post"]["requestBody"]["content"]["application/json"]["schema"]
+            ["$ref"],
+        "#/components/schemas/TemplateInput"
+    );
+}
+
+#[cfg(all(
+    feature = "certificate-expiration",
+    feature = "openai-tts",
+    feature = "weather-wttr"
+))]
+#[tokio::test]
+async fn installed_plugins_group_typed_actions_and_require_global_admin_to_run() {
+    let temp = tempfile::tempdir().unwrap();
+    let server = Server::start(&temp.path().join("anser.sqlite3"));
+    let admin = server.login(BOOTSTRAP_USER, BOOTSTRAP_PASSWORD).await;
+    let private_key: Value = server
+        .json(
+            Method::POST,
+            "/v1/api-keys",
+            Some(&admin),
+            json!({"name":"test-sender","scopes":["send"]}),
+            StatusCode::CREATED,
+        )
+        .await;
+    let sender = json_string(&private_key, "token");
+    let inventory: Value = server.get("/v1/plugins", Some(sender)).await;
+    let installed = inventory["items"].as_array().unwrap();
+    for (kind, expected) in [
+        ("task", "certificate-expiration"),
+        ("task", "wttr-weather"),
+        ("content_transform", "openai-tts"),
+    ] {
+        assert!(installed.iter().any(|plugin| {
+            plugin["id"] == expected
+                && plugin["kind"] == kind
+                && plugin["available"] == true
+                && plugin["version"] == "0.1.0"
+        }));
+    }
+
+    let path = "/v1/plugins/task/wttr-weather/run";
+    let denied: Value = server
+        .json(
+            Method::POST,
+            path,
+            Some(sender),
+            json!({"config": {"location": "Paris"}}),
+            StatusCode::FORBIDDEN,
+        )
+        .await;
+    assert_eq!(denied["code"], "forbidden");
+    let invalid: Value = server
+        .json(
+            Method::POST,
+            path,
+            Some(&admin),
+            json!({"config": {"location": "Paris"}, "input": {"unexpected": true}}),
+            StatusCode::UNPROCESSABLE_ENTITY,
+        )
+        .await;
+    assert_eq!(invalid["code"], "plugin_error");
+    assert_eq!(invalid["details"]["provider_code"], "weather_input");
+    let mismatch: Value = server
+        .json(
+            Method::POST,
+            "/v1/plugins/content_transform/wttr-weather/run",
+            Some(&admin),
+            json!({"config": {}, "message": {"body": "Hello."}}),
+            StatusCode::NOT_FOUND,
+        )
+        .await;
+    assert_eq!(mismatch["code"], "not_found");
+}
+
+#[tokio::test]
+async fn speech_delivery_reuses_audio_for_inbox_and_topic_links() {
+    use axum::Router;
+    use axum::routing::post;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use tokio::net::TcpListener;
+
+    let provider_calls = Arc::new(AtomicUsize::new(0));
+    let count = provider_calls.clone();
+    let provider = Router::new().route(
+        "/v1/audio/speech",
+        post(
+            move |headers: axum::http::HeaderMap, axum::Json(input): axum::Json<Value>| {
+                let count = count.clone();
+                async move {
+                    assert_eq!(headers["authorization"], "Bearer fixture-provider");
+                    assert_eq!(input["response_format"], "mp3");
+                    count.fetch_add(1, Ordering::SeqCst);
+                    ([("content-type", "audio/mpeg")], "ID3fixture-mp3")
+                }
+            },
+        ),
+    );
+    let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+    let provider_url = format!("http://{}", listener.local_addr().unwrap());
+    let task = tokio::spawn(async move { axum::serve(listener, provider).await.unwrap() });
+
+    let temp = tempfile::tempdir().unwrap();
+    let database = temp.path().join("speech.sqlite");
+    let server = Server::with_environment(
+        &database,
+        "",
+        &[("ANSER_PUBLIC_URL", "https://notify.example.test")],
+    );
+    let admin = server.login(BOOTSTRAP_USER, BOOTSTRAP_PASSWORD).await;
+    let _: Value = server
+        .json(
+            Method::POST,
+            "/v1/users",
+            Some(&admin),
+            json!({"username":"alice","password":ACCOUNT_PASSWORD,"admin":false}),
+            StatusCode::CREATED,
+        )
+        .await;
+    let alice = server.login("alice", ACCOUNT_PASSWORD).await;
+    let payload = json!({
+        "config":{"server_url":provider_url,"api_key":"fixture-provider","model":"tts-1","voice":"alloy","response_format":"wav"},
+        "message":{"title":"Hello","body":"Your build is ready."},
+        "destination":{"kind":"inbox","username":"alice"}
+    });
+    let denied = server
+        .request(Method::POST, "/v1/speech/send", Some(&alice))
+        .json(&payload)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(denied.status(), StatusCode::FORBIDDEN);
+    let send = |payload: Value, key: &str| {
+        server
+            .request(Method::POST, "/v1/speech/send", Some(&admin))
+            .header("Idempotency-Key", key)
+            .json(&payload)
+    };
+    let first: Value = checked_json(
+        send(payload.clone(), "voice-42").send().await.unwrap(),
+        StatusCode::CREATED,
+    )
+    .await;
+    let second: Value = checked_json(
+        send(payload.clone(), "voice-42").send().await.unwrap(),
+        StatusCode::CREATED,
+    )
+    .await;
+    assert_eq!(first, second);
+    assert_eq!(provider_calls.load(Ordering::SeqCst), 1);
+    let admin_items: Value = server.get("/v1/inbox", Some(&admin)).await;
+    assert_eq!(admin_items["items"].as_array().unwrap().len(), 0);
+    let inbox: Value = server.get("/v1/inbox", Some(&alice)).await;
+    assert_eq!(inbox["items"].as_array().unwrap().len(), 1);
+    assert_eq!(inbox["items"][0]["body"], "Your build is ready.");
+    let audio_path = inbox["items"][0]["audio_path"].as_str().unwrap().to_owned();
+    let audio = server
+        .request(Method::GET, &audio_path, None)
+        .header("Range", "bytes=0-2")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(audio.status(), StatusCode::PARTIAL_CONTENT);
+    assert_eq!(audio.headers()["content-type"], "audio/mpeg");
+    assert!(
+        audio.headers()["cache-control"]
+            .to_str()
+            .unwrap()
+            .contains("no-store")
+    );
+    assert_eq!(audio.bytes().await.unwrap(), "ID3");
+
+    let _: Value = server
+        .json(
+            Method::POST,
+            "/v1/topics",
+            Some(&admin),
+            json!({"name":"speech"}),
+            StatusCode::CREATED,
+        )
+        .await;
+    let _: Value = server
+        .json(
+            Method::POST,
+            "/v1/topics/speech/subscriptions",
+            Some(&alice),
+            json!({"subscriber_ref":"alice"}),
+            StatusCode::CREATED,
+        )
+        .await;
+    let mut announcement = payload;
+    announcement["destination"] = json!({"kind":"topic","name":"speech"});
+    let published: Value = checked_json(
+        send(announcement, "voice-43").send().await.unwrap(),
+        StatusCode::ACCEPTED,
+    )
+    .await;
+    let detail: Value = server
+        .get(
+            &format!("/v1/messages/{}", published["message_id"].as_str().unwrap()),
+            Some(&admin),
+        )
+        .await;
+    assert!(
+        detail["message"]["body"]
+            .as_str()
+            .unwrap()
+            .starts_with("https://notify.example.test/v1/speech/audio/")
+    );
+    let inbox: Value = server.get("/v1/inbox", Some(&alice)).await;
+    assert_eq!(inbox["items"].as_array().unwrap().len(), 2);
+    let path = inbox["items"][1]["audio_path"].as_str().unwrap();
+    assert_eq!(
+        detail["message"]["url"],
+        format!("https://notify.example.test{path}")
+    );
+    assert_ne!(path, audio_path);
+    assert_eq!(provider_calls.load(Ordering::SeqCst), 2);
+    drop(server);
+
+    let restarted = Server::start(&database);
+    let audio = restarted
+        .request(Method::GET, &audio_path, None)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(audio.status(), StatusCode::OK);
+    assert_eq!(audio.bytes().await.unwrap(), "ID3fixture-mp3");
+    task.abort();
 }

@@ -38,12 +38,19 @@ pub struct InboxItem {
     pub format: String,
     pub created_at: i64,
     pub read_at: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub audio_path: Option<String>,
 }
 
 #[derive(Serialize, sqlx::FromRow)]
 pub struct InboxReceipt {
     pub id: i64,
     pub message_id: String,
+}
+
+pub struct InboxSpeech<'a> {
+    pub message: &'a Message,
+    pub speech: Option<crate::speech::SpeechWrite>,
 }
 
 impl Store {
@@ -238,13 +245,29 @@ impl Store {
         after: Option<i64>,
         limit: u32,
     ) -> Result<Page<InboxItem>> {
-        let mut items = if let Some(after) = after {
-            sqlx::query_as::<_, InboxItem>("SELECT id, from_username,topic,title,body,format,created_at,read_at FROM inbox WHERE user_id=? AND id>? ORDER BY id LIMIT ?")
-                .bind(user_id).bind(after).bind(limit).fetch_all(&self.0).await?
+        let mut values = sqlx::QueryBuilder::<sqlx::Sqlite>::new(
+            "SELECT i.id,i.from_username,i.topic,i.title,i.body,i.format,i.created_at,i.read_at,
+              '/v1/speech/audio/' || audio.token || '.mp3' AS audio_path
+             FROM inbox i LEFT JOIN notification_audio audio ON i.message_id=audio.message_id
+             AND audio.expires_at>",
+        );
+        values
+            .push_bind(now_ms())
+            .push(" WHERE i.user_id=")
+            .push_bind(user_id);
+        if let Some(after) = after {
+            values
+                .push(" AND i.id>")
+                .push_bind(after)
+                .push(" ORDER BY i.id");
         } else {
-            sqlx::query_as::<_, InboxItem>("SELECT id,from_username,topic,title,body,format,created_at,read_at FROM inbox WHERE user_id=? ORDER BY id DESC LIMIT ?")
-                .bind(user_id).bind(limit).fetch_all(&self.0).await?
-        };
+            values.push(" ORDER BY i.id DESC");
+        }
+        values.push(" LIMIT ").push_bind(limit);
+        let mut items = values
+            .build_query_as::<InboxItem>()
+            .fetch_all(&self.0)
+            .await?;
         if after.is_none() {
             items.reverse();
         }
@@ -277,8 +300,37 @@ impl Store {
         idempotency_key: Option<&str>,
         retention_ms: i64,
     ) -> Result<InboxReceipt> {
+        self.send_inbox_with_speech(
+            key_id,
+            sender,
+            recipient,
+            InboxSpeech {
+                message,
+                speech: None,
+            },
+            idempotency_key,
+            retention_ms,
+        )
+        .await
+    }
+
+    pub async fn send_inbox_with_speech(
+        &self,
+        key_id: &str,
+        sender: Option<&str>,
+        recipient: &str,
+        input: InboxSpeech<'_>,
+        idempotency_key: Option<&str>,
+        retention_ms: i64,
+    ) -> Result<InboxReceipt> {
+        let InboxSpeech { message, speech } = input;
         // Published messages use the raw validated key. Spaces cannot occur in a client key.
-        let request_key = idempotency_key.map(|key| format!("inbox {key}"));
+        let prefix = if speech.is_some() {
+            "inbox speech"
+        } else {
+            "inbox"
+        };
+        let request_key = idempotency_key.map(|key| format!("{prefix} {key}"));
         let body = serde_json::to_string(message)?;
         let format = serde_json::to_value(message.format)?;
         let _writer = self.2.lock().await;
@@ -303,6 +355,11 @@ impl Store {
             VALUES(?1,?2,?3,?3,'success',1,?4,?5,?6)")
             .bind(&message_id).bind(key_id).bind(body).bind(recipient).bind(now).bind(now.saturating_add(retention_ms))
             .execute(&mut *tx).await?;
+        if let Some(speech) = speech {
+            speech
+                .insert(&mut tx, &message_id, now, retention_ms)
+                .await?;
+        }
         let id = sqlx::query_scalar(
             "INSERT INTO inbox(user_id,message_id,from_username,title,body,format,created_at)
             SELECT id,?,?,?,?,?,? FROM users WHERE username=? AND enabled=1 RETURNING id",

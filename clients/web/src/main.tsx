@@ -15,6 +15,7 @@ import historyIcon from "./assets/icons/history.svg?no-inline";
 import accountsIcon from "./assets/icons/id-badge.svg?no-inline";
 import channelsIcon from "./assets/icons/plug.svg?no-inline";
 import topicsIcon from "./assets/icons/tag.svg?no-inline";
+import templateIcon from "./assets/icons/template.svg?no-inline";
 import routingIcon from "./assets/icons/route.svg?no-inline";
 import proxyIcon from "./assets/icons/router.svg?no-inline";
 import usersIcon from "./assets/icons/user-group.svg?no-inline";
@@ -28,11 +29,13 @@ const Accounts = lazy(() => import("./pages/Accounts").then(({ Accounts }) => ({
 const Channels = lazy(() => import("./pages/Channels").then(({ Channels }) => ({ default: Channels })));
 const ChannelSettings = lazy(() => import("./pages/Channels").then(({ ChannelSettings }) => ({ default: ChannelSettings })));
 const Topics = lazy(() => import("./pages/Topics").then(({ Topics }) => ({ default: Topics })));
+const PluginMarket = lazy(() => import("./pages/PluginMarket"));
 const Dashboard = lazy(() => import("./pages/Admin").then(({ Dashboard }) => ({ default: Dashboard })));
 const DefaultRoute = lazy(() => import("./pages/Admin").then(({ DefaultRoute }) => ({ default: DefaultRoute })));
 const Keys = lazy(() => import("./pages/Admin").then(({ Keys }) => ({ default: Keys })));
 const Pair = lazy(() => import("./pages/Pair"));
 const Users = lazy(() => import("./pages/Admin").then(({ Users }) => ({ default: Users })));
+const Templates = lazy(() => import("./pages/Templates"));
 const Messages = lazy(() => import("./pages/Delivery").then(({ Messages }) => ({ default: Messages })));
 const MessageView = lazy(() => import("./pages/Delivery").then(({ MessageView }) => ({ default: MessageView })));
 const Send = lazy(() => import("./pages/Delivery").then(({ Send }) => ({ default: Send })));
@@ -47,8 +50,9 @@ const pages = [
   { path: "/admin", label: "投递总览", icon: overviewIcon },
   { path: "/admin/send", label: "发送通知", icon: sendIcon },
   { path: "/admin/messages", label: "投递记录", icon: historyIcon },
+  { path: "/admin/templates", label: "通知模板", icon: templateIcon },
   { path: "/admin/accounts", label: "渠道账号", icon: accountsIcon },
-  { path: "/admin/channels", label: "渠道插件", icon: channelsIcon },
+  { path: "/admin/channels", label: "插件管理", icon: channelsIcon },
   { path: "/admin/topics", label: "主题与订阅", icon: topicsIcon },
   { path: "/admin/routing", label: "默认路由", icon: routingIcon },
   { path: "/admin/proxies", label: "出站代理", icon: proxyIcon },
@@ -194,7 +198,7 @@ function App() {
 function Navigation({ path, navigate, sidebar }: { path: string; navigate: (path: string) => void; sidebar?: boolean }) {
   const t = useT();
   return <nav className={sidebar ? "sidebar" : undefined} aria-label={t("控制台")}>
-      {[pages.slice(0, 3), pages.slice(3, 8), pages.slice(8)].map((group, index) => <ul className="nav-group" key={index}>{group.map((item) => {
+      {[pages.slice(0, 4), pages.slice(4, 9), pages.slice(9)].map((group, index) => <ul className="nav-group" key={index}>{group.map((item) => {
         const selected = path === item.path || (item.path !== "/admin" && path.startsWith(`${item.path}/`));
         return <li key={item.path}><a href={item.path} aria-current={selected ? "page" : undefined}
           onClick={(event) => { if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return; event.preventDefault(); navigate(item.path); }}>
@@ -283,9 +287,11 @@ function Workspace({ path, api, username, sendSession, navigate }: { path: strin
   switch (path) {
     case "/admin/send": return <Send api={api} session={sendSession} navigate={navigate} />;
     case "/admin/messages": return <Messages api={api} navigate={navigate} />;
+    case "/admin/templates": return <Templates api={api} session={sendSession} navigate={navigate} />;
     case "/admin/accounts": return <Accounts api={api} />;
     case "/admin/channels": return <Channels api={api} navigate={navigate} />;
-    case "/admin/topics": return <Topics api={api} />;
+    case "/admin/topics": return <Topics api={api} navigate={navigate} />;
+    case "/admin/topics/plugin-market": return <PluginMarket api={api} navigate={navigate} />;
     case "/admin/routing": return <DefaultRoute api={api} />;
     case "/admin/proxies": return <Proxies api={api} />;
     case "/admin/users": return <Users api={api} />;

@@ -22,6 +22,7 @@ import inboxIcon from "./assets/navigation/inbox.svg";
 import preferencesIcon from "./assets/navigation/settings.svg";
 import sendIcon from "./assets/navigation/send.svg";
 import tagIcon from "./assets/navigation/tag.svg";
+import { SpeechPlayer, speechPlayback } from "./components/Speech";
 import { Action, confirm, Hint } from "./components/Controls";
 import { AccountMenu } from "./components/AccountMenu";
 import { Brand, WorkspacePage } from "./components/Workspace";
@@ -248,11 +249,12 @@ function Workspace(props: {
       nav.setRoutes([{ name: tab }]);
     }
   };
+  const speech = speechPlayback(api.origin);
   const inbox = user
     ? inboxState(api, (id) => {
         go("inbox");
         open({ name: "inbox-detail", id });
-      })
+      }, speech.received)
     : undefined;
   const enabledSections = sections.filter(
     (tab) =>
@@ -324,6 +326,7 @@ function Workspace(props: {
           </View>
         )}
       </If>
+      <SpeechPlayer state={speech} />
       <View class={wide() ? "flex-1 flex-row" : "flex-1"}>
         <If when={wide()}>
           <View
@@ -588,6 +591,7 @@ function Workspace(props: {
                   inbox && (
                     <Inbox
                       state={inbox}
+                      speech={speech}
                       onOpen={(id) => open({ name: "inbox-detail", id })}
                       onSend={() => open({ name: "inbox-send" })}
                     />
@@ -598,6 +602,7 @@ function Workspace(props: {
                   inbox && (
                     <InboxDetail
                       state={inbox}
+                      speech={speech}
                       id={route.id}
                       onBack={back}
                       onReply={(recipient) =>

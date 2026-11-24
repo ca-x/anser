@@ -92,8 +92,17 @@ async fn receive(
             .await
             .unwrap();
     }
+    let content_type = if extra_headers
+        .lines()
+        .filter_map(|line| line.split_once(':'))
+        .any(|(name, _)| name.eq_ignore_ascii_case("content-type"))
+    {
+        ""
+    } else {
+        "Content-Type: application/json\r\n"
+    };
     let response = format!(
-        "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n{extra_headers}\r\n{body}",
+        "HTTP/1.1 {status}\r\n{content_type}Content-Length: {}\r\nConnection: close\r\n{extra_headers}\r\n{body}",
         body.len(),
     );
     stream.write_all(response.as_bytes()).await.unwrap();

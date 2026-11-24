@@ -10,6 +10,7 @@ use rand::Rng;
 use sqlx::{Acquire, QueryBuilder, Sqlite, SqliteConnection};
 
 use crate::manage::{self, StoredAccount};
+use crate::plugin_market::MarketWrite;
 use crate::{DataError, Result, Store, new_id, now_ms};
 
 const MAX_TARGETS: usize = 256;
@@ -21,6 +22,7 @@ pub struct Submission {
     pub topic: Option<String>,
     pub idempotency_key: Option<String>,
     pub request: Publish,
+    pub template: Option<anser_core::template::Usage>,
     pub ttl_limit_ms: i64,
     pub retention_ms: i64,
     pub queue_limit: u32,
@@ -28,6 +30,8 @@ pub struct Submission {
     pub sender: Option<String>,
     pub topic_admin: bool,
     pub verified_password_hash: Option<String>,
+    pub listing: Option<MarketWrite>,
+    pub speech: Option<crate::speech::SpeechWrite>,
 }
 
 #[derive(sqlx::FromRow)]
@@ -551,6 +555,10 @@ impl Store {
             .bind(now)
             .execute(&mut *tx)
             .await?;
+        sqlx::query("DELETE FROM notification_audio WHERE expires_at<=?")
+            .bind(now)
+            .execute(&mut *tx)
+            .await?;
         sqlx::query("DELETE FROM messages WHERE id IN(SELECT m.id FROM messages m WHERE m.retain_until<=? AND NOT EXISTS(SELECT 1 FROM idempotency i WHERE i.message_id=m.id) AND NOT EXISTS(SELECT 1 FROM routes r WHERE r.message_id=m.id AND r.finished=0) AND NOT EXISTS(SELECT 1 FROM callbacks c WHERE c.message_id=m.id AND c.finished=0) LIMIT 500)")
             .bind(now).execute(&mut *tx).await?;
         tx.commit().await?;
@@ -601,6 +609,11 @@ async fn enqueue_one(tx: &mut SqliteConnection, input: Submission) -> Result<Rec
     }
 
     let mut request = input.request;
+    let mut listing_topic_id = None;
+    if let Some(template) = input.template {
+        crate::templates::render(tx, input.user_id.as_deref(), template, &mut request.message)
+            .await?;
+    }
     let (mut policy, subscriptions, retention) = if let Some(name) = input.topic.as_deref() {
         let row = manage::topic(tx, name).await?;
         let topic = row.value()?;
@@ -614,6 +627,9 @@ async fn enqueue_one(tx: &mut SqliteConnection, input: Submission) -> Result<Rec
         }
         if !topic.enabled {
             return Err(DataError::NoTargets);
+        }
+        if input.listing.is_some() {
+            listing_topic_id = Some(row.id.clone());
         }
         for tag in topic.default_tags {
             if !request.message.tags.contains(&tag) {
@@ -710,8 +726,12 @@ async fn enqueue_one(tx: &mut SqliteConnection, input: Submission) -> Result<Rec
     if groups.iter().map(|(_, group)| group.len()).sum::<usize>() > MAX_TARGETS {
         return Err(DataError::QueueFull);
     }
-    if native.is_empty() && !groups.is_empty() && groups.iter().all(|(_, group)| group.is_empty()) {
-        return Err(DataError::NoTargets);
+    if native.is_empty() && groups.iter().all(|(_, group)| group.is_empty()) {
+        if input.listing.is_some() {
+            groups.clear();
+        } else if !groups.is_empty() {
+            return Err(DataError::NoTargets);
+        }
     }
     if depth + groups.len() as i64 + i64::from(request.callback_url.is_some())
         > i64::from(input.queue_limit)
@@ -729,7 +749,9 @@ async fn enqueue_one(tx: &mut SqliteConnection, input: Submission) -> Result<Rec
         return Err(DataError::NoTargets);
     }
     let id = new_id();
-    let mut status = if groups.is_empty() {
+    let mut status = if groups.is_empty() && input.listing.is_some() {
+        "success"
+    } else if groups.is_empty() {
         "cancelled"
     } else if groups.iter().all(|(_, group)| group.is_empty()) {
         "failed"
@@ -740,6 +762,15 @@ async fn enqueue_one(tx: &mut SqliteConnection, input: Submission) -> Result<Rec
             .bind(&id).bind(&input.key_id).bind(input.topic.as_deref()).bind(serde_json::to_string(&request.message)?)
             .bind(serde_json::to_string(&request)?).bind(status).bind(now).bind(now.saturating_add(retention))
             .execute(&mut *tx).await?;
+    if let Some(speech) = input.speech {
+        speech.insert(tx, &id, now, retention).await?;
+    }
+    if let Some(listing) = input.listing {
+        let topic_id = listing_topic_id.ok_or(DataError::Missing)?;
+        sqlx::query("INSERT INTO plugin_market_listings(message_id,topic_id,kind,manifest,created_at) VALUES(?,?,?,?,?)")
+            .bind(&id).bind(topic_id).bind(listing.kind).bind(serde_json::to_string(&listing.manifest)?).bind(now)
+            .execute(&mut *tx).await?;
+    }
     if let Some(key) = input.idempotency_key.as_deref() {
         remember_receipt(tx, &input.key_id, key, &id, None, now).await?;
     }
@@ -947,6 +978,7 @@ mod tests {
                 },
                 ..Publish::default()
             },
+            template: None,
             ttl_limit_ms: 60_000,
             retention_ms: 86_400_000,
             queue_limit: 100,
@@ -954,7 +986,56 @@ mod tests {
             sender: None,
             topic_admin: false,
             verified_password_hash: None,
+            listing: None,
+            speech: None,
         }
+    }
+
+    #[tokio::test]
+    async fn direct_template_content_survives_restart_and_is_used_for_replay() {
+        use anser_core::template::{Format, Reference, Usage};
+
+        let (temp, store) = fixture().await;
+        let admin = crate::templates::Access {
+            owner: None,
+            admin: true,
+        };
+        let template = store
+            .create_template(
+                admin,
+                crate::templates::Definition {
+                    name: "direct".into(),
+                    title: "{{service}} deployed".into(),
+                    body: "Pipeline completed".into(),
+                    format: Format::Text,
+                    shared: Some(true),
+                },
+            )
+            .await
+            .unwrap();
+        let mut input = submission(None);
+        input.request.message = Message::default();
+        input.template = Some(Usage {
+            reference: Reference::Id(template.id.clone()),
+            variables: [("service".into(), "雁字".into())].into(),
+        });
+        let receipt = store.enqueue(input).await.unwrap();
+        assert_eq!(receipt.status, "pending");
+        store.delete_template(admin, &template.id).await.unwrap();
+        store.0.close().await;
+
+        let store = Store::open(&temp.path().join("test.sqlite3"))
+            .await
+            .unwrap();
+        let lease = store.claim(now_ms()).await.unwrap().unwrap();
+        assert_eq!(lease.message_id, receipt.message_id);
+        let saved = store.message_body(&lease.message_id).await.unwrap();
+        assert_eq!(saved.title, "雁字 deployed");
+        store.release(&lease, None, "dead").await.unwrap();
+        let (topic, replay) = store.original(&lease.message_id).await.unwrap();
+        assert!(topic.is_none());
+        assert_eq!(replay.message.title, saved.title);
+        assert_eq!(replay.message.body, saved.body);
     }
 
     #[tokio::test]

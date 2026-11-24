@@ -41,7 +41,13 @@ enum Resource {
         #[command(subcommand)]
         action: Crud,
     },
-    /// Submit a message from a JSON file.
+    /// Manage notification templates.
+    Templates {
+        #[command(subcommand)]
+        action: Crud,
+    },
+    /// Submit a message from a JSON file. For direct and Topic sends, a file can
+    /// supply template_id or template_name and variables in place of title and body.
     Send {
         #[arg(long)]
         topic: Option<String>,
@@ -154,6 +160,7 @@ pub async fn run(remote: Remote) -> anyhow::Result<()> {
         },
         Resource::Proxies { action } => resource("proxies", action).await?,
         Resource::Topics { action } => resource("topics", action).await?,
+        Resource::Templates { action } => resource("templates", action).await?,
         Resource::Send {
             topic,
             recipient,

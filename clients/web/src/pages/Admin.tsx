@@ -1,8 +1,8 @@
 import { useLanguage, useT } from "../preferences";
 import { useId, useState } from "react";
 import {
-  EuiBadge, EuiBasicTable, EuiButton, EuiButtonEmpty, EuiCallOut, EuiCheckboxGroup, EuiCopy, EuiFieldPassword,
-  EuiFieldText, EuiFormRow, EuiIcon, EuiSwitch,
+  EuiAccordion, EuiBadge, EuiBasicTable, EuiButton, EuiButtonEmpty, EuiCallOut, EuiCheckboxGroup, EuiCopy, EuiFieldPassword,
+  EuiFieldText, EuiFormRow, EuiIcon, EuiLink, EuiPanel, EuiSwitch, EuiText,
 } from "@elastic/eui";
 import { Api, segment, type Account, type ApiKey, type Channel, type IssuedKey, type MessageDetail, type Page, type Policy, type User } from "../api";
 import { Confirm, useDate, Drawer, Empty, Failure, More, PageTitle, Progress, Tags } from "../components/Common";
@@ -131,6 +131,43 @@ function UserEditor({ api, user, close, done }: { api: Api; user?: User; close: 
   </Drawer>;
 }
 
+const publishExample = [
+  'curl --fail-with-body "$ANSER_URL/v1/topics/alerts/publish" \\',
+  '  -H "Authorization: Bearer $ANSER_API_KEY" \\',
+  "  -H 'Content-Type: application/json' \\",
+  "  --data '{\"title\":\"Build complete\",\"body\":\"The release is ready.\"}'",
+].join("\n");
+
+function ApiKeyGuide() {
+  const t = useT();
+  const language = useLanguage();
+  const id = useId();
+  return <EuiPanel paddingSize="m" hasShadow={false} hasBorder>
+    <EuiAccordion id={id} buttonContent={t("API 密钥使用指南")}>
+      <div className="stack">
+        <EuiText size="s">
+          <p>{t("创建具有 send 作用域的密钥，保存到密钥管理器。设置 ANSER_API_KEY 和 ANSER_URL，服务器地址无需添加 /v1。创建并配置 alerts 主题后，运行下面的命令。")}</p>
+          <p>{t("subscribe 作用域用于管理订阅。带主题前缀的密钥只能操作匹配的主题。向受保护主题发布时，在请求体中提供 topic_password。")}</p>
+        </EuiText>
+        <div className="api-example"><pre><code>{publishExample}</code></pre>
+          <EuiCopy textToCopy={publishExample} afterMessage={t("已复制")}>
+            {(copy) => <EuiButtonEmpty size="xs" iconType="copy" onClick={copy}>{t("复制命令")}</EuiButtonEmpty>}
+          </EuiCopy>
+        </div>
+        <EuiText size="s">
+          <p>{t("收到 HTTP 202 表示消息已入队。使用同一密钥请求 GET /v1/messages/{id}，查询送达状态和各次投递尝试。")}</p>
+          <ul>
+            <li><EuiLink href="https://github.com/lib-x/anser-sdk-rust">Rust</EuiLink>{" · "}<EuiLink href="https://crates.io/crates/anser-sdk">crates.io</EuiLink></li>
+            <li><EuiLink href="https://github.com/lib-x/anser-sdk-go">Go</EuiLink></li>
+            <li><EuiLink href="https://github.com/lib-x/anser-sdk-ts">TypeScript</EuiLink></li>
+          </ul>
+          <p><EuiLink href={`https://ca-x.github.io/anser/?lang=${language}#sdk`}>{t("查看安装命令与 SDK 示例")}</EuiLink></p>
+        </EuiText>
+      </div>
+    </EuiAccordion>
+  </EuiPanel>;
+}
+
 export function Keys({ api }: { api: Api }) {
   const t = useT();
   const date = useDate();
@@ -142,6 +179,7 @@ export function Keys({ api }: { api: Api }) {
   return <>
     <PageTitle title={t("API 密钥")} description={t("为发送、订阅和自动化任务分配凭据。")}
       action={<EuiButton fill iconType="plusCircle" onClick={() => setCreating(true)}>{t("创建密钥")}</EuiButton>} />
+    <ApiKeyGuide />
     <Failure message={list.error} retry={list.reload} />
     {list.loading ? <Progress /> : list.items.length ? <div className="data-surface">
       <EuiBasicTable<ApiKey> rowHeader="name" tableCaption={t("API 凭据")} items={list.items} itemId="id" columns={[

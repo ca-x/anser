@@ -27,6 +27,7 @@ const DNS_TIMEOUT: Duration = Duration::from_secs(5);
 pub struct NetworkPolicy {
     allow_private: bool,
     trusted_hosts: Vec<String>,
+    proxy_probe_host: Option<String>,
 }
 
 impl NetworkPolicy {
@@ -35,6 +36,7 @@ impl NetworkPolicy {
         Self {
             allow_private,
             trusted_hosts,
+            proxy_probe_host: None,
         }
     }
 
@@ -50,6 +52,13 @@ impl NetworkPolicy {
             .map(str::to_owned)
             .collect();
         Self::new(allow_private, trusted_hosts)
+    }
+
+    /// Permit a server-owned probe destination without broadening the proxy allowlist.
+    #[must_use]
+    pub fn with_proxy_probe_host(mut self, host: &str) -> Self {
+        self.proxy_probe_host = Some(host.to_owned());
+        self
     }
 
     fn explicit_host(&self, host: &str) -> bool {
@@ -278,7 +287,12 @@ pub async fn client_with_policy(
             .expect("validated proxy has a port");
         // An HTTP proxy may resolve requests using its own DNS. Operators must
         // explicitly trust the target and the proxy before handing it routing.
-        if !policy.explicit_host(host) || !policy.explicit_host(proxy_host) {
+        let authorized_target = policy.explicit_host(host)
+            || policy
+                .proxy_probe_host
+                .as_deref()
+                .is_some_and(|name| name == host);
+        if !authorized_target || !policy.explicit_host(proxy_host) {
             return Err(SendError::new(
                 "outbound_proxy_blocked",
                 "allowlist the destination and proxy hosts to use an outbound proxy",

@@ -1,7 +1,8 @@
 import { resource, signal, Text, View } from "nsh";
 import { t } from "nsh/i18n";
-import { messageFor, type AnserApi } from "../api";
+import { ApiError, messageFor, type AnserApi } from "../api";
 import { channelName } from "../channelNames";
+import { pluginLabel } from "../components/ChannelConfig";
 import {
   Action,
   confirm,
@@ -12,7 +13,7 @@ import {
   Section,
 } from "../components/Controls";
 import { RecordRow, WorkspacePage } from "../components/Workspace";
-import type { Account, Channel, ChannelRuntime } from "../contracts";
+import type { Account, Channel, ChannelRuntime, InstalledPlugin } from "../contracts";
 import { operation } from "../state";
 import { AccountList } from "./Accounts";
 
@@ -37,6 +38,8 @@ function PluginStatus(props: { channel: ChannelRuntime }) {
   );
 }
 
+const pluginKinds = ["channel", "task", "content_transform"] as const;
+
 export function Plugins(props: {
   api: AnserApi;
   channels: Channel[];
@@ -44,40 +47,84 @@ export function Plugins(props: {
   onOpen: (channel: Channel) => void;
   onRefresh: (channels: Channel[]) => void;
 }) {
+  const inventory = resource(async ({ signal: abort }) => {
+    try {
+      return await props.api.plugins(abort);
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 404) return [];
+      throw error;
+    }
+  });
   const refresh = operation();
+  const pending = () => ["pending", "refreshing"].includes(inventory.state());
+  const group = (kind: InstalledPlugin["kind"]) =>
+    (inventory() ?? []).filter((plugin) => plugin.kind === kind);
+  const label = (plugin: InstalledPlugin) =>
+    pluginLabel(plugin) ?? (plugin.kind === "channel"
+      ? channelName(plugin.id, plugin.display_name)
+      : plugin.display_name);
+
   return (
     <WorkspacePage title={t("plugins.title")} back={props.onBack}>
       <Action
         label={t("common.refresh")}
         kind="quiet"
         class="self-start"
-        disabled={refresh.busy()}
+        disabled={refresh.busy() || pending()}
         onPress={() =>
           void refresh.run(async () => {
-            const channels = await props.api.channels();
+            const [channels] = await Promise.all([
+              props.api.channels(),
+              inventory.refetch(),
+            ]);
             if (refresh.live()) props.onRefresh(channels);
           })
         }
       />
       <ReadState
-        loading={refresh.busy()}
-        problem={refresh.problem()}
-        empty={!props.channels.length}
+        loading={refresh.busy() || pending()}
+        problem={refresh.problem() || (inventory.error() ? messageFor(inventory.error()) : "")}
+        empty={!props.channels.length && !inventory()?.length}
         emptyLabel={t("plugins.empty")}
       />
-      <Each of={props.channels} key={(channel) => channel.id}>
-        {(channel) => (
-          <RecordRow
-            title={channelName(channel().id, channel().display_name)}
-            status={<PluginStatus channel={channel()} />}
-            action={{
-              label: t("plugins.configure"),
-              accessibilityLabel: t("plugins.configure_plugin", {
-                name: channelName(channel().id, channel().display_name),
-              }),
+      <If when={props.channels.length > 0}>
+        <Section title={t("plugins.group_channel")}>
+          <Each of={props.channels} key={(channel) => channel.id}>
+            {(channel) => {
+              const metadata = () => group("channel").find((entry) => entry.id === channel().id);
+              const name = () => {
+                const plugin = metadata();
+                return plugin ? label(plugin) : channelName(channel().id, channel().display_name);
+              };
+              return (
+                <RecordRow
+                  title={name()}
+                  subtitle={metadata()?.version}
+                  status={<PluginStatus channel={channel()} />}
+                  action={{
+                    label: t("plugins.configure"),
+                    accessibilityLabel: t("plugins.configure_plugin", { name: name() }),
+                  }}
+                  onPress={() => props.onOpen(channel())}
+                />
+              );
             }}
-            onPress={() => props.onOpen(channel())}
-          />
+          </Each>
+        </Section>
+      </If>
+      <Each of={pluginKinds.filter((kind) => kind !== "channel" && group(kind).length > 0)} key={(kind) => kind}>
+        {(kind) => (
+          <Section title={t(`plugins.group_${kind()}`)}>
+            <Each of={group(kind())} key={(plugin) => plugin.id}>
+              {(plugin) => (
+                <RecordRow
+                  title={label(plugin())}
+                  subtitle={plugin().version}
+                  status={<PluginStatus channel={plugin()} />}
+                />
+              )}
+            </Each>
+          </Section>
         )}
       </Each>
     </WorkspacePage>

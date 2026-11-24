@@ -22,6 +22,18 @@ export interface Channel {
   };
 }
 
+export type PluginKind = "channel" | "task" | "content_transform";
+
+export interface InstalledPlugin {
+  id: string;
+  kind: PluginKind;
+  display_name: string;
+  version?: string;
+  config_schema: JsonObject;
+  enabled: boolean;
+  available: boolean;
+}
+
 export type ChannelRuntime = Pick<Channel, "id" | "enabled" | "available">;
 
 export interface Account {
@@ -194,6 +206,7 @@ export interface TotpSetup {
 }
 
 export interface InboxItem {
+  audio_path?: string;
   id: number;
   from_username?: string | null;
   topic?: string | null;

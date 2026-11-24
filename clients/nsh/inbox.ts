@@ -3,7 +3,11 @@ import { announce, cleanup, Notifications, signal } from "nsh";
 import { ApiError, messageFor, type AnserApi } from "./api";
 import type { InboxItem } from "./contracts";
 
-export function inboxState(api: AnserApi, onOpen: (id: number) => void) {
+export function inboxState(
+  api: AnserApi,
+  onOpen: (id: number) => void,
+  onReceive: (items: InboxItem[]) => void,
+) {
   const items = signal<InboxItem[]>([]);
   const loading = signal(true);
   const problem = signal("");
@@ -64,6 +68,7 @@ export function inboxState(api: AnserApi, onOpen: (id: number) => void) {
       }
       items.set([...known.values()].sort((left, right) => right.id - left.id));
       if (initialized && fresh.length) {
+        onReceive(fresh);
         announce(t("inbox.new_count", { count: fresh.length }));
         if (native()) {
           for (const item of fresh.slice(0, 4)) {

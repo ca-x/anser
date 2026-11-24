@@ -7,6 +7,9 @@ export interface SendDraft {
   channel: string;
   account: string;
   message: Message;
+  templateEnabled: boolean;
+  templateId: string;
+  templateVariables: Record<string, string>;
   tags: string;
   url: string;
   attachment: string;
@@ -18,6 +21,7 @@ function emptyDraft(): SendDraft {
   return {
     inbox: false, recipient: "", topic: "", channel: "", account: "", message: { title: "", body: "", format: "text" },
     tags: "", url: "", attachment: "", callback: "", extra: "",
+    templateEnabled: false, templateId: "", templateVariables: {},
   };
 }
 

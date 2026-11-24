@@ -2,6 +2,7 @@ import { t } from "nsh/i18n";
 import { announce, cleanup, signal, Text, View } from "nsh";
 import { messageFor, type AnserApi } from "../api";
 import type { Format, InboxItem } from "../contracts";
+import type { SpeechPlayback } from "../components/Speech";
 import type { InboxState } from "../inbox";
 import {
   Action,
@@ -31,6 +32,7 @@ function sender(item: InboxItem) {
 
 export function Inbox(props: {
   state: InboxState;
+  speech: SpeechPlayback;
   onOpen: (id: number) => void;
   onSend: () => void;
 }) {
@@ -56,6 +58,7 @@ export function Inbox(props: {
           checked={state.native()}
           onChange={state.changeNative}
         />
+        <Toggle label={t("speech.autoplay")} checked={props.speech.auto()} onChange={props.speech.changeAuto} />
         <Hint>{t("inbox.messages_arrive_while_the_app_is")}</Hint>
         <Problem message={state.nativeMessage()} />
       </Panel>
@@ -87,6 +90,7 @@ export function Inbox(props: {
 
 export function InboxDetail(props: {
   state: InboxState;
+  speech: SpeechPlayback;
   id: number;
   onBack: () => void;
   onReply: (recipient: string) => void;
@@ -122,6 +126,9 @@ export function InboxDetail(props: {
                   </Text>
                 </View>
               )}
+            </If>
+            <If when={message().audio_path}>
+              <Action label={t("speech.play")} onPress={() => props.speech.replay(message())} class="self-start" />
             </If>
             <If when={message().from_username}>
               {(username) => (

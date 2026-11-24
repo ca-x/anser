@@ -50,6 +50,9 @@ ANSER_REQUIRE_WEB=1 cargo build --locked --release -p anser-server
 - [Web 管理台开发](clients/web)
 - [SQLite、一致性与恢复](docs/storage.md)
 
+- [通知模板与 API 示例](docs/notification-templates.md)
+- [插件开发 Skill](.agents/skills/anser-plugin-authoring/SKILL.md)
+
 ## 界面截图
 
 投递总览展示队列、送达、死信和重试。截图使用简体中文和演示数据。
@@ -120,6 +123,12 @@ ANSER_REQUIRE_WEB=1 cargo build --locked --release -p anser-server
 管理员可在代理设置中保存多个 HTTP 或 HTTPS 代理，也可填写代理的登录凭据。支持 HTTP 代理的渠道账号可以选择其中一个配置。修改代理后，引用它的账号会在下一次发送尝试时使用新配置。已有账号可以保留原连接设置。主动选择「直连」并保存，会解除共享配置并清除这个账号旧有的内嵌代理。
 
 部署时将代理主机和通知目标主机都加入 `ANSER_OUTBOUND_ALLOW_HOSTS`。列表以逗号分隔，只填主机名或 IP。删除配置前，先解除账号引用。SMTP 邮件和懒猫通知使用各自的传输方式。终端管理命令见 `anser api proxies --help`。
+
+## 插件与语音通知
+
+插件页按渠道、任务和内容转换分类。证书检查支持多个 HTTPS 站点和提前提醒天数，天气任务支持城市或机场代码、语言和单位。任务可由管理台或 API 按需运行，输出可供发布的通知草稿。在主题与订阅页可进入插件市场，查看或发布带独立版本的插件目录条目。
+
+在「内容转换 → 文本转语音」可预听或发送语音。登录中的雁字客户端会依次播放新语音通知，可在收件箱关闭自动播放。其他渠道收到文字和限时音频链接。通过主题或默认渠道发送前，请配置可访问的 HTTPS `ANSER_PUBLIC_URL`。
 
 ## API 与渠道
 

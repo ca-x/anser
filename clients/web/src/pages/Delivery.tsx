@@ -1,15 +1,16 @@
 import { useChannelName, useT } from "../preferences";
 import { useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
 import {
-  EuiAccordion, EuiBasicTable, EuiButton, EuiButtonEmpty, EuiCallOut, EuiFieldPassword, EuiFieldText, EuiFormRow,
-  EuiLink, EuiSelect, EuiText,
+  EuiAccordion, EuiBasicTable, EuiButton, EuiButtonEmpty, EuiButtonGroup, EuiCallOut, EuiFieldPassword, EuiFieldText, EuiFormRow,
+  EuiLink, EuiSelect, EuiText, EuiTextArea,
 } from "@elastic/eui";
-import { Api, errorMessage, segment, type Account, type Attempt, type Channel, type Delivery as DeliveryRecord, type MessageDetail, type Page, type Publish, type Receipt, type Topic, type User } from "../api";
+import { Api, ApiError, errorMessage, segment, type Account, type Attempt, type Channel, type Delivery as DeliveryRecord, type MessageDetail, type NotificationTemplate, type Page, type Publish, type Receipt, type Topic, type User } from "../api";
 import { useDate, Empty, Failure, JsonInput, More, object, PageTitle, Progress, split, Status, Tags } from "../components/Common";
 import { Composer } from "../components/Composer";
 import { AccountEditor, channelAvailable } from "./Accounts";
 import type { SendSession } from "../send-draft";
 import { useMutation, usePage, useResource } from "../resources";
+import { useTemplateName } from "../template-name";
 
 type Navigate = (path: string) => void;
 
@@ -123,7 +124,23 @@ export function Send({ api, session, navigate }: { api: Api; session: SendSessio
   const channels = useResource<Page<Channel>>(api, "/channels");
   const accounts = usePage<Account>(api, "/accounts");
   const { draft, busy, receipt, error } = useSyncExternalStore(session.subscribe, session.snapshot);
-  const { inbox, recipient, topic, channel, account, message, tags, url, attachment, callback, extra } = draft;
+  const { inbox, recipient, topic, channel, account, message, tags, url, attachment, callback, extra,
+    templateEnabled, templateId, templateVariables } = draft;
+  const templateName = useTemplateName();
+  const sourceControl = useId();
+  const useTemplate = !inbox && templateEnabled;
+  const templates = usePage<NotificationTemplate>(api, useTemplate ? "/templates" : undefined);
+  const listedTemplate = templates.items.find((item) => item.id === templateId);
+  const templatePath = useTemplate && templateId && !templates.loading && !listedTemplate ? `/templates/${segment(templateId)}` : undefined;
+  const templateLookup = useResource<NotificationTemplate>(api, templatePath);
+  const selectedTemplate = listedTemplate ?? (templateLookup.path === templatePath && !templateLookup.error ? templateLookup.data : undefined);
+  const reloadTemplates = () => { templates.reload(); templateLookup.reload(); };
+  const refreshTemplate = useTemplate && error instanceof ApiError
+    && ["template_not_found", "invalid_template_variables"].includes(error.code ?? "");
+  const visibleTemplates = selectedTemplate && !listedTemplate ? [...templates.items, selectedTemplate] : templates.items;
+  const templateError = templates.error ?? (templatePath && templateLookup.path === templatePath ? templateLookup.error : undefined);
+  const sourceManual = `${sourceControl}-manual`;
+  const sourceTemplate = `${sourceControl}-template`;
   const users = usePage<User>(api, inbox ? "/users" : undefined);
   const usernames = useId();
   const [password, setPassword] = useState("");
@@ -159,7 +176,7 @@ export function Send({ api, session, navigate }: { api: Api; session: SendSessio
   const noExternalTarget = accountsComplete && !availableAccounts.length && !resolvingAccount;
   const invalidTarget = (!!account && !choices.some((item) => item.id === account)) ||
     (!!channel && !availableChannels.some((item) => item.id === channel)) || (!!topic && !selectedTopic?.enabled);
-  const blocked = inbox ? !recipient.trim() : invalidTarget || (!topic && noExternalTarget);
+  const blocked = inbox ? !recipient.trim() : invalidTarget || (!topic && noExternalTarget) || (useTemplate && !selectedTemplate);
   const resourceError = inbox ? users.error : topics.error ?? channels.error ?? accounts.error
     ?? (accountPath && accountLookup.path === accountPath ? accountLookup.error : undefined)
     ?? (topicPath && topicLookup.path === topicPath ? topicLookup.error : undefined);
@@ -171,12 +188,18 @@ export function Send({ api, session, navigate }: { api: Api; session: SendSessio
       event.preventDefault();
       if (blocked || busy) return;
       void task.run(async () => {
-        const payload: Publish = { title: message.title.trim(), body: message.body, format: message.format };
+        const manual = { title: message.title.trim(), body: message.body, format: message.format };
         let result: Receipt | undefined;
         if (inbox) {
           const username = recipient.trim();
-          result = await session.submit(JSON.stringify({ recipient: username, payload }), (key) => api.sendInbox(username, payload, key));
+          result = await session.submit(JSON.stringify({ recipient: username, payload: manual }), (key) => api.sendInbox(username, manual, key));
         } else {
+          const payload: Publish = useTemplate && selectedTemplate ? {
+            template_id: selectedTemplate.id,
+            variables: Object.fromEntries(selectedTemplate.variables.map((name) => [
+              name, Object.hasOwn(templateVariables, name) ? templateVariables[name] : "",
+            ])),
+          } : manual;
           payload.tags = split(tags);
           payload.url = url || undefined;
           payload.attachments = attachment ? [{ url: attachment }] : undefined;
@@ -192,7 +215,7 @@ export function Send({ api, session, navigate }: { api: Api; session: SendSessio
         }
       });
     }}>
-      <Failure message={task.error ?? (error ? errorMessage(error) : undefined)} />
+      <Failure message={task.error ?? (error ? errorMessage(error) : undefined)} retry={refreshTemplate ? reloadTemplates : undefined} />
       <Failure message={resourceError} retry={() => {
         if (inbox) users.reload();
         else { accounts.reload(); topics.reload(); channels.reload(); accountLookup.reload(); topicLookup.reload(); }
@@ -243,7 +266,42 @@ export function Send({ api, session, navigate }: { api: Api; session: SendSessio
         {invalidTarget && !topics.loading && !accounts.loading && !channels.loading && !resolvingAccount && !resolvingTopic &&
           <EuiCallOut size="s" color="warning" title={t("所选目标已不可用，请重新选择。")} />}
       </>}
-      <Composer message={message} update={(message) => session.edit({ message })} />
+      {!inbox && <EuiFormRow label={t("消息来源")} fullWidth>
+        <EuiButtonGroup legend={t("消息来源")} buttonSize="s" isFullWidth
+          options={[{ id: sourceManual, label: t("手写内容") }, { id: sourceTemplate, label: t("套用模板") }]}
+          idSelected={useTemplate ? sourceTemplate : sourceManual}
+          onChange={(id) => { session.edit({ templateEnabled: id === sourceTemplate }); task.clear(); }} />
+      </EuiFormRow>}
+      {useTemplate ? <>
+        <EuiFormRow label={t("选择模板")} fullWidth>
+          <EuiSelect fullWidth value={templateId} isLoading={templates.loading}
+            options={withSelection(templateId, templateId, [{ value: "", text: t("请选择") },
+              ...visibleTemplates.map((item) => ({
+                value: item.id,
+                text: item.builtin ? templateName(item) : t("{name}（{visibility}）", {
+                  name: templateName(item), visibility: t(item.shared ? "共享" : "仅自己"),
+                }),
+              })),
+            ])}
+            onChange={(event) => {
+              session.edit({ templateId: event.target.value, templateVariables: {} });
+              task.clear();
+            }} />
+        </EuiFormRow>
+        <div className="row-actions">
+          <EuiButtonEmpty size="xs" flush="left" onClick={() => navigate("/admin/templates")}>{t("管理模板")}</EuiButtonEmpty>
+          {templates.next && <EuiButtonEmpty size="xs" isLoading={templates.busy}
+            onClick={() => void templates.loadMore()}>{t("加载更多模板")}</EuiButtonEmpty>}
+        </div>
+        <Failure message={templateError} retry={reloadTemplates} />
+        {!!selectedTemplate?.variables.length && <fieldset className="target-row stack">
+          <legend>{t("模板变量")}</legend>
+          {selectedTemplate.variables.map((name) => <EuiFormRow key={name} label={name} fullWidth>
+            <EuiTextArea fullWidth rows={2} value={Object.hasOwn(templateVariables, name) ? templateVariables[name] : ""}
+              onChange={(event) => session.edit({ templateVariables: { ...templateVariables, [name]: event.target.value } })} />
+          </EuiFormRow>)}
+        </fieldset>}
+      </> : <Composer message={message} update={(message) => session.edit({ message })} />}
       {!inbox && <EuiAccordion id={advanced} initialIsOpen={!!(tags || url || attachment || callback || extra)} buttonContent={t("链接、标签与投递回调")}>
         <div className="stack inset">
           <EuiFormRow label={t("消息标签")} fullWidth><EuiFieldText fullWidth value={tags} onChange={(event) => session.edit({ tags: event.target.value })} /></EuiFormRow>

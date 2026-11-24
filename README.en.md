@@ -50,6 +50,9 @@ Users can turn on two-factor authentication in their account security settings. 
 - [Develop the server console](clients/web)
 - [SQLite, consistency, and recovery](docs/storage.md)
 
+- [Notification templates and API examples](docs/notification-templates.en.md)
+- [Plugin authoring skill](.agents/skills/anser-plugin-authoring/SKILL.md)
+
 ## Screenshots
 
 The delivery overview shows the queue, successful deliveries, dead letters, and retries. These screenshots use the English interface and sample data.
@@ -120,6 +123,12 @@ Choose English or Simplified Chinese and a light, dark, or system theme from the
 Administrators can save named HTTP or HTTPS proxies with optional credentials. Each channel account that supports HTTP proxies can select a saved profile. Changes apply to the next delivery attempt for every account using that profile. Existing accounts can keep their current connection. Choosing **Direct** and saving detaches the shared profile and clears any legacy inline proxy on that account.
 
 List both the proxy host and the notification destination host in `ANSER_OUTBOUND_ALLOW_HOSTS`. Enter hostnames or IP addresses separated by commas. Detach a profile from its accounts before deleting it. SMTP and LazyCat use their own transports. For terminal commands, run `anser api proxies --help`.
+
+## Plugins and voice notifications
+
+The plugin page groups installed plugins into channels, tasks, and content transforms. The certificate task checks multiple HTTPS sites with a configurable warning window. The weather task accepts a city or airport code, language, and units. Run tasks from the console or API to get notification drafts. Open the plugin marketplace from the Topics page to browse or publish versioned listings.
+
+Use **Content transforms → OpenAI TTS** to preview speech or send a voice notification. Connected Anser clients play new voice notifications in order. Recipients can turn off autoplay in the inbox. Other channels receive the text and an expiring audio link. Set `ANSER_PUBLIC_URL` to a reachable HTTPS origin for topic and default-route voice sends.
 
 ## API and channels
 

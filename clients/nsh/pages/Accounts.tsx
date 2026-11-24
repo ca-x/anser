@@ -26,6 +26,7 @@ import {
   channelConfigDraft,
   ChannelConfig,
   supportsProxy,
+  usesDevicePicker,
 } from "../components/ChannelConfig";
 import { RecordRow, WorkspacePage } from "../components/Workspace";
 import { operation, paged } from "../state";
@@ -183,6 +184,7 @@ export function AccountEditor(props: {
     original?.proxy_id ?? (original ? undefined : null),
   );
   const proxySupported = () => supportsProxy(channel());
+  const devicePicker = () => usesDevicePicker(channel());
   const tags = signal((original?.tags ?? []).join(", "));
   const weight = signal(String(original?.weight ?? 1));
   const priority = signal(String(original?.priority ?? 0));
@@ -239,7 +241,7 @@ export function AccountEditor(props: {
         }
       }
       if (replaceConfig()) {
-        if (channelId() === "lazycat") {
+        if (devicePicker()) {
           const target = device();
           if (!target || !deviceAvailable())
             throw new ApiError("missing_device", t("devices.choose"));
@@ -308,7 +310,7 @@ export function AccountEditor(props: {
               action.busy() ||
               test.busy() ||
               (replaceConfig() &&
-                channelId() === "lazycat" &&
+                devicePicker() &&
                 !deviceAvailable())
             }
           />
@@ -343,7 +345,7 @@ export function AccountEditor(props: {
             device.set(undefined);
           }}
         />
-        <If when={channelId() === "lazycat"}>
+        <If when={devicePicker()}>
           <If when={original}>
             <Toggle
               label={t("devices.change")}
@@ -415,7 +417,7 @@ export function AccountEditor(props: {
           onChange={enabled.set}
         />
       </Panel>
-      <If when={channelId() && channelId() !== "lazycat"}>
+      <If when={channelId() && !devicePicker()}>
         <Section title={t("common.channel_configuration")}>
           <If when={original}>
             <Toggle

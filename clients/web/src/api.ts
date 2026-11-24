@@ -29,6 +29,18 @@ export interface Channel {
   config_schema: JsonObject;
   capabilities: { formats: Format[]; attachments: boolean; user_target: boolean };
 }
+export type PluginKind = "channel" | "task" | "content_transform";
+
+export interface InstalledPlugin {
+  id: string;
+  kind: PluginKind;
+  display_name: string;
+  version?: string;
+  config_schema: JsonObject;
+  enabled: boolean;
+  available: boolean;
+}
+
 export interface LazycatDevices {
   user_id: string;
   max_selection?: number;
@@ -106,7 +118,22 @@ export interface Message {
   attachments?: { url: string; name?: string; content_type?: string }[];
   extras?: JsonObject;
 }
-export interface Publish extends Message {
+export interface NotificationTemplate {
+  id: string;
+  name: string;
+  title: string;
+  body: string;
+  format: Exclude<Format, "html">;
+  variables: string[];
+  shared: boolean;
+  builtin: boolean;
+  can_edit: boolean;
+  created_at: number;
+  updated_at: number;
+}
+export interface Publish extends Partial<Message> {
+  template_id?: string;
+  variables?: Record<string, string>;
   channels?: (string | Target)[];
   strategy?: Partial<Omit<Policy, "targets">>;
   expire_at?: number;
@@ -157,15 +184,23 @@ export class Api {
   }
 
   read<T>(path: string, signal?: AbortSignal) { return this.request<T>(path, { signal }); }
-  write<T>(path: string, method: "POST" | "PUT" | "DELETE", value?: unknown) {
+  write<T>(path: string, method: "POST" | "PUT" | "DELETE", value?: unknown, timeoutMs?: number) {
     return this.request<T>(path, {
       method,
       body: value === undefined ? undefined : JSON.stringify(value),
-    });
+    }, timeoutMs);
   }
   send(topic: string | undefined, message: Publish, key: string) {
     return this.submit<Receipt>(topic ? `/topics/${segment(topic)}/publish` : "/send", message, key);
   }
+  sendSpeech(value: JsonObject, key: string) {
+    return this.request<Receipt>("/speech/send", {
+      method: "POST",
+      headers: { "Idempotency-Key": key },
+      body: JSON.stringify(value),
+    }, 65_000);
+  }
+
   async sendInbox(recipient: string, { title, body, format }: Pick<Message, "title" | "body" | "format">, key: string): Promise<Receipt> {
     try {
       const response = await this.submit<{ message_id: string }>("/inbox/send", { title, body, format, recipient }, key);
@@ -184,12 +219,12 @@ export class Api {
     });
   }
 
-  private async request<T>(path: string, init: RequestInit): Promise<T> {
+  private async request<T>(path: string, init: RequestInit, timeoutMs = 30_000): Promise<T> {
     const headers = new Headers(init.headers);
     headers.set("Accept", "application/json");
     if (init.body !== undefined) headers.set("Content-Type", "application/json");
     if (this.#token) headers.set("Authorization", `Bearer ${this.#token}`);
-    const timer = AbortSignal.timeout(30000);
+    const timer = AbortSignal.timeout(timeoutMs);
     const signal = init.signal ? AbortSignal.any([init.signal, timer]) : timer;
     let response: Response;
     try {
@@ -220,5 +255,9 @@ export function errorMessage(error: unknown) {
   if (error instanceof ApiError && error.code === "totp_setup_expired") return "设置已过期，请输入当前密码重新开始。";
   if (error instanceof ApiError && error.code === "totp_already_enabled") return "双重验证已启用。";
   if (error instanceof ApiError && error.code === "totp_not_enabled") return "双重验证已停用。";
+  if (error instanceof ApiError && error.code === "template_not_found") return "找不到所选模板，请刷新后重选。";
+  if (error instanceof ApiError && error.code === "invalid_template") return "检查模板名称、内容长度和变量写法。";
+  if (error instanceof ApiError && error.code === "invalid_template_variables") return "模板变量已变化，请刷新后重新填写。";
+  if (error instanceof ApiError && error.code === "invalid_rendered_notification") return "填写变量以生成有效的标题或正文，或缩短内容。";
   return error instanceof Error ? error.message : "请求未完成。";
 }

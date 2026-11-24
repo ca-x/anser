@@ -146,3 +146,29 @@ pub(crate) mod user_profile {
 
     impl ActiveModelBehavior for ActiveModel {}
 }
+
+pub(crate) mod notification_template {
+    use sea_orm::entity::prelude::*;
+
+    #[derive(Clone, Debug, PartialEq, DeriveEntityModel, sqlx::FromRow)]
+    #[sea_orm(table_name = "notification_templates")]
+    pub struct Model {
+        #[sea_orm(primary_key, auto_increment = false)]
+        pub id: String,
+        pub space_id: String,
+        pub owner_id: Option<String>,
+        pub name: String,
+        pub title: String,
+        pub body: String,
+        pub format: String,
+        pub shared: bool,
+        pub builtin: bool,
+        pub created_at: i64,
+        pub updated_at: i64,
+    }
+
+    #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+    pub enum Relation {}
+
+    impl ActiveModelBehavior for ActiveModel {}
+}

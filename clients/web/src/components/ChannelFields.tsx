@@ -1,19 +1,8 @@
 import { useLanguage, useT } from "../preferences";
-import { EuiFieldNumber, EuiFieldPassword, EuiFieldText, EuiFormRow, EuiSelect } from "@elastic/eui";
-import type { Channel, JsonObject } from "../api";
+import { EuiFieldNumber, EuiFieldPassword, EuiFieldText, EuiFormRow, EuiSelect, EuiTextArea } from "@elastic/eui";
+import type { JsonObject } from "../api";
+import { matchesCondition, pluginProperties, visibleField, type ConfigSchema } from "../form-values";
 import { channelConfigOptionName } from "../locale";
-
-interface Property {
-  type?: string;
-  title?: string;
-  enum?: (string | number)[];
-  default?: unknown;
-  format?: string;
-  writeOnly?: boolean;
-  minimum?: number;
-  maximum?: number;
-  description?: string;
-}
 
 const fieldNames: Record<string, string> = {
   host: "主机", port: "端口", encryption: "加密方式", username: "用户名", password: "密码",
@@ -30,49 +19,47 @@ const fieldNames: Record<string, string> = {
 };
 
 export function ChannelFields({ channel, value, update }: {
-  channel: Channel; value: JsonObject; update: (value: JsonObject) => void;
+  channel: ConfigSchema; value: JsonObject; update: (value: JsonObject) => void;
 }) {
   const t = useT();
   const language = useLanguage();
   const schema = channel.config_schema;
-  const fields = (typeof schema.properties === "object" && schema.properties !== null ? schema.properties : {}) as Record<string, Property>;
+  const fields = pluginProperties(channel);
   const required = new Set(Array.isArray(schema.required) ? schema.required : []);
-  if (value.mode === "app") for (const field of ["app_id", "app_secret", "receive_id"]) required.add(field);
-  if (value.mode === "webhook") required.add("webhook");
 
   function change(key: string, content: unknown) {
-    const next = { ...value };
+    const next = { ...value, [key]: content };
     if (content === "") delete next[key];
-    else next[key] = content;
-    if (key === "mode" && channel.id === "feishu") for (const field of Object.keys(next)) {
-      if (!visible(field, next.mode)) delete next[field];
-    }
     update(next);
   }
 
-  return <div className="stack">{Object.entries(fields).filter(([field]) =>
-    field !== "proxy" && (channel.id !== "feishu" || visible(field, value.mode))).map(([key, field]) => {
+  return <div className="stack">{Object.entries(fields).filter(([key, field]) =>
+    key !== "proxy" && visibleField(field, value, fields)).map(([key, field]) => {
     const entry = value[key] ?? "";
-    const label = t(field.title || fieldNames[key] || key);
+    const ui = field["x-anser-ui"];
+    const label = ui?.label?.[language] || t(field.title || fieldNames[key] || key);
     const placeholder = typeof field.default === "string" || typeof field.default === "number" ? String(field.default) : undefined;
     const secret = field.writeOnly || field.format === "password" || /password|token|secret|sendkey|webhook/.test(key);
-    const isRequired = required.has(key);
+    const isRequired = required.has(key) || matchesCondition(ui?.required_when, value, fields);
     let control;
     if (field.enum) {
       const options = field.enum;
-      const labelFor = (option: string | number) => channelConfigOptionName(language, String(option));
+      const labelFor = (option: string | number) => ui?.option_labels?.[String(option)]?.[language] || channelConfigOptionName(language, String(option));
       control = <EuiSelect fullWidth required={isRequired} value={String(entry)} onChange={(event) =>
         change(key, options.find((option) => String(option) === event.target.value) ?? "")}
         options={[{ value: "", text: placeholder ? t("默认 · {value}", { value: labelFor(placeholder) }) : t("请选择") },
           ...options.map((value) => ({ value: String(value), text: labelFor(value) }))]} />;
     } else if (field.type === "boolean") {
-      control = <EuiSelect fullWidth value={String(entry)} onChange={(event) => change(key, event.target.value === "" ? "" : event.target.value === "true")}
+      control = <EuiSelect required={isRequired} fullWidth value={String(entry)} onChange={(event) => change(key, event.target.value === "" ? "" : event.target.value === "true")}
         options={[{ value: "", text: typeof field.default === "boolean" ? t("默认 · {value}", { value: t(field.default ? "是" : "否") }) : t("默认") },
           { value: "true", text: t("是") }, { value: "false", text: t("否") }]} />;
     } else if (field.type === "number" || field.type === "integer") {
       control = <EuiFieldNumber fullWidth required={isRequired} min={field.minimum} max={field.maximum} value={entry as number | string}
         step={field.type === "integer" ? 1 : "any"} placeholder={placeholder}
         onChange={(event) => change(key, event.target.value === "" ? "" : event.target.valueAsNumber)} />;
+    } else if (field.type === "object" && !secret) {
+      control = <EuiTextArea fullWidth required={isRequired} rows={3} value={String(entry)} placeholder="{}"
+        onChange={(event) => change(key, event.target.value)} />;
     } else {
       const parseArray = field.type === "array";
       const text = Array.isArray(entry) ? entry.join(", ") : String(entry);
@@ -82,14 +69,8 @@ export function ChannelFields({ channel, value, update }: {
         onChange={(event) => set(event.target.value)} /> : <EuiFieldText fullWidth required={isRequired}
         value={text} placeholder={parseArray ? t("以逗号分隔") : placeholder} onChange={(event) => set(event.target.value)} />;
     }
-    const help = field.type === "array" ? t("以逗号分隔多个值。") : field.description && t(field.description);
+    const help = ui?.description?.[language]
+      || (field.description ? t(field.description) : field.type === "array" ? t("以逗号分隔多个值。") : undefined);
     return <EuiFormRow key={key} label={label} helpText={help} fullWidth>{control}</EuiFormRow>;
   })}</div>;
-}
-
-function visible(field: string, mode: unknown) {
-  if (field === "mode") return true;
-  if (mode === "webhook") return ["webhook", "signing_secret"].includes(field);
-  if (mode === "app") return ["app_id", "app_secret", "receive_id", "receive_id_type", "region"].includes(field);
-  return false;
 }

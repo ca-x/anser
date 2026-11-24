@@ -5,8 +5,12 @@ mod cli;
 mod error;
 mod lazycat;
 mod openapi;
+mod plugin_market;
+mod plugins;
 mod profile;
 mod proxies;
+mod speech;
+mod templates;
 mod totp;
 mod web;
 

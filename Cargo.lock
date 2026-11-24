@@ -46,7 +46,7 @@ checksum = "683d7910e743518b0e34f1186f92494becacb047c7b6bf616c96772180fef923"
 
 [[package]]
 name = "anser-channel-http"
-version = "0.5.6"
+version = "0.6.0"
 dependencies = [
  "anser-core",
  "anser-plugin-api",
@@ -62,19 +62,21 @@ dependencies = [
 
 [[package]]
 name = "anser-core"
-version = "0.5.6"
+version = "0.6.0"
 dependencies = [
  "serde",
  "serde_json",
+ "thiserror",
 ]
 
 [[package]]
 name = "anser-host"
-version = "0.5.6"
+version = "0.6.0"
 dependencies = [
  "anser-core",
  "anser-plugin-api",
  "anser-plugin-bark",
+ "anser-plugin-certificate-expiration",
  "anser-plugin-chanify",
  "anser-plugin-dingtalk",
  "anser-plugin-discord",
@@ -84,10 +86,12 @@ dependencies = [
  "anser-plugin-ifttt",
  "anser-plugin-lazycat",
  "anser-plugin-ntfy",
+ "anser-plugin-openai-tts",
  "anser-plugin-qqbot",
  "anser-plugin-serverchan",
  "anser-plugin-slack",
  "anser-plugin-telegram",
+ "anser-plugin-weather-wttr",
  "anser-plugin-wechat-mp",
  "anser-plugin-wecom",
  "rutis",
@@ -100,7 +104,7 @@ dependencies = [
 
 [[package]]
 name = "anser-plugin-api"
-version = "0.5.6"
+version = "0.6.0"
 dependencies = [
  "anser-core",
  "serde",
@@ -122,6 +126,25 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+]
+
+[[package]]
+name = "anser-plugin-certificate-expiration"
+version = "0.1.0"
+dependencies = [
+ "anser-channel-http",
+ "anser-core",
+ "anser-plugin-api",
+ "futures-util",
+ "rcgen",
+ "rustls",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-rustls",
+ "url",
+ "webpki-roots",
+ "x509-parser",
 ]
 
 [[package]]
@@ -179,7 +202,7 @@ dependencies = [
 
 [[package]]
 name = "anser-plugin-feishu"
-version = "0.5.5"
+version = "0.5.6"
 dependencies = [
  "anser-channel-http",
  "anser-core",
@@ -219,7 +242,7 @@ dependencies = [
 
 [[package]]
 name = "anser-plugin-lazycat"
-version = "0.5.6"
+version = "0.5.7"
 dependencies = [
  "anser-core",
  "anser-plugin-api",
@@ -245,6 +268,19 @@ dependencies = [
  "anser-channel-http",
  "anser-core",
  "anser-plugin-api",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "anser-plugin-openai-tts"
+version = "0.1.0"
+dependencies = [
+ "anser-channel-http",
+ "anser-core",
+ "anser-plugin-api",
+ "base64 0.22.1",
  "serde",
  "serde_json",
  "tokio",
@@ -300,6 +336,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "anser-plugin-weather-wttr"
+version = "0.1.0"
+dependencies = [
+ "anser-channel-http",
+ "anser-core",
+ "anser-plugin-api",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "anser-plugin-wechat-mp"
 version = "0.5.5"
 dependencies = [
@@ -330,7 +378,7 @@ dependencies = [
 
 [[package]]
 name = "anser-queue"
-version = "0.5.6"
+version = "0.6.0"
 dependencies = [
  "anser-channel-http",
  "anser-core",
@@ -350,7 +398,7 @@ dependencies = [
 
 [[package]]
 name = "anser-sdk"
-version = "0.5.6"
+version = "0.6.0"
 dependencies = [
  "anser-channel-http",
  "anser-core",
@@ -365,7 +413,7 @@ dependencies = [
 
 [[package]]
 name = "anser-server"
-version = "0.5.6"
+version = "0.6.0"
 dependencies = [
  "anser-channel-http",
  "anser-core",
@@ -379,11 +427,13 @@ dependencies = [
  "base64 0.22.1",
  "clap",
  "data-encoding",
+ "futures-util",
  "hmac 0.13.0",
  "image",
  "rand 0.8.8",
  "reqwest",
  "rustls",
+ "semver",
  "serde",
  "serde_json",
  "sha1",
@@ -400,7 +450,7 @@ dependencies = [
 
 [[package]]
 name = "anser-store"
-version = "0.5.6"
+version = "0.6.0"
 dependencies = [
  "anser-core",
  "rand 0.8.8",

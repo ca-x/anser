@@ -353,3 +353,8 @@ code { overflow-wrap: anywhere; }
 .device-checklist .device-checkbox { min-height: 44px; align-items: center; padding: 6px 10px; }
 .device-checklist .device-checkbox + .device-checkbox { border-top: 1px solid var(--rule); }
 .device-checklist .device-checkbox label { flex: 1; min-width: 0; }
+
+.plugin-result-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+
+.api-example { min-width: 0; }
+.api-example pre { margin: 0; overflow-x: auto; padding: 12px; border: 1px solid var(--rule); border-radius: 8px; background: var(--surface-tint); }

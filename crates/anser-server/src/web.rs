@@ -24,7 +24,7 @@ async fn entry() -> Response {
                 (header::CACHE_CONTROL, "no-cache"),
                 (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
                 (header::X_FRAME_OPTIONS, "DENY"),
-                (header::CONTENT_SECURITY_POLICY, "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; object-src 'none'"),
+                (header::CONTENT_SECURITY_POLICY, "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self' blob:; font-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; object-src 'none'"),
                 (header::REFERRER_POLICY, "no-referrer"),
             ],
             bytes,

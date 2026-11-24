@@ -11,7 +11,7 @@ import { LazycatDeviceField, useDeviceDirectory } from "../components/LazycatDev
 import { serializeDeviceTarget, type DeviceTarget } from "../form-values";
 import { useMutation, usePage, useResource } from "../resources";
 
-export function Topics({ api }: { api: Api }) {
+export function Topics({ api, navigate }: { api: Api; navigate: (path: string) => void }) {
   const t = useT();
   const topics = usePage<Topic>(api, "/topics");
   const accounts = usePage<Account>(api, "/accounts");
@@ -23,7 +23,8 @@ export function Topics({ api }: { api: Api }) {
 
   return <>
     <PageTitle title={t("主题与订阅")} description={t("为通知定义分发策略，管理独立的订阅目标。")}
-      action={<EuiButton fill iconType="plusCircle" onClick={() => setEditor("new")}>{t("新建主题")}</EuiButton>} />
+      action={<><EuiButton onClick={() => navigate("/admin/topics/plugin-market")}>{t("插件市场")}</EuiButton>
+        <EuiButton fill iconType="plusCircle" onClick={() => setEditor("new")}>{t("新建主题")}</EuiButton></>} />
     <Failure message={topics.error} retry={topics.reload} />
     {topics.loading ? <Progress /> : topics.items.length ? <div className="data-surface">
       <EuiBasicTable<Topic> rowHeader="name" tableCaption={t("通知主题")} items={topics.items} itemId="name" columns={[

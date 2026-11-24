@@ -6,6 +6,7 @@ import type {
   ChannelRuntime,
   HistoryEntry,
   InboxItem,
+  InstalledPlugin,
   JsonObject,
   LazycatDevices,
   Message,
@@ -320,6 +321,15 @@ export class AnserApi {
         "invalid_response",
         t("api.this_server_did_not_return_an"),
       );
+    return result.items;
+  }
+
+  async plugins(signal?: AbortSignal): Promise<InstalledPlugin[]> {
+    const result = await this.request<Page<InstalledPlugin>>(
+      "/plugins", "GET", undefined, signal,
+    );
+    if (!Array.isArray(result?.items))
+      throw new ApiError("invalid_response", t("api.this_server_did_not_return_an"));
     return result.items;
   }
 

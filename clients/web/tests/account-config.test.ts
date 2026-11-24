@@ -44,3 +44,15 @@ test("device selections belong to their discovered LazyCat identity and remain s
   assert.deepEqual(serializeDeviceTarget(selected), selected);
   assert.deepEqual(serializeDeviceTarget({ ...selected, device_ids: ["phone"] }), { user_id: "alice", device_id: "phone" });
 });
+
+test("plugin metadata excludes inactive configuration fields and uses default discriminator values", () => {
+  const plugin = { id: "fixture", config_schema: { properties: {
+    mode: { type: "string", default: "a" },
+    hidden_secret: { type: "string", writeOnly: true, "x-anser-ui": { visible_when: { field: "mode", equals: "b" } } },
+    options: { type: "object", "x-anser-ui": { visible_when: { field: "mode", equals: "a" } } },
+  } } };
+  assert.deepEqual(serializeConfig(plugin, { hidden_secret: "fixture", options: '{"timeout": 2}' }),
+    { options: { timeout: 2 } });
+  assert.deepEqual(serializeConfig(plugin, { mode: "b", hidden_secret: "fixture", options: '{"timeout": 2}' }),
+    { mode: "b", hidden_secret: "fixture" });
+});

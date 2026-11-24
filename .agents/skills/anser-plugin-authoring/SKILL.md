@@ -1,0 +1,65 @@
+---
+name: anser-plugin-authoring
+description: Use when creating, changing, testing, or publishing an Anser channel, task, or content transformation plugin, including its Web and NSH options and Topic marketplace listing.
+---
+
+# Anser plugin authoring
+
+Read [AGENTS.md](../../../AGENTS.md), the [plugin API](../../../crates/anser-plugin-api/src/lib.rs), and the [task and transform contracts](../../../crates/anser-plugin-api/src/actions.rs). Use the repository's Rust practices. For native options, follow the NSH coding and design guides.
+
+## Choose the capability
+
+| Provider role | Interface | Output |
+| --- | --- | --- |
+| Channel | `ChannelService`, `anser.channel.<id>` | One send outcome for one account and message |
+| Task | `TaskService`, `anser.task.<id>` | Zero or more message drafts |
+| Content transform | `ContentTransformService`, `anser.content_transform.<id>` | A transformed message and optional media artifacts |
+
+Keep certificate checks and weather collection in a task. A task produces drafts and the caller chooses where to publish them. Keep an LLM rewrite or speech synthesis in a content transform. Run the transform before publishing when the result should be shared by multiple deliveries. Account retries and failover call the channel again, so they must not run the task or repeat the transform.
+
+Use a stable lowercase identifier and an independent `X.Y.Z` plugin version. Put the Rust crate in `anser-plugins/<id>` and add its feature and service registration in [anser-host](../../../crates/anser-host) and the [server features](../../../crates/anser-server/Cargo.toml). Review the OpenAI-compatible [TTS plugin](../../../anser-plugins/openai-tts/src/lib.rs) for an action returning a media artifact and [Gotify](../../../anser-plugins/gotify/src/lib.rs) for a channel.
+
+## Own the option definitions
+
+The plugin supplies a JSON Schema with fields, types, accepted values, defaults, and required fields. The web console and NSH render their own controls from it. Use `format: "password"` and `writeOnly: true` on credentials. Put input validation in the plugin so CLI, API, and both clients get the same rules.
+
+Use `x-anser-ui` for optional presentation details. Localize labels and descriptions in `en` and `zh-CN`. Keep enum values stable and translate their labels. For a field that belongs to one mode, declare the predicate in the schema.
+
+```json
+{
+  "type": "string",
+  "format": "password",
+  "writeOnly": true,
+  "x-anser-ui": {
+    "label": {"en": "Signing secret", "zh-CN": "签名密钥"},
+    "visible_when": {"field": "mode", "equals": "webhook"},
+    "required_when": {"field": "mode", "equals": "webhook"}
+  }
+}
+```
+
+Use the host's allowed native widgets for privileged operations such as selecting a LazyCat device. For a new widget, define its wire interaction and authorization in the host and implement a native NSH control alongside the Web control. Keep plugin metadata declarative and render text as text.
+
+## Make provider calls predictable
+
+- Use the [shared transport](../../../anser-plugins/http/src/lib.rs) for URL policy, TLS, timeouts, proxy handling, and retry classification. Keep provider SDKs and credentials inside the plugin. Return safe error codes and messages and preserve Retry-After when present.
+- Distinguish provider acceptance from delivery. Keep provider endpoints and credentials outside the message content and never log configuration or remote response bodies.
+- Bound input and response sizes. Enforce the shared artifact limit before encoding audio. Return artifacts using the published media type and standard padded base64.
+- Include sample configuration with placeholder credentials, a compact error mapping, and loopback tests for the successful wire request, provider errors, authentication, and limits. Exercise conditional forms in both clients. Check that disabling an existing channel still preserves in-flight deliveries.
+
+## Announce a release
+
+Publish immutable release artifacts under the plugin's own version. To announce a release, use **Topics → Plugin marketplace** in the admin console or publish a manifest to `POST /v1/topics/{name}/plugin-listings`:
+
+```json
+{
+  "id": "openai-tts",
+  "kind": "content_transform",
+  "version": "0.1.0",
+  "name": "OpenAI TTS",
+  "description": "Synthesizes speech through an OpenAI-compatible endpoint.",
+  "source_url": "https://example.org/plugin-releases/openai-tts/v0.1.0"
+}
+```
+
+Provide the optional `sha256` when the link points to a downloadable artifact. Confirm compatibility and verify the checksum before deployment. Topic announcements are discoverable metadata. Use an administrator-controlled build and deployment to install a plugin.

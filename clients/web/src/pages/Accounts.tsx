@@ -9,7 +9,7 @@ import { useMutation, usePage, useResource } from "../resources";
 import { Confirm, Drawer, Empty, Failure, More, PageTitle, Progress, split, Tags } from "../components/Common";
 import { blankMessage, Composer } from "../components/Composer";
 import { LazycatDeviceField, useDeviceDirectory } from "../components/LazycatDeviceField";
-import { initialProxyChoice, proxySettings, serializeConfig, serializeDeviceTarget, type DeviceTarget } from "../form-values";
+import { initialProxyChoice, proxySettings, serializeConfig, serializeDeviceTarget, usesDevicePicker, type DeviceTarget } from "../form-values";
 import { ChannelFields } from "../components/ChannelFields";
 
 export function Accounts({ api }: { api: Api }) {
@@ -107,7 +107,7 @@ export function AccountEditor({ api, account, channels, close, onDone }: {
   const unlistedProxy = selectedProxyId && !proxies.items.some(({ id }) => id === selectedProxyId) ? selectedProxyId : undefined;
   const proxyPath = supportsProxy && unlistedProxy && !proxies.loading ? `/proxies/${segment(unlistedProxy)}` : undefined;
   const proxyDetail = useResource<OutboundProxy>(api, proxyPath);
-  const lazycat = channelId === "lazycat";
+  const lazycat = usesDevicePicker(channel);
   const discover = lazycat && channelAvailable(channel);
   const devices = useDeviceDirectory(api, discover, account?.id);
   const deviceRequired = lazycat && (!account || !!device);

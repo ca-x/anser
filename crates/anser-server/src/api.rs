@@ -3,9 +3,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anser_core::api::{
-    MessageDetail, Page, Policy, Publish, Receipt, Selector, Subscription, SubscriptionInput,
-    Target, Topic,
+    MessageDetail, Page, Policy, Receipt, Selector, Subscription, SubscriptionInput, Target, Topic,
 };
+use anser_core::template::{MAX_BODY_BYTES, MAX_TITLE_BYTES};
 use anser_core::{Account, ChannelAccount, Message};
 use anser_host::{ChannelDescription, ChannelHost};
 use anser_queue::{Cipher, Enqueuer};
@@ -22,6 +22,7 @@ use serde_json::{Value, json};
 use crate::auth::{self, Identity, Rate};
 use crate::channel_runtime::{Change, ChannelRuntime, RuntimeState};
 use crate::error::{ApiError, ApiJson, ApiPath, ApiQuery, ApiResult};
+use crate::templates::PublishRequest;
 
 pub struct App {
     pub store: Arc<Store>,
@@ -99,6 +100,13 @@ pub fn router() -> Router<Arc<App>> {
                 .put(crate::proxies::update)
                 .delete(crate::proxies::delete),
         )
+        .route("/v1/proxies/{id}/test", post(crate::proxies::test_proxy))
+        .route("/v1/plugins", get(crate::plugins::list))
+        .route("/v1/plugins/task/{id}/run", post(crate::plugins::run_task))
+        .route(
+            "/v1/plugins/content_transform/{id}/run",
+            post(crate::plugins::transform),
+        )
         .route("/v1/channels", get(channels))
         .route("/v1/channels/lazycat/devices", get(crate::lazycat::devices))
         .route("/v1/channels/{id}", get(channel))
@@ -120,8 +128,24 @@ pub fn router() -> Router<Arc<App>> {
             get(subscriptions).post(subscribe),
         )
         .route("/v1/topics/{name}/subscriptions/{id}", delete(unsubscribe))
+        .route(
+            "/v1/topics/{name}/plugin-listings",
+            get(crate::plugin_market::list).post(crate::plugin_market::publish),
+        )
         .route("/v1/topics/{name}/publish", post(publish))
+        .route(
+            "/v1/templates",
+            get(crate::templates::list).post(crate::templates::create),
+        )
+        .route(
+            "/v1/templates/{id}",
+            get(crate::templates::detail)
+                .put(crate::templates::update)
+                .delete(crate::templates::delete),
+        )
         .route("/v1/send", post(send))
+        .route("/v1/speech/send", post(crate::speech::send))
+        .route("/v1/speech/audio/{file}", get(crate::speech::media))
         .route("/v1/messages", get(messages))
         .route("/v1/messages/{id}", get(message))
         .route("/v1/messages/{id}/replay", post(replay))
@@ -775,8 +799,8 @@ async fn verify_topic(
     Ok(Some(hash))
 }
 
-#[derive(Deserialize)]
-struct Wait {
+#[derive(Default, Deserialize)]
+pub(crate) struct Wait {
     #[serde(default)]
     wait: bool,
     timeout_ms: Option<u64>,
@@ -788,7 +812,7 @@ async fn publish(
     ApiPath(topic): ApiPath<String>,
     ApiQuery(wait): ApiQuery<Wait>,
     headers: HeaderMap,
-    ApiJson(input): ApiJson<Publish>,
+    ApiJson(input): ApiJson<PublishRequest>,
 ) -> ApiResult<(StatusCode, Json<Receipt>)> {
     enqueue(&app, &identity, Some(&topic), wait, &headers, input).await
 }
@@ -798,12 +822,12 @@ async fn send(
     identity: Identity,
     ApiQuery(wait): ApiQuery<Wait>,
     headers: HeaderMap,
-    ApiJson(input): ApiJson<Publish>,
+    ApiJson(input): ApiJson<PublishRequest>,
 ) -> ApiResult<(StatusCode, Json<Receipt>)> {
     enqueue(&app, &identity, None, wait, &headers, input).await
 }
 
-fn idempotency_key(headers: &HeaderMap) -> ApiResult<Option<&str>> {
+pub(crate) fn idempotency_key(headers: &HeaderMap) -> ApiResult<Option<&str>> {
     Ok(match headers.get("idempotency-key") {
         Some(header) => Some(
             header
@@ -825,11 +849,28 @@ async fn enqueue(
     topic: Option<&str>,
     wait: Wait,
     headers: &HeaderMap,
-    mut input: Publish,
+    input: PublishRequest,
+) -> ApiResult<(StatusCode, Json<Receipt>)> {
+    enqueue_prepared(app, identity, topic, wait, headers, input, None).await
+}
+
+pub(crate) async fn enqueue_prepared(
+    app: &App,
+    identity: &Identity,
+    topic: Option<&str>,
+    wait: Wait,
+    headers: &HeaderMap,
+    input: PublishRequest,
+    speech: Option<anser_store::speech::SpeechWrite>,
 ) -> ApiResult<(StatusCode, Json<Receipt>)> {
     identity.require("send")?;
     identity.topic(topic)?;
-    validate_message(&input.message)?;
+    let (mut input, template) = input.into_parts()?;
+    if template.is_some() {
+        validate_message_metadata(&input.message)?;
+    } else {
+        validate_message(&input.message)?;
+    }
     if input.channels.as_ref().is_some_and(|targets| {
         targets.is_empty() || targets.len() > 100 || targets.iter().any(invalid_selector)
     }) || input
@@ -849,7 +890,13 @@ async fn enqueue(
         anser_channel_http::validate_url(&url)
             .map_err(|_| ApiError::bad("Invalid callback URL"))?;
     }
-    let key = idempotency_key(headers)?;
+    let key = idempotency_key(headers)?.map(|key| {
+        if speech.is_some() {
+            format!("speech {key}")
+        } else {
+            key.to_owned()
+        }
+    });
     let password = match topic {
         Some(topic) => verify_topic(app, identity, topic, input.topic_password.take()).await?,
         None => None,
@@ -867,8 +914,11 @@ async fn enqueue(
             available_channels: channels,
             key_id: identity.key_id.clone(),
             topic: topic.map(ToOwned::to_owned),
-            idempotency_key: key.map(ToOwned::to_owned),
+            idempotency_key: key,
             request: input,
+            template,
+            listing: None,
+            speech,
             ttl_limit_ms: app.ttl_limit_ms,
             retention_ms: app.retention_ms,
             queue_limit: app.queue_limit,
@@ -964,7 +1014,7 @@ async fn replay(
             timeout_ms: None,
         },
         &headers,
-        input,
+        input.into(),
     )
     .await
 }
@@ -1149,11 +1199,18 @@ fn invalid_selector(selector: &Selector) -> bool {
     }
 }
 
-fn validate_message(message: &Message) -> ApiResult<()> {
+pub(crate) fn validate_message(message: &Message) -> ApiResult<()> {
     if (message.title.trim().is_empty() && message.body.trim().is_empty())
-        || message.title.len() > 4096
-        || message.body.len() > 262_144
-        || !valid_tags(&message.tags)
+        || message.title.len() > MAX_TITLE_BYTES
+        || message.body.len() > MAX_BODY_BYTES
+    {
+        return Err(invalid_message());
+    }
+    validate_message_metadata(message)
+}
+
+fn validate_message_metadata(message: &Message) -> ApiResult<()> {
+    if !valid_tags(&message.tags)
         || message.attachments.len() > 16
         || message
             .attachments
@@ -1162,11 +1219,13 @@ fn validate_message(message: &Message) -> ApiResult<()> {
         || message.url.as_deref().is_some_and(|url| !safe_url(url))
         || message.level.as_ref().is_some_and(|value| value.len() > 32)
     {
-        return Err(ApiError::bad(
-            "Invalid notification title, body, tags or attachment",
-        ));
+        return Err(invalid_message());
     }
     Ok(())
+}
+
+fn invalid_message() -> ApiError {
+    ApiError::bad("Invalid notification title, body, tags or attachment")
 }
 
 fn safe_url(url: &str) -> bool {

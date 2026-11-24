@@ -1,14 +1,16 @@
 import { useState, type MouseEvent } from "react";
 import { EuiBadge, EuiBasicTable, EuiButton, EuiButtonEmpty, EuiLink, EuiText } from "@elastic/eui";
-import { Api, segment, type Channel, type ChannelRuntime, type Page } from "../api";
+import { Api, segment, type Channel, type ChannelRuntime, type InstalledPlugin, type Page } from "../api";
+import { PluginRunner } from "../components/PluginRunner";
 import { Confirm, Empty, Failure, PageTitle, Progress } from "../components/Common";
-import { useChannelName, useT } from "../preferences";
+import { pluginLabel } from "../form-values";
+import { useChannelName, useLanguage, useT } from "../preferences";
 import { useMutation, useResource } from "../resources";
 import { AccountList } from "./Accounts";
 
 type Navigate = (path: string) => void;
 const listPath = "/admin/channels";
-const runtimeEnabled = (channel: Channel) => channel.enabled ?? (channel.available !== false);
+const runtimeEnabled = (channel: Pick<Channel, "enabled" | "available">) => channel.enabled ?? (channel.available !== false);
 
 function follow(event: MouseEvent, path: string, navigate: Navigate) {
   if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
@@ -16,34 +18,60 @@ function follow(event: MouseEvent, path: string, navigate: Navigate) {
   navigate(path);
 }
 
-function PluginStatus({ channel }: { channel: Channel }) {
+function PluginStatus({ channel }: { channel: Pick<Channel, "enabled" | "available"> }) {
   const t = useT();
   if (!runtimeEnabled(channel)) return <EuiBadge>{t("已停用")}</EuiBadge>;
   if (channel.available === false) return <EuiBadge color="warning">{t("暂不可用")}</EuiBadge>;
   return <EuiBadge color="success">{t("运行中")}</EuiBadge>;
 }
 
+const pluginGroups = [
+  { kind: "channel", label: "渠道插件" },
+  { kind: "task", label: "任务插件" },
+  { kind: "content_transform", label: "内容转换插件" },
+] as const;
+
 export function Channels({ api, navigate }: { api: Api; navigate: Navigate }) {
   const t = useT();
+  const language = useLanguage();
   const channelName = useChannelName();
-  const list = useResource<Page<Channel>>(api, "/channels");
-  const items = list.data?.items ?? [];
+  const list = useResource<Page<InstalledPlugin>>(api, "/plugins");
+  const [active, setActive] = useState<InstalledPlugin>();
+  const listItems = list.data?.items ?? [];
+  const name = (plugin: InstalledPlugin) => pluginLabel(plugin, language) ??
+    (plugin.kind === "channel" ? channelName(plugin.id, plugin.display_name) : plugin.display_name);
 
   return <>
-    <PageTitle title={t("渠道插件")} description={t("查看已安装的通知渠道，管理插件运行状态和账号。")} />
+    <PageTitle title={t("插件管理")} description={t("按用途查看已安装的插件，管理渠道账号或运行任务与内容转换。")}
+      action={<EuiButton iconType="globe" onClick={() => navigate("/admin/topics/plugin-market")}>{t("插件市场")}</EuiButton>} />
     <Failure message={list.error} retry={list.reload} />
     {list.loading && <Progress />}
-    {items.length > 0
-      ? <div className="data-surface channel-plugin-list">
-        <EuiBasicTable<Channel> tableCaption={t("已安装的渠道插件")} rowHeader="display_name" itemId="id" items={items} columns={[
-          { field: "display_name", name: t("插件"), render: (name, { id }) => {
-            const path = `${listPath}/${segment(id)}`;
-            return <EuiLink href={path} onClick={(event) => follow(event, path, navigate)}>{channelName(id, name)}</EuiLink>;
-          } },
-          { name: t("运行状态"), render: (channel: Channel) => <PluginStatus channel={channel} /> },
-        ]} />
-      </div>
-      : list.data && <Empty title={t("没有已安装的渠道插件")} />}
+    {list.data && !listItems.length && <Empty title={t("没有已安装的插件")} />}
+    {pluginGroups.map(({ kind, label }) => {
+      const items = listItems.filter((item) => item.kind === kind);
+      if (!items.length) return null;
+      const channel = kind === "channel";
+      return <section className="stack" key={kind} aria-labelledby={`plugin-group-${kind}`}>
+        <div className="section-header"><h2 id={`plugin-group-${kind}`}>{t(label)}</h2></div>
+        <div className="data-surface channel-plugin-list">
+          <EuiBasicTable<InstalledPlugin> tableCaption={t(label)} rowHeader="display_name" itemId="id" items={items} columns={[
+            { field: "display_name", name: t("插件"), render: (_, plugin) => {
+              if (!channel) return name(plugin);
+              const path = `${listPath}/${segment(plugin.id)}`;
+              return <EuiLink href={path} onClick={(event) => follow(event, path, navigate)}>{name(plugin)}</EuiLink>;
+            } },
+            { name: t("运行状态"), render: (plugin: InstalledPlugin) => <PluginStatus channel={plugin} /> },
+            ...(!channel ? [{
+              name: t("操作"),
+              render: (plugin: InstalledPlugin) => <EuiButtonEmpty size="xs" isDisabled={!plugin.available}
+                aria-label={t("运行 {name}", { name: name(plugin) })}
+                onClick={() => setActive(plugin)}>{t("运行插件")}</EuiButtonEmpty>,
+            }] : []),
+          ]} />
+        </div>
+      </section>;
+    })}
+    {active && <PluginRunner api={api} plugin={{ ...active, display_name: name(active) }} close={() => setActive(undefined)} />}
   </>;
 }
 
@@ -84,7 +112,7 @@ export function ChannelSettings({ api, id, navigate }: { api: Api; id: string; n
 
   return <>
     <EuiButtonEmpty className="channel-settings-back" href={listPath} size="s" flush="left" iconType="chevronSingleLeft"
-      onClick={(event: MouseEvent<HTMLAnchorElement>) => follow(event, listPath, navigate)}>{t("渠道插件")}</EuiButtonEmpty>
+      onClick={(event: MouseEvent<HTMLAnchorElement>) => follow(event, listPath, navigate)}>{t("插件管理")}</EuiButtonEmpty>
     <PageTitle title={name} />
     <Failure message={detail.error ?? (legacy ? catalog.error : undefined)} retry={detail.error ? detail.reload : catalog.reload} />
     {(detail.loading || (legacy && catalog.loading)) && <Progress />}

@@ -18,6 +18,13 @@ impl Cipher {
         self.seal_bytes(&proxy_context(id), url.as_bytes())
     }
 
+    pub fn open_proxy(&self, id: &str, value: &[u8]) -> Result<Zeroizing<String>, CipherError> {
+        let bytes = self.open_bytes(&proxy_context(id), value)?;
+        Ok(Zeroizing::new(
+            str::from_utf8(&bytes).map_err(|_| CipherError)?.into(),
+        ))
+    }
+
     pub fn open_channel_config(
         &self,
         account: &StoredAccount,
@@ -26,12 +33,11 @@ impl Cipher {
         let mut config = self.open(&account.id, &account.encrypted_config)?;
         match (&account.proxy_id, encrypted_proxy) {
             (Some(id), Some(encrypted)) => {
-                let bytes = self.open_bytes(&proxy_context(id), encrypted)?;
-                let url = str::from_utf8(&bytes).map_err(|_| CipherError)?;
+                let url = self.open_proxy(id, encrypted)?;
                 config
                     .as_object_mut()
                     .ok_or(CipherError)?
-                    .insert("proxy".into(), Value::String(url.to_owned()));
+                    .insert("proxy".into(), Value::String(url.to_string()));
             }
             (None, None) => {}
             _ => return Err(CipherError),

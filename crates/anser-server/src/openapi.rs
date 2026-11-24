@@ -58,6 +58,10 @@ pub async fn document() -> Json<Value> {
             ],
         ),
         (
+            "/v1/proxies/{id}/test",
+            &["POST / Test an outbound proxy with an HTTPS request"],
+        ),
+        (
             "/v1/accounts",
             &[
                 "GET / List channel accounts",
@@ -73,6 +77,18 @@ pub async fn document() -> Json<Value> {
             ],
         ),
         ("/v1/accounts/{id}/test", &["POST / Test channel account"]),
+        (
+            "/v1/plugins",
+            &["GET / List installed plugins by capability"],
+        ),
+        (
+            "/v1/plugins/task/{id}/run",
+            &["POST / Run one task and return notification drafts (global administrator only)"],
+        ),
+        (
+            "/v1/plugins/content_transform/{id}/run",
+            &["POST / Transform one notification (global administrator only)"],
+        ),
         (
             "/v1/channels",
             &["GET / List plugin schemas and capabilities"],
@@ -114,6 +130,21 @@ pub async fn document() -> Json<Value> {
         ),
         ("/v1/topics/{name}/publish", &["POST / Publish a message"]),
         ("/v1/send", &["POST / Submit a message"]),
+        (
+            "/v1/templates",
+            &[
+                "GET / List visible notification templates",
+                "POST / Create a notification template",
+            ],
+        ),
+        (
+            "/v1/templates/{id}",
+            &[
+                "GET / Read a notification template",
+                "PUT / Replace a notification template",
+                "DELETE / Delete a notification template",
+            ],
+        ),
         ("/v1/messages", &["GET / List messages"]),
         ("/v1/messages/{id}", &["GET / Read deliveries and attempts"]),
         (
@@ -129,6 +160,14 @@ pub async fn document() -> Json<Value> {
             "/v1/inbox/{id}/read",
             &["POST / Mark a notification as read"],
         ),
+        (
+            "/v1/speech/send",
+            &["POST / Synthesize and send a voice notification"],
+        ),
+        (
+            "/v1/speech/audio/{file}",
+            &["GET / Play a retained voice notification"],
+        ),
         ("/v1/statistics", &["GET / Queue statistics"]),
         ("/v1/metrics", &["GET / Prometheus metrics"]),
     ] {
@@ -137,12 +176,16 @@ pub async fn document() -> Json<Value> {
             let (method, summary) = spec.split_once(" / ").unwrap();
             let public = matches!(
                 path,
-                "/v1/health" | "/v1/info" | "/v1/auth/login" | "/v1/auth/pair/exchange"
+                "/v1/health"
+                    | "/v1/info"
+                    | "/v1/auth/login"
+                    | "/v1/auth/pair/exchange"
+                    | "/v1/speech/audio/{file}"
             );
             let mut method_params: Vec<_> = path.split('/').filter_map(|segment| segment.strip_prefix('{')?.strip_suffix('}'))
                 .map(|name| json!({"name":name,"in":"path","required":true,"schema":{"type":"string"}})).collect();
             let publishes = path == "/v1/send" || path.ends_with("/publish");
-            if publishes || path == "/v1/inbox/send" {
+            if publishes || matches!(path, "/v1/inbox/send" | "/v1/speech/send") {
                 method_params.push(json!({"name":"Idempotency-Key","in":"header","description":"Repeat the same key with the same credential within 24 hours to retrieve the original receipt. Native sends use a separate key space.","schema":{"type":"string","pattern":"^[!-~]{1,128}$"}}));
             }
             if publishes {
@@ -157,6 +200,7 @@ pub async fn document() -> Json<Value> {
                     "/v1/accounts"
                         | "/v1/topics"
                         | "/v1/messages"
+                        | "/v1/templates"
                         | "/v1/users"
                         | "/v1/api-keys"
                         | "/v1/proxies"
@@ -184,11 +228,21 @@ pub async fn document() -> Json<Value> {
                 "parameters": method_params,
                 "responses":{"200":{"description":"Success"},"default":{"$ref":"#/components/responses/Error"}}
             });
+            if path == "/v1/speech/audio/{file}" {
+                operation["parameters"]
+                    .as_array_mut()
+                    .expect("parameters array")
+                    .push(json!({"name":"Range","in":"header","schema":{"type":"string"}}));
+                for status in ["200", "206"] {
+                    operation["responses"][status] = json!({"description":"MP3 audio","content":{"audio/mpeg":{"schema":{"type":"string","format":"binary"}}}});
+                }
+                operation["responses"]["416"] = json!({"description":"Invalid byte range"});
+            }
             if method == "DELETE" || path.ends_with("/logout") || path.ends_with("/read") {
                 operation["responses"]["204"] =
                     json!({"description":"Resource changed successfully"});
             }
-            if publishes || path.ends_with("/replay") {
+            if publishes || path.ends_with("/replay") || path == "/v1/speech/send" {
                 operation["responses"]["202"] = json!({"description":"Message persisted","content":{"application/json":{"schema":{"$ref":"#/components/schemas/Receipt"}}}});
             }
             if let Some(body) = request_schema(path, method) {
@@ -206,6 +260,28 @@ pub async fn document() -> Json<Value> {
                 operation["description"] = json!(
                     "Requires a user session. Confirming or disabling TOTP revokes other sessions and outstanding pairing codes."
                 );
+            }
+            if path.starts_with("/v1/templates") {
+                operation["description"] = json!(
+                    "Requires send access. Signed-in users can use and edit their private templates. Anyone with send access can use shared and built-in templates. Only global administrators can create or edit shared templates. Built-in templates are read-only."
+                );
+            }
+            if publishes {
+                operation["description"] = json!(
+                    "Send literal content or use a stored template by ID or name. The rendered title, body and format are persisted with the message. The original rendered content is retained for delivery, replay and idempotent retries."
+                );
+                for (code, description) in [
+                    (
+                        "400",
+                        "An invalid request, missing or extra template variables, or invalid rendered content",
+                    ),
+                    (
+                        "404",
+                        "A template or Topic does not exist or is not visible to the current caller",
+                    ),
+                ] {
+                    operation["responses"][code] = json!({"description":description,"content":{"application/json":{"schema":reference("Error")}}});
+                }
             }
             if path == "/v1/auth/profile" {
                 operation["description"] = json!(
@@ -243,6 +319,10 @@ pub async fn document() -> Json<Value> {
         }
         paths.insert(path.into(), Value::Object(methods));
     }
+    paths.insert(
+        "/v1/topics/{name}/plugin-listings".into(),
+        crate::plugin_market::openapi_path(),
+    );
     Json(json!({
         "openapi":"3.0.3",
         "info":{"title":"Anser API","version":env!("CARGO_PKG_VERSION")},
@@ -280,15 +360,20 @@ fn request_schema(path: &str, method: &str) -> Option<&'static str> {
         ("POST", "/v1/api-keys") => Some("KeyInput"),
         ("POST", "/v1/proxies") => Some("ProxyCreate"),
         ("PUT", "/v1/proxies/{id}") => Some("ProxyUpdate"),
+        ("POST", "/v1/proxies/{id}/test") => Some("ProxyTest"),
         ("POST", "/v1/accounts") => Some("AccountCreate"),
         ("PUT", "/v1/accounts/{id}") => Some("AccountUpdate"),
         ("POST", "/v1/accounts/{id}/test") => Some("Message"),
+        ("POST", "/v1/plugins/task/{id}/run") => Some("PluginTaskInput"),
+        ("POST", "/v1/plugins/content_transform/{id}/run") => Some("PluginTransformInput"),
         ("PUT", "/v1/channels/{id}/runtime") => Some("ChannelChange"),
         ("PUT", "/v1/default-route") => Some("Policy"),
         ("POST", "/v1/topics") | ("PUT", "/v1/topics/{name}") => Some("TopicInput"),
         ("POST", "/v1/topics/{name}/subscriptions") => Some("SubscriptionInput"),
         ("POST", "/v1/send" | "/v1/topics/{name}/publish") => Some("Publish"),
+        ("POST", "/v1/templates") | ("PUT", "/v1/templates/{id}") => Some("TemplateInput"),
         ("POST", "/v1/inbox/send") => Some("InboxSend"),
+        ("POST", "/v1/speech/send") => Some("SpeechSend"),
         _ => None,
     }
 }
@@ -315,10 +400,16 @@ fn success_schema(path: &str, method: &str) -> Option<(&'static str, Value)> {
         ("POST", "/v1/api-keys/{id}/rotate") => ("200", reference("IssuedKey")),
         ("GET", "/v1/proxies") => ("200", page("Proxy")),
         ("POST", "/v1/proxies") => ("201", reference("Proxy")),
+        ("POST", "/v1/proxies/{id}/test") => ("200", reference("ProxyTestResult")),
         ("GET" | "PUT", "/v1/proxies/{id}") => ("200", reference("Proxy")),
         ("GET", "/v1/accounts") => ("200", page("Account")),
         ("POST", "/v1/accounts") => ("201", reference("Account")),
         ("GET" | "PUT", "/v1/accounts/{id}") => ("200", reference("Account")),
+        ("GET", "/v1/plugins") => ("200", page("InstalledPlugin")),
+        ("POST", "/v1/plugins/task/{id}/run") => ("200", reference("PluginTaskOutput")),
+        ("POST", "/v1/plugins/content_transform/{id}/run") => {
+            ("200", reference("PluginTransformOutput"))
+        }
         ("GET", "/v1/channels") => ("200", page("Channel")),
         ("GET", "/v1/channels/lazycat/devices") => ("200", reference("LazycatDevices")),
         ("GET", "/v1/channels/{id}") => ("200", reference("Channel")),
@@ -330,6 +421,10 @@ fn success_schema(path: &str, method: &str) -> Option<(&'static str, Value)> {
         ("GET", "/v1/topics/{name}/subscriptions") => ("200", page("Subscription")),
         ("POST", "/v1/topics/{name}/subscriptions") => ("201", reference("Subscription")),
         ("POST", "/v1/send" | "/v1/topics/{name}/publish") => ("200", reference("Receipt")),
+        ("POST", "/v1/speech/send") => ("201", reference("Receipt")),
+        ("GET", "/v1/templates") => ("200", page("Template")),
+        ("POST", "/v1/templates") => ("201", reference("Template")),
+        ("GET" | "PUT", "/v1/templates/{id}") => ("200", reference("Template")),
         ("GET", "/v1/messages") => ("200", page("MessageDetail")),
         ("GET", "/v1/messages/{id}") => ("200", reference("MessageDetail")),
         ("GET", "/v1/inbox") => ("200", page("InboxItem")),
@@ -388,6 +483,20 @@ fn schemas() -> Value {
             "attachments":{"type":"array","items":reference("Attachment")},"extras":{"type":"object"}
         }
     });
+    let template_fields = json!({
+        "name":{"type":"string","pattern":"^[A-Za-z0-9._-]{1,80}$"},
+        "title":{"type":"string","description":"Title source using {{variable}} placeholders."},
+        "body":{"type":"string","description":"Body source using {{variable}} placeholders."},
+        "format":{"type":"string","enum":["text","markdown"]},
+        "shared":{"type":"boolean","description":"Defaults to false on create. Omit on update to preserve visibility."}
+    });
+    let mut template_output = template_fields.clone();
+    template_output["id"] = string.clone();
+    template_output["variables"] = strings.clone();
+    template_output["builtin"] = boolean.clone();
+    template_output["can_edit"] = boolean.clone();
+    template_output["created_at"] = time.clone();
+    template_output["updated_at"] = time.clone();
     let mut output = Map::new();
     for group in [
         json!({
@@ -395,10 +504,31 @@ fn schemas() -> Value {
             "Receipt":{"type":"object","required":["message_id","status"],"properties":{"message_id":string,"status":delivery_status}},
             "Attachment":{"type":"object","required":["url"],"properties":{"url":{"type":"string","format":"uri"},"name":string,"content_type":string}},
             "Message":message,
-            "Publish":{"allOf":[reference("Message"),{"type":"object","properties":{
-                "expire_at":time,"callback_url":{"type":"string","format":"uri"},"topic_password":secret,
-                "channels":{"type":"array","items":{"oneOf":[string,reference("Target")]}},"strategy":reference("Strategy")
-            }}]},
+            "Publish":{
+                "oneOf":[
+                    {"allOf":[reference("Message"),{"not":{"anyOf":[{"required":["template_id"]},{"required":["template_name"]},{"required":["variables"]}]}}]},
+                    reference("TemplatePublish")
+                ],
+                "type":"object","properties":{
+                    "expire_at":time,"callback_url":{"type":"string","format":"uri"},"topic_password":secret,
+                    "channels":{"type":"array","items":{"oneOf":[string,reference("Target")]}},"strategy":reference("Strategy")
+                }
+            },
+            "TemplatePublish":{
+                "type":"object",
+                "description":"Pass exactly one template identifier and the corresponding string variables. Name lookup prefers your private template over a shared template with the same name. Set neither title nor body because the template supplies both.",
+                "oneOf":[{"required":["template_id"],"not":{"required":["template_name"]}},{"required":["template_name"],"not":{"required":["template_id"]}}],
+                "properties":{
+                    "template_id":string,"template_name":string,"variables":{"type":"object","additionalProperties":string,"maxProperties":64},
+                    "title":{"type":"string","maxLength":0},"body":{"type":"string","maxLength":0},
+                    "format":{"type":"string","enum":["text"]},
+                    "tags":strings,"level":string,"url":{"type":"string","format":"uri"},
+                    "attachments":{"type":"array","items":reference("Attachment")},"extras":{"type":"object"}
+                },
+                "example":{"template_name":"builtin.deployment","variables":{"service":"Anser","version":"1.2.3","environment":"production"}}
+            },
+            "TemplateInput":{"type":"object","required":["name","format"],"properties":template_fields},
+            "Template":{"type":"object","required":["id","name","title","body","format","variables","shared","builtin","can_edit","created_at","updated_at"],"properties":template_output},
             "Target":{"type":"object","properties":{"channel":string,"account_id":string,"tag_selector":strings,"priority":integer,"weight":integer}},
             "Strategy":{"type":"object","properties":{"mode":mode,"retry":reference("Retry"),"success_criteria":success}},
             "Policy":{"type":"object","properties":{"mode":mode,"targets":{"type":"array","items":reference("Target")},"retry":reference("Retry"),"success_criteria":success}},
@@ -415,8 +545,16 @@ fn schemas() -> Value {
             "Proxy":{"type":"object","required":["id","name","url","authenticated"],"properties":{"id":string,"name":string,"url":{"type":"string","format":"uri","description":"Credential-free HTTP(S) origin"},"authenticated":boolean}},
             "ProxyCreate":{"type":"object","required":["name","url"],"properties":proxy_input},
             "ProxyUpdate":{"type":"object","required":["name"],"properties":proxy_input},
+            "ProxyTest":{"type":"object","properties":{"url":{"type":"string","format":"uri","default":"https://www.cloudflare.com/cdn-cgi/trace"}}},
+            "ProxyTestResult":{"type":"object","required":["status","latency_ms"],"properties":{"status":integer,"latency_ms":integer}},
             "LazycatDevices":{"type":"object","required":["user_id","devices"],"properties":{"user_id":{"type":"string","description":"UID verified by the LazyCat ingress."},"devices":{"type":"array","items":reference("LazycatDevice")},"max_selection":{"type":"integer"},"configured_device_ids":{"type":"array","items":{"type":"string"}}}},
             "LazycatDevice":{"type":"object","required":["device_id","name","online"],"properties":{"device_id":string,"name":string,"online":boolean}},
+            "InstalledPlugin":{"type":"object","required":["id","kind","display_name","config_schema","enabled","available"],"properties":{"id":string,"kind":{"type":"string","enum":["channel","task","content_transform"]},"display_name":string,"version":string,"config_schema":{"type":"object"},"enabled":boolean,"available":boolean}},
+            "PluginTaskInput":{"type":"object","required":["config"],"properties":{"config":{"type":"object","writeOnly":true},"input":{}}},
+            "PluginTransformInput":{"type":"object","required":["config","message"],"properties":{"config":{"type":"object","writeOnly":true},"message":reference("Message")}},
+            "PluginTaskOutput":{"type":"object","required":["notifications"],"properties":{"notifications":{"type":"array","items":reference("Message")},"details":{"description":"Optional diagnostics independent of notification drafts."}}},
+            "PluginTransformOutput":{"type":"object","required":["message"],"properties":{"message":reference("Message"),"artifacts":{"type":"array","items":reference("PluginTransformArtifact"),"description":"Inline media results, with a total decoded size of at most 4 MiB."}}},
+            "PluginTransformArtifact":{"type":"object","required":["name","content_type","content_base64"],"properties":{"name":string,"content_type":string,"content_base64":{"type":"string","format":"byte"}}},
             "Channel":{"type":"object","required":["id","display_name","enabled","available","can_manage","config_schema","capabilities"],"properties":{"id":string,"display_name":string,"enabled":{"type":"boolean","description":"Persisted desired state"},"available":{"type":"boolean","description":"Current service availability"},"can_manage":{"type":"boolean","description":"Whether the requesting identity may manage global channel runtime"},"config_schema":{"type":"object"},"capabilities":{"type":"object"}}},
             "ChannelRuntime":{"type":"object","required":["id","enabled","available"],"properties":{"id":string,"enabled":{"type":"boolean","description":"Persisted desired state"},"available":{"type":"boolean","description":"Current service availability"}}},
             "ChannelChange":{"type":"object","properties":{"enabled":boolean,"reload":boolean},"oneOf":[{"required":["enabled"],"properties":{"reload":{"enum":[false]}}},{"required":["reload"],"properties":{"reload":{"enum":[true]}},"not":{"required":["enabled"]}}]},
@@ -446,8 +584,17 @@ fn schemas() -> Value {
             "KeyInput":{"type":"object","required":["name","scopes"],"properties":key_fields},
             "ApiKey":{"type":"object","properties":key_out},
             "IssuedKey":{"type":"object","properties":{"token":string,"key":reference("ApiKey")}},
+            "SpeechSend":{"type":"object","required":["config","message","destination"],"properties":{
+                "config":{"type":"object","writeOnly":true,"description":"OpenAI TTS plugin options. Voice delivery uses MP3."},
+                "message":reference("Message"),
+                "destination":{"oneOf":[
+                    {"type":"object","required":["kind","username"],"properties":{"kind":{"const":"inbox"},"username":string}},
+                    {"type":"object","required":["kind","name"],"properties":{"kind":{"const":"topic"},"name":string}},
+                    {"type":"object","required":["kind"],"properties":{"kind":{"const":"channels"}}}
+                ]}
+            }},
             "InboxSend":{"allOf":[reference("Message"),{"type":"object","required":["recipient"],"properties":{"recipient":string}}]},
-            "InboxItem":{"type":"object","properties":{"id":integer,"from_username":string,"topic":string,"title":string,"body":string,"format":string,"created_at":time,"read_at":time}}
+            "InboxItem":{"type":"object","properties":{"id":integer,"from_username":string,"topic":string,"title":string,"body":string,"format":string,"created_at":time,"audio_path":{"type":"string","description":"Same-server path to an unexpired MP3, present for voice notifications"},"read_at":time}}
         }),
     ] {
         let Value::Object(schemas) = group else {

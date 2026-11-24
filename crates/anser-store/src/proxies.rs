@@ -43,6 +43,17 @@ impl Store {
             .ok_or(DataError::Missing)
     }
 
+    pub async fn encrypted_proxy(&self, id: &str) -> Result<Vec<u8>> {
+        proxy::Entity::find_by_id(id)
+            .select_only()
+            .column(proxy::Column::EncryptedConnection)
+            .filter(proxy::Column::SpaceId.eq("default"))
+            .into_tuple::<Vec<u8>>()
+            .one(self.business_db())
+            .await?
+            .ok_or(DataError::Missing)
+    }
+
     pub async fn create_proxy(
         &self,
         id: &str,

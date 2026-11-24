@@ -4,12 +4,15 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use anser_core::{ChannelAccount, Message};
-use anser_plugin_api::{Capabilities, SendError, SendOutcome};
+use anser_plugin_api::{
+    Capabilities, PluginDescriptor, SendError, SendOutcome, TaskOutput, TransformOutput,
+};
 use rutis::Ctx;
 use rutis::host::CtxHost;
 use rutis_bridge::session::{Error as BridgeError, call_service};
 use serde_json::Value;
 
+mod actions;
 mod builtins;
 mod lifecycle;
 
@@ -20,6 +23,8 @@ mod lazycat;
 
 #[derive(Debug, thiserror::Error)]
 pub enum HostError {
+    #[error("plugin is not installed for this capability")]
+    PluginNotFound,
     #[error("channel runtime could not start")]
     Startup,
     #[error("channel runtime could not shut down cleanly")]
@@ -38,6 +43,7 @@ pub struct ChannelHost {
     root: Ctx,
     ids: Vec<&'static str>,
     channels: HashMap<&'static str, Channel>,
+    actions: actions::Actions,
 }
 
 struct Channel {
@@ -68,10 +74,18 @@ impl ChannelHost {
             ids.push(id);
             channels.insert(id, channel);
         }
+        let actions = match actions::Actions::mount(&root).await {
+            Ok(actions) => actions,
+            Err(error) => {
+                let _ = root.shutdown().await;
+                return Err(error);
+            }
+        };
         Ok(Self {
             root,
             ids,
             channels,
+            actions,
         })
     }
 
@@ -151,6 +165,44 @@ impl ChannelHost {
         )
         .await
         .map_err(channel_error)
+    }
+
+    /// Installed task and transform descriptors with current runtime availability.
+    pub fn actions(&self) -> impl Iterator<Item = (&PluginDescriptor, bool)> {
+        self.actions
+            .installed()
+            .iter()
+            .map(|action| (&action.descriptor, action.available()))
+    }
+
+    /// Run one registered task and return message drafts.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the task is missing, unavailable, or fails.
+    pub async fn run_task(
+        &self,
+        id: &str,
+        config: Value,
+        input: Value,
+    ) -> Result<TaskOutput, HostError> {
+        self.actions.run(&self.root, id, config, input).await
+    }
+
+    /// Transform one message using the registered content plugin.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the transform is missing, unavailable, or fails.
+    pub async fn transform(
+        &self,
+        id: &str,
+        config: Value,
+        message: Message,
+    ) -> Result<TransformOutput, HostError> {
+        self.actions
+            .transform(&self.root, id, config, message)
+            .await
     }
 
     pub async fn shutdown(self) -> Result<(), HostError> {

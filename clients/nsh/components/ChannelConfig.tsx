@@ -1,10 +1,22 @@
 import { t } from "nsh/i18n";
-import { signal, View } from "nsh";
+import { locale, signal, View } from "nsh";
 import { ApiError } from "../api";
 import { builtInChannel } from "../channelNames";
 import type { Channel, JsonObject } from "../contracts";
 import { parseObject } from "../forms";
 import { Choice, Field, Hint, Panel, Toggle } from "./Controls";
+
+type ConfigSchema = Pick<Channel, "id" | "config_schema">;
+type LocaleText = Partial<Record<"en" | "zh-CN", string>>;
+type Condition = { field: string; equals: string | number | boolean };
+type Presentation = {
+  visible_when?: Condition;
+  required_when?: Condition;
+  label?: LocaleText;
+  description?: LocaleText;
+  option_labels?: Record<string, LocaleText>;
+  widget?: string;
+};
 
 type Property = {
   type?: string;
@@ -15,6 +27,7 @@ type Property = {
   enum?: unknown[];
   oneOf?: { type?: string }[];
   default?: unknown;
+  "x-anser-ui"?: Presentation;
 };
 
 function channelText(
@@ -38,48 +51,65 @@ function fieldType(property: Property) {
   );
 }
 
-function fields(channel?: Channel) {
+function localized(value: LocaleText | undefined): string | undefined {
+  return value?.[locale().toLowerCase().startsWith("zh") ? "zh-CN" : "en"];
+}
+
+export function pluginLabel(plugin: ConfigSchema): string | undefined {
+  return localized((plugin.config_schema["x-anser-ui"] as Presentation | undefined)?.label);
+}
+
+export function usesDevicePicker(plugin?: ConfigSchema): boolean {
+  const ui = plugin?.config_schema["x-anser-ui"] as Presentation | undefined;
+  return ui?.widget === "lazycat_devices" || (ui?.widget == null && plugin?.id === "lazycat");
+}
+
+function fields(channel: ConfigSchema | undefined, values: Record<string, string>) {
   const schema = channel?.config_schema;
   const properties = schema?.properties;
-  if (
-    !properties ||
-    typeof properties !== "object" ||
-    Array.isArray(properties)
-  )
+  if (!schema || !properties || typeof properties !== "object" || Array.isArray(properties))
     return [];
+
+  const fields = properties as Record<string, Property>;
   const id = channel?.id ?? "";
   const isBuiltIn = builtInChannel(id);
   const required = Array.isArray(schema.required) ? schema.required : [];
-  return Object.entries(properties)
-    .filter(
-      ([name, prop]) =>
-        name !== "proxy" && typeof prop === "object" && prop !== null,
-    )
-    .map(([name, prop]) => {
-      const schema = prop as Property;
+  function matches(condition: Condition | undefined): boolean {
+    if (!condition || !Object.hasOwn(fields, condition.field)) return false;
+    const value = values[condition.field];
+    return value === undefined || value === ""
+      ? fields[condition.field]?.default === condition.equals
+      : value === String(condition.equals);
+  }
+  return Object.entries(fields)
+    .filter(([name, field]) => name !== "proxy" && field && typeof field === "object" && !Array.isArray(field))
+    .filter(([, field]) => !field["x-anser-ui"]?.visible_when || matches(field["x-anser-ui"]?.visible_when))
+    .map(([name, field]) => {
+      const ui = field["x-anser-ui"];
       return {
         name,
-        schema,
-        type: fieldType(schema),
-        required: required.includes(name),
-        label: channelText(
+        schema: field,
+        type: fieldType(field),
+        required: required.includes(name) || matches(ui?.required_when),
+        label: localized(ui?.label) ?? channelText(
           isBuiltIn,
           `config_field.${id}.${name}`,
-          channelText(isBuiltIn, `config_field.${name}`, schema.title ?? name),
+          channelText(isBuiltIn, `config_field.${name}`, field.title ?? name),
         ),
-        hint: channelText(
+        hint: localized(ui?.description) ?? channelText(
           isBuiltIn,
           `config_hint.${id}.${name}`,
-          schema.description ?? "",
+          field.description ?? "",
         ),
-        options: (Array.isArray(schema.enum) ? schema.enum : [])
-          .filter((option): option is string => typeof option === "string")
-          .map((value) => ({
-            value,
-            title: channelText(
+        options: (Array.isArray(field.enum) ? field.enum : [])
+          .filter((option): option is string | number => typeof option === "string" || typeof option === "number")
+          .map((option) => ({
+            value: String(option),
+            option,
+            title: localized(ui?.option_labels?.[String(option)]) ?? channelText(
               isBuiltIn,
-              `config_option.${name}.${value}`,
-              value,
+              `config_option.${name}.${option}`,
+              String(option),
             ),
           })),
       };
@@ -101,11 +131,11 @@ export function supportsProxy(channel?: Channel) {
   );
 }
 
-export function channelConfigDraft(channel: () => Channel | undefined) {
+export function channelConfigDraft(channel: () => ConfigSchema | undefined) {
   const values = signal<Record<string, string>>({});
   const raw = signal("");
   const advanced = signal(false);
-  const definitions = () => fields(channel());
+  const definitions = () => fields(channel(), values());
   const clear = () => {
     values.set({});
     raw.set("");
@@ -140,8 +170,9 @@ export function channelConfigDraft(channel: () => Channel | undefined) {
         }
         continue;
       }
-      if (options.some(({ value }) => value === input)) {
-        result[name] = input;
+      const selected = options.find(({ value }) => value === input);
+      if (selected) {
+        result[name] = selected.option;
       } else if (type === "array" || type === "object" || !type) {
         try {
           result[name] = JSON.parse(input);
@@ -238,7 +269,7 @@ export function ChannelConfig(props: {
                             label={label()}
                             value={
                               props.draft.values()[field().name] ??
-                              (typeof property().default === "string"
+                              (["string", "number"].includes(typeof property().default)
                                 ? String(property().default)
                                 : null)
                             }

@@ -93,6 +93,38 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn upgrade_seeds_templates_without_changing_existing_messages() {
+        use sqlx::{Connection, SqliteConnection};
+        let mut db = SqliteConnection::connect("sqlite::memory:").await.unwrap();
+        let migrations = sqlx::migrate!();
+        migrations.run_to(10, &mut db).await.unwrap();
+        sqlx::raw_sql(
+            "INSERT INTO api_keys(id,secret_hash,name,scopes,created_at)
+              VALUES('sender',zeroblob(32),'key','[]',0);
+            INSERT INTO messages(id,key_id,body,request,created_at,retain_until)
+              VALUES('original','sender','{\"title\":\"Existing message\"}','{}',0,100);",
+        )
+        .execute(&mut db)
+        .await
+        .unwrap();
+        migrations.run_to(11, &mut db).await.unwrap();
+        let existing: String = sqlx::query_scalar(
+            "SELECT json_extract(body,'$.title') FROM messages WHERE id='original'",
+        )
+        .fetch_one(&mut db)
+        .await
+        .unwrap();
+        assert_eq!(existing, "Existing message");
+        let templates: Vec<String> = sqlx::query_scalar(
+            "SELECT id FROM notification_templates WHERE builtin=1 AND shared=1 ORDER BY id",
+        )
+        .fetch_all(&mut db)
+        .await
+        .unwrap();
+        assert_eq!(templates, ["builtin.deployment", "builtin.service_alert"]);
+    }
+
+    #[tokio::test]
     async fn reopens_a_migrated_database_with_foreign_keys_enabled() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("anser.sqlite3");
@@ -111,8 +143,11 @@ mod tests {
 }
 
 pub mod manage;
+pub mod plugin_market;
 pub mod proxies;
 pub mod queue;
+pub mod speech;
+pub mod templates;
 pub mod totp;
 pub mod users;
 
@@ -130,6 +165,10 @@ pub enum DataError {
     ProxyInUse,
     #[error("permission denied")]
     Forbidden,
+    #[error("notification template not found")]
+    TemplateMissing,
+    #[error(transparent)]
+    Template(#[from] anser_core::template::Error),
     #[error("authentication factor is invalid or no longer current")]
     InvalidFactor,
     #[error("request has no available destinations")]

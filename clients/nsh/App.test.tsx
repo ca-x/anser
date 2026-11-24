@@ -608,6 +608,20 @@ test("manages plugin runtime and configures an account for that plugin", async (
     network: {
       ...baseNetwork(),
       [`${endpoints}/channels`]: () => ({ body: page([lark, plugin()]) }),
+      [`${endpoints}/plugins`]: {
+        body: page([
+          { ...lark, kind: "channel" },
+          { ...serverChan, kind: "channel" },
+          { id: "tls-fixture", kind: "task", display_name: "Certificate monitor", available: true, enabled: true,
+            version: "0.1.0", config_schema: {
+              "x-anser-ui": { label: { en: "Certificate monitor", "zh-CN": "证书监控" } },
+            },
+          },
+          { id: "audio-fixture", kind: "content_transform", display_name: "Speech", available: true, enabled: true,
+            config_schema: { "x-anser-ui": { label: { en: "Speech", "zh-CN": "语音合成" } } },
+          },
+        ]),
+      },
       [`${endpoints}/channels/serverchan`]: () => ({ body: plugin() }),
       [`PUT ${endpoints}/channels/serverchan/runtime`]: ({ body }) => {
         const change = JSON.parse(body ?? "{}");
@@ -643,9 +657,13 @@ test("manages plugin runtime and configures an account for that plugin", async (
   });
   await login(app);
   await app.press("role:button[账号]");
-  await app.press("渠道插件");
+  await app.press("插件管理");
   await app.waitFor("text:飞书");
   await app.waitFor("text:Server酱");
+  await app.waitFor("任务插件");
+  await app.waitFor("证书监控");
+  await app.waitFor("内容转换插件");
+  await app.waitFor("语音合成");
   expect(app.texts().includes("飞书 / Lark")).toBe(false);
   await app.press("label:配置Server酱");
   await app.waitFor("此插件尚未配置账号。");
@@ -691,7 +709,7 @@ test("uses English provider names and exposes plugin management to a global admi
   await app.press("role:button[Connect]");
   await app.waitFor("role:button[Accounts]");
   await app.press("role:button[Accounts]");
-  await app.press("Channel plugins");
+  await app.press("Plugins");
   await app.waitFor("text:Lark");
   await app.waitFor("text:ServerChan");
   expect(app.texts().includes("飞书 / Lark")).toBe(false);
@@ -715,7 +733,7 @@ test("hides plugin management from a member session", async () => {
   });
   await login(app);
   expect(app.shows("role:button[账号]")).toBe(false);
-  expect(app.shows("渠道插件")).toBe(false);
+  expect(app.shows("插件管理")).toBe(false);
 });
 
 test("prompts for two-factor verification after password sign-in", async () => {
@@ -1496,4 +1514,29 @@ test("shows local and connected server versions in About", async () => {
   await app.waitFor("客户端版本");
   await app.waitFor("服务端版本");
   await app.waitFor("9.8.7");
+});
+
+test("hands only newly received, same-server voice notifications to playback", async () => {
+  const audioPath = (character: string) => `/v1/speech/audio/${character.repeat(43)}.mp3`;
+  const previous = { ...inboxItem, title: "Earlier speech", audio_path: audioPath("a") };
+  const outside = { ...inboxItem, id: 2, title: "Outside speech", audio_path: "https://outside.test/audio.mp3" };
+  const next = { ...inboxItem, id: 3, title: "New speech", audio_path: audioPath("b") };
+  let delivered = false;
+  const app = await open("./App.tsx", {
+    platform: "linux",
+    locale: "zh-CN",
+    network: {
+      ...baseNetwork(),
+      [`${endpoints}/inbox`]: { body: page([previous], "1") },
+      [`${endpoints}/inbox?*`]: () => {
+        if (delivered) return { body: page([], "3") };
+        delivered = true;
+        return { body: page([outside, next], "3") };
+      },
+    },
+  });
+  await login(app);
+  await app.waitFor("id:speech-playing");
+  await app.waitFor("New speech");
+  await app.press("role:button[停止播放]");
 });
