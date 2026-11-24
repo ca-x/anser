@@ -170,6 +170,8 @@ mod tests {
     }
 }
 
+pub mod history;
+pub mod interactions;
 pub mod manage;
 pub mod plugin_market;
 pub mod proxies;
@@ -198,6 +200,8 @@ pub enum DataError {
     TemplateMissing,
     #[error(transparent)]
     Template(#[from] anser_core::template::Error),
+    #[error("interaction reply does not match the form")]
+    InvalidInteractionReply,
     #[error("authentication factor is invalid or no longer current")]
     InvalidFactor,
     #[error("request has no available destinations")]

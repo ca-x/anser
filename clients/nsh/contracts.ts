@@ -205,8 +205,31 @@ export interface TotpSetup {
   expires_at: number;
 }
 
+export type InteractionReply =
+  | { kind: "action" | "choice"; value: string }
+  | { kind: "text"; text: string };
+
+export interface Interaction {
+  id: string;
+  status: "pending" | "answered" | "expired";
+  expires_at: number;
+  reply: InteractionReply | null;
+}
+
+type Option = { label: string; value: string };
+type InteractionField = { name: string; label: string; submit: string };
+
+export interface InboxInteraction extends Interaction {
+  form: {
+    buttons: Option[];
+    input: (InteractionField & { placeholder?: string | null; max_length: number; multiline: boolean }) | null;
+    select: (InteractionField & { options: Option[] }) | null;
+  };
+}
+
 export interface InboxItem {
   audio_path?: string;
+  interaction_id?: string;
   id: number;
   from_username?: string | null;
   topic?: string | null;

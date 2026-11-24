@@ -5,7 +5,7 @@ import {
   EuiLink, EuiSelect, EuiText, EuiTextArea,
 } from "@elastic/eui";
 import { Api, ApiError, errorMessage, segment, type Account, type Attempt, type Channel, type Delivery as DeliveryRecord, type MessageDetail, type NotificationTemplate, type Page, type Publish, type Receipt, type Topic, type User } from "../api";
-import { useDate, Empty, Failure, JsonInput, More, object, PageTitle, Progress, split, Status, Tags } from "../components/Common";
+import { RowAction, useDate, Empty, Failure, JsonInput, More, object, PageTitle, Progress, split, Status, Tags } from "../components/Common";
 import { Composer } from "../components/Composer";
 import { AccountEditor, channelAvailable } from "./Accounts";
 import type { SendSession } from "../send-draft";
@@ -29,6 +29,14 @@ export function MessageTable({ items, navigate }: { items: MessageDetail[]; navi
       value || (item.inbox_recipient ? t("{name} 的收件箱", { name: item.inbox_recipient }) : t("直接投递")) },
     { field: "status", name: t("状态"), render: (value: string) => <Status value={value} /> },
     { field: "created_at", name: t("创建时间"), render: date },
+    { name: t("操作"), render: (item: MessageDetail) => {
+      const path = `/admin/messages/${segment(item.id)}`;
+      return <RowAction icon="inspect" href={path} onClick={(event) => {
+        if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+        event.preventDefault();
+        navigate(path);
+      }}>{t("查看")}</RowAction>;
+    } },
   ]} />;
 }
 

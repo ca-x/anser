@@ -6,12 +6,12 @@ use anser_core::schedule::Rule;
 use anser_plugin_api::PluginKind;
 use anser_queue::CancellationToken;
 use anser_store::queue::Submission;
-use anser_store::scheduled_tasks::{NewSchedule, Schedule, ScheduledRun};
+use anser_store::scheduled_tasks::{NewSchedule, Schedule, ScheduleEdit, ScheduledRun};
 use anser_store::{new_id, now_ms};
 use axum::Json;
 use axum::extract::State;
 use axum::http::StatusCode;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use crate::api::{App, Pagination};
@@ -35,6 +35,25 @@ pub(crate) struct Create {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+pub(crate) struct Edit {
+    name: String,
+    plugin_id: String,
+    topic: Option<String>,
+    rule: Option<Rule>,
+    start_at: Option<i64>,
+    config: Option<Value>,
+    input: Option<Value>,
+}
+
+#[derive(Serialize)]
+pub(crate) struct Detail {
+    #[serde(flatten)]
+    schedule: Schedule,
+    config: Option<Value>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct StateChange {
     enabled: bool,
 }
@@ -54,15 +73,8 @@ pub(crate) async fn create(
     ApiJson(request): ApiJson<Create>,
 ) -> ApiResult<(StatusCode, Json<Schedule>)> {
     identity.admin_global()?;
-    let name = request.name.trim();
-    if name.is_empty() || name.len() > 128 || name.chars().any(char::is_control) {
-        return Err(ApiError::bad("Invalid schedule name"));
-    }
-    if !app.host.actions().any(|(descriptor, _)| {
-        descriptor.kind == PluginKind::Task && descriptor.id == request.plugin_id
-    }) {
-        return Err(ApiError::bad("Select an installed task plugin"));
-    }
+    let name = schedule_name(&request.name)?;
+    require_task(&app, &request.plugin_id)?;
     plugins::validate_config(&request.config)?;
     plugins::require_encoded_limit(&request.input, 32 * 1024)?;
     let now = now_ms();
@@ -90,6 +102,134 @@ pub(crate) async fn create(
         })
         .await?;
     Ok((StatusCode::CREATED, Json(schedule)))
+}
+
+pub(crate) async fn detail(
+    State(app): State<Arc<App>>,
+    identity: Identity,
+    ApiPath(id): ApiPath<String>,
+) -> ApiResult<Json<Detail>> {
+    identity.admin_global()?;
+    let (schedule, encrypted) = app.store.schedule_detail(&id).await?;
+    // Task input is arbitrary JSON. Only expose options declared safe for the built-in editors.
+    let config = match schedule.plugin_id.as_str() {
+        "wttr-weather" => Some(&["location", "language", "units", "forecast", "forecast_days"][..]),
+        "open-meteo-weather" => Some(
+            &[
+                "location",
+                "country_code",
+                "language",
+                "units",
+                "forecast",
+                "forecast_days",
+            ][..],
+        ),
+        "certificate-expiration" => Some(&["urls", "warning_days"][..]),
+        _ => None,
+    }
+    .map(|fields| {
+        let mut task = open_task(&app, &id, &encrypted)?;
+        let values = task.config.as_object_mut().ok_or_else(ApiError::internal)?;
+        values.retain(|field, _| fields.contains(&field.as_str()));
+        Ok::<_, ApiError>(task.config)
+    })
+    .transpose()?;
+    Ok(Json(Detail { schedule, config }))
+}
+
+pub(crate) async fn edit(
+    State(app): State<Arc<App>>,
+    identity: Identity,
+    ApiPath(id): ApiPath<String>,
+    ApiJson(request): ApiJson<Edit>,
+) -> ApiResult<Json<Schedule>> {
+    identity.admin_global()?;
+    let name = schedule_name(&request.name)?;
+    let (schedule, encrypted) = app.store.schedule_detail(&id).await?;
+    let changed_plugin = request.plugin_id != schedule.plugin_id;
+    let replacement = if changed_plugin {
+        require_task(&app, &request.plugin_id)?;
+        let config = request
+            .config
+            .ok_or_else(|| ApiError::bad("Supply configuration for the new task plugin"))?;
+        Some(TaskRequest {
+            config,
+            input: request.input.unwrap_or(Value::Null),
+        })
+    } else if request.config.is_some() || request.input.is_some() {
+        let old = open_task(&app, &id, &encrypted)?;
+        Some(TaskRequest {
+            config: request.config.unwrap_or(old.config),
+            input: request.input.unwrap_or(old.input),
+        })
+    } else {
+        None
+    };
+    let replacement = replacement
+        .map(|task| {
+            plugins::validate_config(&task.config)?;
+            plugins::require_encoded_limit(&task.input, 32 * 1024)?;
+            Ok::<_, ApiError>(app.cipher.seal(
+                &schedule_context(&id),
+                &json!({"config":task.config,"input":task.input}),
+            )?)
+        })
+        .transpose()?;
+    let timing = if request.rule.is_some() || request.start_at.is_some() {
+        Some(schedule_timing(
+            request.rule.or(Some(schedule.rule)),
+            None,
+            request.start_at,
+            now_ms(),
+        )?)
+    } else {
+        None
+    };
+    let updated = app
+        .store
+        .edit_schedule(ScheduleEdit {
+            id: &id,
+            name,
+            plugin_id: &request.plugin_id,
+            topic: request.topic.as_deref(),
+            expected_input: &encrypted,
+            encrypted_input: replacement.as_deref(),
+            timing: timing.as_ref().map(|(rule, next)| (rule, *next)),
+        })
+        .await
+        .map_err(|error| match error {
+            anser_store::DataError::Conflict => ApiError::new(
+                StatusCode::CONFLICT,
+                "schedule_edit_conflict",
+                "The schedule is running or changed. Reopen the editor and try again.",
+            ),
+            other => other.into(),
+        })?;
+    Ok(Json(updated))
+}
+
+fn open_task(app: &App, id: &str, encrypted: &[u8]) -> ApiResult<TaskRequest> {
+    let stored = app.cipher.open(&schedule_context(id), encrypted)?;
+    serde_json::from_value(stored).map_err(|_| ApiError::internal())
+}
+
+fn schedule_name(name: &str) -> ApiResult<&str> {
+    let name = name.trim();
+    if name.is_empty() || name.len() > 128 || name.chars().any(char::is_control) {
+        return Err(ApiError::bad("Invalid schedule name"));
+    }
+    Ok(name)
+}
+
+fn require_task(app: &App, id: &str) -> ApiResult<()> {
+    if !app
+        .host
+        .actions()
+        .any(|(descriptor, _)| descriptor.kind == PluginKind::Task && descriptor.id == id)
+    {
+        return Err(ApiError::bad("Select an installed task plugin"));
+    }
+    Ok(())
 }
 
 fn schedule_timing(
@@ -201,10 +341,7 @@ async fn complete_run(app: &App, run: &ScheduledRun) {
 }
 
 async fn execute(app: &App, run: &ScheduledRun) -> ApiResult<Vec<Submission>> {
-    let stored = app
-        .cipher
-        .open(&schedule_context(&run.id), &run.encrypted_input)?;
-    let request: TaskRequest = serde_json::from_value(stored).map_err(|_| ApiError::internal())?;
+    let request = open_task(app, &run.id, &run.encrypted_input)?;
     let output = plugins::execute_task(app, &run.plugin_id, request).await?;
     let available_channels: Vec<_> = app
         .host

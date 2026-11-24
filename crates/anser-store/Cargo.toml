@@ -7,6 +7,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+anser-mcd = { path = "../anser-mcd" }
 tokio = { workspace = true, features = ["sync"] }
 anser-core.workspace = true
 serde.workspace = true

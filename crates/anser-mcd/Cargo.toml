@@ -1,0 +1,13 @@
+[package]
+name = "anser-mcd"
+description = "Parse and validate Markdown-like interaction controls for Anser"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+serde.workspace = true
+schemars = "1"
+thiserror.workspace = true

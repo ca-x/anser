@@ -446,8 +446,21 @@ impl Store {
     }
 
     pub async fn keys(&self, after: &str, limit: u32) -> Result<Page<serde_json::Value>> {
-        let mut keys = sqlx::query_as::<_, ApiKey>("SELECT id, secret_hash, name, scopes AS scopes_json, topic_prefix, expires_at, enabled, created_at, last_used_at, user_id, session FROM api_keys WHERE session=0 AND id<>? AND id>? ORDER BY id LIMIT ?")
-            .bind(crate::scheduled_tasks::RESERVED_SCHEDULE_KEY).bind(after).bind(limit + 1).fetch_all(&self.0).await?;
+        self.keys_with_scope(after, limit, None).await
+    }
+
+    pub async fn keys_with_scope(
+        &self,
+        after: &str,
+        limit: u32,
+        scope: Option<&str>,
+    ) -> Result<Page<serde_json::Value>> {
+        let mut keys = sqlx::query_as::<_, ApiKey>(
+            "SELECT id,secret_hash,name,scopes AS scopes_json,topic_prefix,expires_at,enabled,created_at,last_used_at,user_id,session
+             FROM api_keys WHERE session=0 AND id<>? AND id>? AND
+             (? IS NULL OR EXISTS(SELECT 1 FROM json_each(scopes) WHERE value=?)) ORDER BY id LIMIT ?",
+        ).bind(crate::scheduled_tasks::RESERVED_SCHEDULE_KEY).bind(after)
+        .bind(scope).bind(scope).bind(limit + 1).fetch_all(&self.0).await?;
         let keys = page(&mut keys, limit, |key| &key.id);
         Ok(Page {
             items: keys

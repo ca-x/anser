@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
-  EuiButton, EuiButtonEmpty, EuiFieldPassword, EuiFieldText, EuiFlyout, EuiFlyoutBody, EuiFlyoutHeader, EuiFormRow, EuiTitle,
+  EuiButton, EuiButtonEmpty, EuiIcon, EuiFieldPassword, EuiFieldText, EuiFlyout, EuiFlyoutBody, EuiFlyoutHeader, EuiFormRow, EuiTitle,
 } from "@elastic/eui";
 import { Api, ApiError, errorMessage, type SignIn, type User } from "./api";
 import { SendSession } from "./send-draft";
@@ -22,6 +22,7 @@ import usersIcon from "./assets/icons/user-group.svg?no-inline";
 import keysIcon from "./assets/icons/key.svg?no-inline";
 import pairIcon from "./assets/icons/scan-qr.svg?no-inline";
 import securityIcon from "./assets/icons/shield.svg?no-inline";
+import settingsIcon from "./assets/icons/settings.svg?no-inline";
 import aboutIcon from "./assets/icons/info.svg?no-inline";
 import "./styles.css";
 
@@ -43,30 +44,41 @@ const MessageView = lazy(() => import("./pages/Delivery").then(({ MessageView })
 const Send = lazy(() => import("./pages/Delivery").then(({ Send }) => ({ default: Send })));
 const Security = lazy(() => import("./pages/Security").then(({ Security }) => ({ default: Security })));
 const Proxies = lazy(() => import("./pages/Proxies").then(({ Proxies }) => ({ default: Proxies })));
+const SystemSettings = lazy(() => import("./pages/SystemSettings"));
 const About = lazy(() => import("./pages/About"));
 
 const sessionKey = "anser.auth.session";
 const guest = new Api();
 const compactNavigation = window.matchMedia("(max-width: 740px)");
-const pages = [
-  { path: "/admin", label: "投递总览", icon: overviewIcon },
-  { path: "/admin/send", label: "发送通知", icon: sendIcon },
-  { path: "/admin/messages", label: "投递记录", icon: historyIcon },
-  { path: "/admin/templates", label: "通知模板", icon: templateIcon },
-  { path: "/admin/accounts", label: "渠道账号", icon: accountsIcon },
-  { path: "/admin/channels", label: "插件管理", icon: channelsIcon },
-  { path: "/admin/topics", label: "主题与订阅", icon: topicsIcon },
-  { path: "/admin/routing", label: "默认路由", icon: routingIcon },
-  { path: "/admin/proxies", label: "出站代理", icon: proxyIcon },
-  { path: "/admin/users", label: "用户", icon: usersIcon },
-  { path: "/admin/api-keys", label: "API 密钥", icon: keysIcon },
-  { path: "/admin/pair", label: "配对客户端", icon: pairIcon },
-  { path: "/admin/security", label: "账号安全", icon: securityIcon },
-  { path: "/admin/about", label: "关于", icon: aboutIcon },
+const navigation = [
+  { id: "notifications", label: "通知", items: [
+    { path: "/admin", label: "投递总览", icon: overviewIcon },
+    { path: "/admin/send", label: "发送通知", icon: sendIcon },
+    { path: "/admin/messages", label: "投递记录", icon: historyIcon },
+    { path: "/admin/templates", label: "通知模板", icon: templateIcon },
+    { path: "/admin/schedules", label: "定时任务", icon: historyIcon },
+  ] },
+  { id: "delivery", label: "投递配置", items: [
+    { path: "/admin/accounts", label: "渠道账号", icon: accountsIcon },
+    { path: "/admin/channels", label: "插件管理", icon: channelsIcon },
+    { path: "/admin/topics", label: "主题与订阅", icon: topicsIcon },
+    { path: "/admin/routing", label: "默认路由", icon: routingIcon },
+    { path: "/admin/proxies", label: "出站代理", icon: proxyIcon },
+  ] },
+  { id: "system", label: "系统管理", items: [
+    { path: "/admin/settings", label: "系统设置", icon: settingsIcon },
+    { path: "/admin/users", label: "用户", icon: usersIcon },
+    { path: "/admin/api-keys", label: "API 密钥", icon: keysIcon },
+    { path: "/admin/mcp", label: "MCP", icon: channelsIcon },
+    { path: "/admin/pair", label: "配对客户端", icon: pairIcon },
+    { path: "/admin/security", label: "账号安全", icon: securityIcon },
+    { path: "/admin/about", label: "关于", icon: aboutIcon },
+  ] },
 ] as const;
 
 function pathName() {
-  return window.location.pathname.replace(/\/$/, "") || "/admin";
+  const path = window.location.pathname.replace(/\/$/, "") || "/admin";
+  return path === "/admin/channels/schedules" ? "/admin/schedules" : path;
 }
 
 function readSession() {
@@ -199,15 +211,36 @@ function App() {
 
 function Navigation({ path, navigate, sidebar }: { path: string; navigate: (path: string) => void; sidebar?: boolean }) {
   const t = useT();
+  const current = (target: string) => path === target || (target !== "/admin" && path.startsWith(`${target}/`));
   return <nav className={sidebar ? "sidebar" : undefined} aria-label={t("控制台")}>
-      {[pages.slice(0, 4), pages.slice(4, 9), pages.slice(9)].map((group, index) => <ul className="nav-group" key={index}>{group.map((item) => {
-        const selected = path === item.path || (item.path !== "/admin" && path.startsWith(`${item.path}/`));
-        return <li key={item.path}><a href={item.path} aria-current={selected ? "page" : undefined}
+    {navigation.map((group) => <NavigationSection key={group.id} id={group.id} label={t(group.label)}
+      active={group.items.some((item) => current(item.path))}>
+      <ul className="nav-group">{group.items.map((item) =>
+        <li key={item.path}><a href={item.path} aria-current={current(item.path) ? "page" : undefined}
           onClick={(event) => { if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return; event.preventDefault(); navigate(item.path); }}>
           <img className="nav-icon" src={item.icon} alt="" aria-hidden="true" width="24" height="24" /><span>{t(item.label)}</span>
-        </a></li>;
-      })}</ul>)}
+        </a></li>)}</ul>
+    </NavigationSection>)}
   </nav>;
+}
+
+function NavigationSection({ id, label, active, children }: {
+  id: string; label: string; active: boolean; children: React.ReactNode;
+}) {
+  const key = `anser.nav.${id}`;
+  const [open, setOpen] = useState(() => {
+    try { return active || localStorage.getItem(key) !== "closed"; } catch { return true; }
+  });
+  useEffect(() => { if (active) setOpen(true); }, [active]);
+
+  return <details className="nav-section" open={open} onToggle={(event) => {
+    const next = event.currentTarget.open;
+    setOpen(next);
+    try { localStorage.setItem(key, next ? "open" : "closed"); } catch { /* Preferences are optional. */ }
+  }}>
+    <summary><span>{label}</span><EuiIcon className="nav-section-chevron" type="chevronSingleRight" aria-hidden="true" /></summary>
+    {children}
+  </details>;
 }
 
 function Login({ onLogin }: { onLogin: (result: SignIn) => void }) {
@@ -285,13 +318,13 @@ function Workspace({ path, api, username, sendSession, navigate }: { path: strin
   const detail = /^\/admin\/messages\/([^/]+)$/.exec(path);
   if (detail) return <MessageView api={api} id={decodeSegment(detail[1])} navigate={navigate} />;
   if (path === "/admin/channels/market") return <GithubMarket api={api} navigate={navigate} />;
-  if (path === "/admin/channels/schedules") return <Schedules api={api} navigate={navigate} />;
   if (path === "/admin/channels/announcements" || path === "/admin/topics/plugin-market") return <PluginMarket api={api} navigate={navigate} />;
   const channel = /^\/admin\/channels\/([^/]+)$/.exec(path);
   if (channel) return <ChannelSettings api={api} id={decodeSegment(channel[1])} navigate={navigate} />;
   switch (path) {
     case "/admin/send": return <Send api={api} session={sendSession} navigate={navigate} />;
     case "/admin/messages": return <Messages api={api} navigate={navigate} />;
+    case "/admin/schedules": return <Schedules api={api} />;
     case "/admin/templates": return <Templates api={api} session={sendSession} navigate={navigate} />;
     case "/admin/accounts": return <Accounts api={api} />;
     case "/admin/channels": return <Channels api={api} navigate={navigate} />;
@@ -300,7 +333,9 @@ function Workspace({ path, api, username, sendSession, navigate }: { path: strin
     case "/admin/proxies": return <Proxies api={api} />;
     case "/admin/users": return <Users api={api} />;
     case "/admin/api-keys": return <Keys api={api} />;
+    case "/admin/mcp": return <Keys api={api} mcp />;
     case "/admin/pair": return <Pair api={api} username={username} />;
+    case "/admin/settings": return <SystemSettings api={api} />;
     case "/admin/security": return <Security api={api} />;
     case "/admin/about": return <About api={api} />;
     default: return <Dashboard api={api} navigate={navigate} />;

@@ -559,8 +559,47 @@ impl Store {
             .bind(now)
             .execute(&mut *tx)
             .await?;
-        sqlx::query("DELETE FROM messages WHERE id IN(SELECT m.id FROM messages m WHERE m.retain_until<=? AND NOT EXISTS(SELECT 1 FROM idempotency i WHERE i.message_id=m.id) AND NOT EXISTS(SELECT 1 FROM routes r WHERE r.message_id=m.id AND r.finished=0) AND NOT EXISTS(SELECT 1 FROM callbacks c WHERE c.message_id=m.id AND c.finished=0) LIMIT 500)")
-            .bind(now).execute(&mut *tx).await?;
+        let settings: Option<crate::history::HistoryRetention> =
+            sqlx::query_as("SELECT enabled,days FROM history_retention WHERE id=1")
+                .fetch_optional(&mut *tx)
+                .await?;
+        // Keep receipt keys and all in-flight routes and callbacks, even past the history cutoff.
+        match settings {
+            Some(settings) if settings.enabled => {
+                sqlx::query(
+                    "DELETE FROM messages WHERE id IN(
+                    SELECT m.id FROM messages m
+                    LEFT JOIN topics t ON t.space_id='default' AND t.name=m.topic
+                    WHERE m.created_at<=? - min(?,coalesce((SELECT min(retention) FROM topics WHERE space_id='default'),?))*86400000
+                      AND m.created_at<=? - coalesce(t.retention,?)*86400000
+                      AND NOT EXISTS(SELECT 1 FROM idempotency i WHERE i.message_id=m.id)
+                      AND NOT EXISTS(SELECT 1 FROM routes r WHERE r.message_id=m.id AND r.finished=0)
+                      AND NOT EXISTS(SELECT 1 FROM callbacks c WHERE c.message_id=m.id AND c.finished=0)
+                    ORDER BY m.created_at,m.id LIMIT 500)"
+                )
+                .bind(now)
+                .bind(settings.days)
+                .bind(settings.days)
+                .bind(now)
+                .bind(settings.days)
+                .execute(&mut *tx)
+                .await?;
+            }
+            None => {
+                sqlx::query(
+                    "DELETE FROM messages WHERE id IN(SELECT m.id FROM messages m
+                     WHERE m.retain_until<=?
+                       AND NOT EXISTS(SELECT 1 FROM idempotency i WHERE i.message_id=m.id)
+                       AND NOT EXISTS(SELECT 1 FROM routes r WHERE r.message_id=m.id AND r.finished=0)
+                       AND NOT EXISTS(SELECT 1 FROM callbacks c WHERE c.message_id=m.id AND c.finished=0)
+                     ORDER BY m.retain_until,m.id LIMIT 500)"
+                )
+                .bind(now)
+                .execute(&mut *tx)
+                .await?;
+            }
+            Some(_) => {}
+        }
         tx.commit().await?;
         Ok(())
     }
@@ -1010,6 +1049,21 @@ mod tests {
             .unwrap();
         let stale = store.claim_schedule(now_ms()).await.unwrap().unwrap();
         assert!(store.claim_schedule(now_ms()).await.unwrap().is_none());
+        let (schedule, encrypted) = store.schedule_detail("weather").await.unwrap();
+        assert!(matches!(
+            store
+                .edit_schedule(crate::scheduled_tasks::ScheduleEdit {
+                    id: &schedule.id,
+                    name: "Edited",
+                    plugin_id: &schedule.plugin_id,
+                    topic: None,
+                    expected_input: &encrypted,
+                    encrypted_input: None,
+                    timing: None,
+                })
+                .await,
+            Err(DataError::Conflict)
+        ));
         store.change_schedule("weather", false).await.unwrap();
         store.change_schedule("weather", true).await.unwrap();
         assert!(
@@ -1172,6 +1226,72 @@ mod tests {
         let archived = store.message(id, None, None).await.unwrap();
         assert_eq!(archived.deliveries[0].account_id, "account");
         assert!(archived.deliveries[0].account_name.is_none());
+    }
+
+    #[tokio::test]
+    async fn history_retention_is_optional_and_keeps_active_and_topic_history() {
+        use crate::history::HistoryRetention;
+
+        let (temp, store) = fixture().await;
+        let now = now_ms();
+        let day = 86_400_000;
+        assert!(store.history_retention().await.unwrap().is_none());
+        sqlx::query("INSERT INTO topics(id,space_id,name,retention) VALUES('daily','default','daily',1),('extended','default','extended',30)")
+            .execute(&store.0).await.unwrap();
+        for (id, topic, created) in [
+            ("old", None, now - 8 * day),
+            ("fresh", None, now - day),
+            ("extended", Some("extended"), now - 8 * day),
+            ("daily", Some("daily"), now - 2 * day),
+        ] {
+            sqlx::query("INSERT INTO messages(id,key_id,topic,body,request,status,created_at,retain_until) VALUES(?,'sender',?,'{}','{}','success',?,?)")
+                .bind(id).bind(topic).bind(created).bind(now - 1).execute(&store.0).await.unwrap();
+        }
+        let active = store.enqueue(submission(None)).await.unwrap().message_id;
+        sqlx::query("UPDATE messages SET created_at=?,retain_until=? WHERE id=?")
+            .bind(now - 8 * day)
+            .bind(now - 1)
+            .bind(&active)
+            .execute(&store.0)
+            .await
+            .unwrap();
+        store
+            .set_history_retention(HistoryRetention {
+                enabled: false,
+                days: 7,
+            })
+            .await
+            .unwrap();
+        store.maintain(now, day).await.unwrap();
+        drop(store);
+
+        let store = Store::open(&temp.path().join("test.sqlite3"))
+            .await
+            .unwrap();
+        let saved = store.history_retention().await.unwrap().unwrap();
+        assert!(!saved.enabled);
+        assert_eq!(saved.days, 7);
+        let count: i64 = sqlx::query_scalar("SELECT count(*) FROM messages")
+            .fetch_one(&store.0)
+            .await
+            .unwrap();
+        assert_eq!(count, 5);
+        store
+            .set_history_retention(HistoryRetention {
+                enabled: true,
+                days: 7,
+            })
+            .await
+            .unwrap();
+        store.maintain(now, day).await.unwrap();
+        let ids: Vec<String> = sqlx::query_scalar("SELECT id FROM messages")
+            .fetch_all(&store.0)
+            .await
+            .unwrap();
+        assert_eq!(ids.len(), 3);
+        assert!(ids.contains(&active));
+        assert!(ids.iter().any(|id| id == "fresh"));
+        assert!(ids.iter().any(|id| id == "extended"));
     }
 
     #[tokio::test]

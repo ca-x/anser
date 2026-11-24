@@ -7,12 +7,13 @@ Run this task from **Plugins → Tasks** or with a global administrator request 
   "config": {
     "location": "Shanghai",
     "language": "zh",
-    "units": "metric"
+    "units": "metric",
+    "forecast": "tomorrow"
   }
 }
 ```
 
-The location accepts a city name or airport code. The notification language is `en` or `zh`, and units are `metric` (°C) or `us` (°F). The task uses wttr.in's JSON endpoint and returns a notification draft with current conditions, apparent temperature, and humidity.
+The location accepts a city name or airport code. The notification language is `en` or `zh`, and units are `metric` (°C) or `us` (°F). Set `forecast` to `current` (the default), `today`, `tomorrow`, or `custom`. The current report shows temperature, apparent temperature and humidity. A forecast shows each local date, weather conditions, and the daily low and high. Set `forecast_days` to 1, 2, or 3 in custom mode (default 3). The range starts on the local date of the selected location and uses the three forecast days provided by wttr.in.
 
 | Error | Retryable |
 | --- | --- |

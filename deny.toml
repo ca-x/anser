@@ -13,6 +13,7 @@ unmaintained = "all"
 ignore = [
     { id = "RUSTSEC-2023-0071", reason = "lzc-sdk only signs the fixed application identity locally during token refresh. Anser provides no RSA decryption or arbitrary signing endpoint." },
     { id = "RUSTSEC-2025-0134", reason = "lzc-sdk 0.2.0 uses rustls-pemfile to parse platform-mounted certificates. Replacement depends on the SDK." },
+    { id = "RUSTSEC-2026-0543", reason = "rmcp 3.11.0 requires chrono for protocol timestamps. This is an unmaintained dependency notice; application time calculations use Jiff." },
 ]
 
 [licenses]

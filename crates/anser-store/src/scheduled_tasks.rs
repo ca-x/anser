@@ -33,6 +33,16 @@ pub struct NewSchedule<'a> {
     pub next_at: i64,
 }
 
+pub struct ScheduleEdit<'a> {
+    pub id: &'a str,
+    pub name: &'a str,
+    pub plugin_id: &'a str,
+    pub topic: Option<&'a str>,
+    pub expected_input: &'a [u8],
+    pub encrypted_input: Option<&'a [u8]>,
+    pub timing: Option<(&'a Rule, i64)>,
+}
+
 #[derive(sqlx::FromRow)]
 pub struct ScheduledRun {
     pub id: String,
@@ -70,6 +80,75 @@ impl Store {
             .await?;
         tx.commit().await?;
         Ok(result)
+    }
+
+    pub async fn schedule_detail(&self, id: &str) -> Result<(Schedule, Vec<u8>)> {
+        let mut tx = self.0.begin().await?;
+        let schedule = sqlx::query_as("SELECT * FROM scheduled_task_views WHERE id=?")
+            .bind(id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or(DataError::Missing)?;
+        let encrypted =
+            sqlx::query_scalar("SELECT encrypted_input FROM scheduled_tasks WHERE id=?")
+                .bind(id)
+                .fetch_one(&mut *tx)
+                .await?;
+        tx.commit().await?;
+        Ok((schedule, encrypted))
+    }
+
+    pub async fn edit_schedule(&self, edit: ScheduleEdit<'_>) -> Result<Schedule> {
+        let _writer = self.2.lock().await;
+        let mut tx = self.0.begin_with("BEGIN IMMEDIATE").await?;
+        let topic_id = if let Some(name) = edit.topic {
+            Some(manage::topic(&mut tx, name).await?.id)
+        } else {
+            None
+        };
+        let (rule, next_at) = edit.timing.unzip();
+        let result = sqlx::query(
+            "UPDATE scheduled_tasks SET name=?,plugin_id=?,topic_id=?,
+             encrypted_input=coalesce(?,encrypted_input),
+             interval_minutes=coalesce(?,interval_minutes),rule=coalesce(?,rule),
+             next_at=coalesce(?,next_at),
+             enabled=CASE WHEN ? AND completed=1 THEN 1 ELSE enabled END,
+             completed=CASE WHEN ? THEN 0 ELSE completed END,
+             lease_token=NULL,lease_until=NULL
+             WHERE id=? AND encrypted_input=? AND (lease_until IS NULL OR lease_until<=?)",
+        )
+        .bind(edit.name)
+        .bind(edit.plugin_id)
+        .bind(topic_id)
+        .bind(edit.encrypted_input)
+        .bind(rule.map(|rule| rule.interval_minutes().unwrap_or(1)))
+        .bind(rule.map(Json))
+        .bind(next_at)
+        .bind(next_at.is_some())
+        .bind(next_at.is_some())
+        .bind(edit.id)
+        .bind(edit.expected_input)
+        .bind(now_ms())
+        .execute(&mut *tx)
+        .await?;
+        if result.rows_affected() == 0 {
+            let exists: bool =
+                sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM scheduled_tasks WHERE id=?)")
+                    .bind(edit.id)
+                    .fetch_one(&mut *tx)
+                    .await?;
+            return Err(if exists {
+                DataError::Conflict
+            } else {
+                DataError::Missing
+            });
+        }
+        let schedule = sqlx::query_as("SELECT * FROM scheduled_task_views WHERE id=?")
+            .bind(edit.id)
+            .fetch_one(&mut *tx)
+            .await?;
+        tx.commit().await?;
+        Ok(schedule)
     }
 
     pub async fn change_schedule(&self, id: &str, enabled: bool) -> Result<()> {

@@ -14,7 +14,7 @@ test("creates a template and publishes a topic notification with only template v
     id: "builtin.deployment", name: "builtin.deployment", title: "Deployed {{service}}", body: "",
     format: "text", variables: ["service"], shared: true, builtin: true, can_edit: false,
   }];
-  let created, submitted, key;
+  let created, submitted, key, edited;
   await page.route(url + "/**", (route) => {
     const req = route.request();
     const path = new URL(req.url()).pathname;
@@ -24,12 +24,19 @@ test("creates a template and publishes a topic notification with only template v
     if (path === "/v1/auth/me") return route.fulfill({ json: { id: "1", username: "editor", admin: true, enabled: true } });
     if (path === "/v1/templates" && req.method() === "POST") {
       created = req.postDataJSON();
-      const template = { ...created, id: "custom", variables: ["service", "version"], builtin: false, can_edit: true };
+      const id = created.name === "release" ? "custom" : "copy";
+      const template = { ...created, id, variables: ["service", "version"], builtin: false, can_edit: true };
       list.push(template);
       return route.fulfill({ status: 201, json: template });
     }
     if (path === "/v1/templates") return route.fulfill({ json: { items: list } });
-    if (path === "/v1/templates/custom") return route.fulfill({ json: list[1] });
+    if (path === "/v1/templates/custom") {
+      if (req.method() === "PUT") {
+        edited = req.postDataJSON();
+        Object.assign(list.find(({ id }) => id === "custom"), edited);
+      }
+      return route.fulfill({ json: list.find(({ id }) => id === "custom") });
+    }
     if (path === "/v1/topics") return route.fulfill({ json: { items: [{ name: "alerts", enabled: true }] } });
     if (path === "/v1/topics/alerts/publish") {
       submitted = req.postDataJSON();
@@ -55,6 +62,21 @@ test("creates a template and publishes a topic notification with only template v
   await page.getByLabel("Share template").check();
   await page.getByRole("button", { name: "Save template", exact: true }).click();
   assert.deepEqual(created, { name: "release", title: "{{service}} released", body: "{{version}}", format: "text", shared: true });
+  const row = page.getByRole("row", { name: /release/ });
+  await row.getByRole("button", { name: "Edit template" }).click();
+  await page.getByLabel("Title", { exact: true }).fill("Release of {{service}}");
+  await page.getByRole("button", { name: "Save template", exact: true }).click();
+  await page.getByRole("dialog").waitFor({ state: "hidden" });
+  assert.equal(edited.title, "Release of {{service}}");
+
+  await builtInRow.getByRole("button", { name: "Duplicate and edit", exact: true }).click();
+  assert.equal(await page.getByLabel("Title", { exact: true }).inputValue(), "Deployed {{service}}");
+  assert.equal(await page.getByLabel("Share template").isChecked(), false);
+  await page.getByLabel("Template name").fill("deployment-copy");
+  await page.getByRole("button", { name: "Save template", exact: true }).click();
+  await page.getByRole("dialog").waitFor({ state: "hidden" });
+  await page.getByRole("row", { name: /deployment-copy/ }).waitFor();
+
   await page.getByRole("row", { name: /release/ }).getByRole("button", { name: "Use template", exact: true }).click();
   await page.getByRole("heading", { name: "Send notification", exact: true }).waitFor();
   await page.getByLabel("Send to", { exact: true }).selectOption("topic:alerts");

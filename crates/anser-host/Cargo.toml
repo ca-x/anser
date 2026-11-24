@@ -10,6 +10,7 @@ repository.workspace = true
 certificate-expiration = ["dep:anser-plugin-certificate-expiration"]
 openai-tts = ["dep:anser-plugin-openai-tts"]
 weather-wttr = ["dep:anser-plugin-weather-wttr"]
+weather-open-meteo = ["dep:anser-plugin-weather-open-meteo"]
 chanify = ["dep:anser-plugin-chanify"]
 dingtalk = ["dep:anser-plugin-dingtalk"]
 discord = ["dep:anser-plugin-discord"]
@@ -28,6 +29,7 @@ bark = ["dep:anser-plugin-bark"]
 lazycat = ["dep:anser-plugin-lazycat"]
 
 [dependencies]
+anser-plugin-weather-open-meteo = { path = "../../anser-plugins/weather-open-meteo", optional = true }
 anser-plugin-weather-wttr = { path = "../../anser-plugins/weather-wttr", optional = true }
 anser-plugin-openai-tts = { path = "../../anser-plugins/openai-tts", optional = true }
 anser-plugin-certificate-expiration = { path = "../../anser-plugins/certificate-expiration", optional = true }

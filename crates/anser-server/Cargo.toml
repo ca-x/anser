@@ -14,6 +14,7 @@ path = "src/main.rs"
 certificate-expiration = ["anser-host/certificate-expiration"]
 openai-tts = ["anser-host/openai-tts"]
 weather-wttr = ["anser-host/weather-wttr"]
+weather-open-meteo = ["anser-host/weather-open-meteo"]
 chanify = ["anser-host/chanify"]
 dingtalk = ["anser-host/dingtalk"]
 discord = ["anser-host/discord"]
@@ -29,10 +30,12 @@ ntfy = ["anser-host/ntfy"]
 feishu = ["anser-host/feishu"]
 email = ["anser-host/email"]
 bark = ["anser-host/bark"]
-default = ["bark", "certificate-expiration", "openai-tts", "chanify", "dingtalk", "discord", "email", "feishu", "gotify", "ifttt", "lazycat", "ntfy", "qqbot", "serverchan", "slack", "telegram", "weather-wttr", "wechat-mp", "wecom"]
+default = ["bark", "certificate-expiration", "openai-tts", "chanify", "dingtalk", "discord", "email", "feishu", "gotify", "ifttt", "lazycat", "ntfy", "qqbot", "serverchan", "slack", "telegram", "weather-open-meteo", "weather-wttr", "wechat-mp", "wecom"]
 lazycat = ["anser-host/lazycat"]
 
 [dependencies]
+anser-mcd = { path = "../anser-mcd" }
+rmcp = { version = "=3.11.0", default-features = false, features = ["server", "macros", "transport-streamable-http-server"] }
 anser-channel-http = { path = "../../anser-plugins/http" }
 argon2 = "0.5"
 reqwest.workspace = true

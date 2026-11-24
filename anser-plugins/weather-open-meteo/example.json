@@ -1,0 +1,9 @@
+{
+  "config": {
+    "location": "Shanghai",
+    "country_code": "CN",
+    "language": "zh",
+    "units": "metric",
+    "forecast": "week"
+  }
+}

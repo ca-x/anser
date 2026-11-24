@@ -130,6 +130,7 @@ impl From<anser_store::DataError> for ApiError {
                 )
             }
 
+            InvalidInteractionReply => Self::bad("The reply does not match an available control"),
             InvalidFactor => Self::auth(),
             Sql(_) | Json(_) | Batch => {
                 // Never print database bind values or provider error bodies.

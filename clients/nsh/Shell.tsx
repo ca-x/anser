@@ -601,6 +601,7 @@ function Workspace(props: {
                 return (
                   inbox && (
                     <InboxDetail
+                      api={api}
                       state={inbox}
                       speech={speech}
                       id={route.id}

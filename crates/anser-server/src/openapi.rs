@@ -95,8 +95,17 @@ pub async fn document() -> Json<Value> {
         (
             "/v1/schedules/{id}",
             &[
+                "GET / Read a schedule and its editable options",
+                "PATCH / Edit a schedule",
                 "PUT / Pause or resume a schedule",
                 "DELETE / Delete a schedule",
+            ],
+        ),
+        (
+            "/v1/settings/history-retention",
+            &[
+                "GET / Read the delivery history retention settings",
+                "PUT / Set delivery history retention",
             ],
         ),
         (
@@ -177,6 +186,25 @@ pub async fn document() -> Json<Value> {
             "/v1/inbox",
             &["GET / Read or wait for a native notification"],
         ),
+        (
+            "/v1/settings/mcp",
+            &["GET / Read the configured MCP address"],
+        ),
+        (
+            "/v1/interactions",
+            &["POST / Send a question to a user inbox"],
+        ),
+        (
+            "/v1/interactions/{id}",
+            &["GET / Read the response for the issuing credential"],
+        ),
+        (
+            "/v1/inbox/{id}/interaction",
+            &[
+                "GET / Read a received interaction form",
+                "POST / Submit the recipient's response",
+            ],
+        ),
         ("/v1/inbox/send", &["POST / Send a native notification"]),
         (
             "/v1/inbox/{id}/read",
@@ -244,6 +272,9 @@ pub async fn document() -> Json<Value> {
             }
             if path == "/v1/inbox" {
                 method_params.push(json!({"name":"wait","in":"query","schema":{"type":"boolean"}}));
+            }
+            if method == "GET" && path == "/v1/api-keys" {
+                method_params.push(json!({"name":"scope","in":"query","description":"Filter by an explicit API key scope.","schema":{"type":"string"}}));
             }
             if method == "GET" && path == "/v1/accounts" {
                 method_params.push(json!({"name":"channel","in":"query","description":"Filter by channel plugin ID","schema":{"type":"string"}}));
@@ -398,7 +429,9 @@ fn request_schema(path: &str, method: &str) -> Option<&'static str> {
         ("PUT", "/v1/accounts/{id}") => Some("AccountUpdate"),
         ("POST", "/v1/accounts/{id}/test") => Some("Message"),
         ("POST", "/v1/schedules") => Some("ScheduleInput"),
+        ("PUT", "/v1/settings/history-retention") => Some("HistoryRetention"),
         ("PUT", "/v1/schedules/{id}") => Some("ScheduleState"),
+        ("PATCH", "/v1/schedules/{id}") => Some("ScheduleEdit"),
         ("POST", "/v1/plugins/task/{id}/run") => Some("PluginTaskInput"),
         ("POST", "/v1/plugins/content_transform/{id}/run") => Some("PluginTransformInput"),
         ("PUT", "/v1/channels/{id}/runtime") => Some("ChannelChange"),
@@ -407,6 +440,8 @@ fn request_schema(path: &str, method: &str) -> Option<&'static str> {
         ("POST", "/v1/topics/{name}/subscriptions") => Some("SubscriptionInput"),
         ("POST", "/v1/send" | "/v1/topics/{name}/publish") => Some("Publish"),
         ("POST", "/v1/templates") | ("PUT", "/v1/templates/{id}") => Some("TemplateInput"),
+        ("POST", "/v1/interactions") => Some("InteractionInput"),
+        ("POST", "/v1/inbox/{id}/interaction") => Some("InteractionReply"),
         ("POST", "/v1/inbox/send") => Some("InboxSend"),
         ("POST", "/v1/speech/send") => Some("SpeechSend"),
         _ => None,
@@ -441,8 +476,15 @@ fn success_schema(path: &str, method: &str) -> Option<(&'static str, Value)> {
         ("POST", "/v1/accounts") => ("201", reference("Account")),
         ("GET" | "PUT", "/v1/accounts/{id}") => ("200", reference("Account")),
         ("GET", "/v1/plugins/market") => ("200", page("GithubPlugin")),
+        ("GET", "/v1/settings/mcp") => (
+            "200",
+            json!({"type":"object","properties":{"endpoint":{"type":"string","format":"uri","nullable":true}}}),
+        ),
+        ("GET" | "PUT", "/v1/settings/history-retention") => ("200", reference("HistoryRetention")),
         ("GET", "/v1/schedules") => ("200", page("Schedule")),
         ("POST", "/v1/schedules") => ("201", reference("Schedule")),
+        ("PATCH", "/v1/schedules/{id}") => ("200", reference("Schedule")),
+        ("GET", "/v1/schedules/{id}") => ("200", reference("ScheduleDetail")),
         ("POST", "/v1/schedules/{id}/run") => (
             "202",
             json!({"type":"object","properties":{"queued":{"const":true}}}),
@@ -469,6 +511,11 @@ fn success_schema(path: &str, method: &str) -> Option<(&'static str, Value)> {
         ("GET" | "PUT", "/v1/templates/{id}") => ("200", reference("Template")),
         ("GET", "/v1/messages") => ("200", page("MessageDetail")),
         ("GET", "/v1/messages/{id}") => ("200", reference("MessageDetail")),
+        ("POST", "/v1/interactions") => ("201", reference("Interaction")),
+        ("GET", "/v1/interactions/{id}") | ("POST", "/v1/inbox/{id}/interaction") => {
+            ("200", reference("Interaction"))
+        }
+        ("GET", "/v1/inbox/{id}/interaction") => ("200", reference("InboxInteraction")),
         ("GET", "/v1/inbox") => ("200", page("InboxItem")),
         ("POST", "/v1/inbox/send") => (
             "201",
@@ -593,6 +640,29 @@ fn schemas() -> Value {
             "LazycatDevice":{"type":"object","required":["device_id","name","online"],"properties":{"device_id":string,"name":string,"online":boolean}},
             "InstalledPlugin":{"type":"object","required":["id","kind","display_name","config_schema","enabled","available"],"properties":{"id":string,"kind":{"type":"string","enum":["channel","task","content_transform"]},"display_name":string,"version":string,"config_schema":{"type":"object"},"enabled":boolean,"available":boolean}},
             "GithubPlugin":{"type":"object","properties":{"full_name":string,"description":{"type":["string","null"]},"stargazers_count":integer}},
+        }),
+        json!({
+            "InteractionInput":{"type":"object","required":["recipient","title"],
+                "oneOf":[{"required":["mcd"]},{"required":["form"]}],
+                "properties":{"recipient":string,"title":string,"body":string,"mcd":string,"form":reference("InteractionForm"),
+                    "expires_in_seconds":{"type":"integer","minimum":1,"maximum":86400,"default":3600},"request_key":string}},
+            "InteractionForm":{"type":"object","properties":{
+                "buttons":{"type":"array","maxItems":12,"items":reference("InteractionOption")},
+                "input":{"type":"object","nullable":true,"required":["name","label","submit"],"properties":{
+                    "name":string,"label":string,"submit":string,"placeholder":{"type":"string","nullable":true},
+                    "multiline":{"type":"boolean","default":true},"max_length":{"type":"integer","maximum":4096,"minimum":1,"default":4096}}},
+                "select":{"type":"object","nullable":true,"required":["name","label","submit","options"],"properties":{
+                    "name":string,"label":string,"submit":string,"options":{"type":"array","minItems":1,"maxItems":12,"items":reference("InteractionOption")}}}}},
+            "InteractionOption":{"type":"object","required":["label","value"],"properties":{"label":string,"value":string}},
+            "InteractionReply":{"oneOf":[
+                {"type":"object","required":["kind","value"],"properties":{"kind":{"type":"string","enum":["action","choice"]},"value":string}},
+                {"type":"object","required":["kind","text"],"properties":{"kind":{"type":"string","enum":["text"]},"text":string}}]},
+            "Interaction":{"type":"object","properties":{
+                "id":string,"inbox_id":integer,"expires_at":time,"replied_at":{"type":"integer","nullable":true},
+                "status":{"type":"string","enum":["pending","answered","expired"]},"reply":reference("InteractionReply")}},
+            "InboxInteraction":{"allOf":[reference("Interaction"),{"type":"object","properties":{"form":reference("InteractionForm")}}]},
+        }),
+        json!({
             "ScheduleRule":{"oneOf":[
                 {"type":"object","additionalProperties":false,"required":["kind","minutes"],"properties":{
                     "kind":{"type":"string","enum":["interval"]},"minutes":{"type":"integer","minimum":1,"maximum":43200}}},
@@ -605,6 +675,14 @@ fn schemas() -> Value {
             "ScheduleInput":{"type":"object","additionalProperties":false,"required":["name","plugin_id","config"],
                 "oneOf":[{"required":["rule"]},{"required":["interval_minutes"]}],
                 "properties":{"name":string,"plugin_id":string,"rule":reference("ScheduleRule"),"interval_minutes":{"type":"integer","minimum":1,"maximum":43200,"description":"Legacy fixed interval."},"topic":{"type":["string","null"]},"start_at":{"type":"integer","format":"int64","description":"Optional Unix epoch in milliseconds for interval schedules only."},"config":{"type":"object","writeOnly":true},"input":{"writeOnly":true}}},
+            "ScheduleEdit":{"type":"object","additionalProperties":false,"required":["name","plugin_id"],
+                "properties":{"name":string,"plugin_id":string,"topic":{"type":"string","nullable":true},
+                "rule":reference("ScheduleRule"),"start_at":{"type":"integer","format":"int64"},
+                "config":{"type":"object","writeOnly":true},"input":{"writeOnly":true}},
+                "description":"Omit rule and start_at to retain the next run. Omit config and input to retain them unless changing task plugin."},
+            "ScheduleDetail":{"allOf":[reference("Schedule"),{"type":"object","properties":{"config":{"type":"object","nullable":true,"description":"Editable task options. Private input is omitted."}}}]},
+            "HistoryRetention":{"type":"object","additionalProperties":false,"required":["enabled","days"],
+                "properties":{"enabled":boolean,"days":{"type":"integer","minimum":1,"maximum":3650}}},
             "ScheduleState":{"type":"object","required":["enabled"],"properties":{"enabled":boolean}},
             "Schedule":{"type":"object","properties":{"id":string,"name":string,"plugin_id":string,"topic":{"type":["string","null"]},
                 "rule":reference("ScheduleRule"),"interval_minutes":{"type":"integer","nullable":true},"enabled":boolean,"completed":boolean,
@@ -653,7 +731,7 @@ fn schemas() -> Value {
                 ]}
             }},
             "InboxSend":{"allOf":[reference("Message"),{"type":"object","required":["recipient"],"properties":{"recipient":string}}]},
-            "InboxItem":{"type":"object","properties":{"id":integer,"from_username":string,"topic":string,"title":string,"body":string,"format":string,"created_at":time,"audio_path":{"type":"string","description":"Same-server path to an unexpired MP3, present for voice notifications"},"read_at":time}}
+            "InboxItem":{"type":"object","properties":{"id":integer,"from_username":string,"topic":string,"title":string,"body":string,"format":string,"created_at":time,"audio_path":{"type":"string","description":"Same-server path to an unexpired MP3, present for voice notifications"},"read_at":time,"interaction_id":string}}
         }),
     ] {
         let Value::Object(schemas) = group else {

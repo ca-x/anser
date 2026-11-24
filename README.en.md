@@ -53,6 +53,7 @@ Users can turn on two-factor authentication in their account security settings. 
 - [Notification templates and API examples](docs/notification-templates.en.md)
 - [Plugin authoring skill](.agents/skills/anser-plugin-authoring/SKILL.md)
 - [Scheduled notifications and discovery](docs/scheduled-notifications.md)
+- [User interactions and MCP](docs/interactions.md)
 
 ## Screenshots
 
@@ -133,7 +134,7 @@ List both the proxy host and the notification destination host in `ANSER_OUTBOUN
 
 ## Plugins and voice notifications
 
-The plugin page groups installed plugins into channels, tasks, and content transforms. The certificate task checks multiple HTTPS sites with a configurable warning window. The weather task accepts a city or airport code, language, and units. Under **Plugin management → Scheduled notifications**, choose a task and destination, then set an interval in minutes, hours, or days, a weekly schedule, or a one-time date and time. The server publishes its output to the selected Topic or default route. The marketplace searches public GitHub repositories tagged `anser-plugin`. Topic announcements are a separate view within the marketplace.
+The plugin page groups installed plugins into channels, tasks, and content transforms. The certificate task checks multiple HTTPS sites with a configurable warning window. wttr.in provides current conditions, today, tomorrow, and custom forecasts of 1 to 3 days. The separate Open-Meteo task supports weekly and custom forecasts of 1 to 16 days. Under **Scheduled tasks**, choose a task and destination, then set an interval in minutes, hours, or days, a weekly schedule, or a one-time date and time. The server publishes its output to the selected Topic or default route. The marketplace searches public GitHub repositories tagged `anser-plugin`. Topic announcements are a separate view within the marketplace.
 
 Use **Content transforms → OpenAI TTS** to preview speech or send a voice notification. Connected Anser clients play new voice notifications in order. Recipients can turn off autoplay in the inbox. Other channels receive the text and an expiring audio link. Set `ANSER_PUBLIC_URL` to a reachable HTTPS origin for topic and default-route voice sends.
 
@@ -169,5 +170,7 @@ Open Anser through your signed-in LazyCat app and create a LazyCat channel accou
 | `ANSER_CHANNEL_CONCURRENCY` / `ANSER_ACCOUNT_CONCURRENCY` | 8 concurrent sends per channel and 1 per account |
 | `ANSER_MAX_TTL_SECONDS` / `ANSER_RETENTION_DAYS` | 86,400-second TTL limit and 30-day record retention |
 | `ANSER_QUEUE_LIMIT` / `ANSER_REQUESTS_PER_MINUTE` | 10,000 pending routes and 120,000 requests per credential per minute |
+
+In **System settings**, change how many days to keep delivery history or turn automatic cleanup off. When cleanup is enabled, a Topic's own retention settings take precedence. Personal inboxes and voice attachments follow their existing retention rules.
 
 The server, Web console, and NSH client share one `x.y.z` version. Each notification channel plugin maintains its own version. A matching `vX.Y.Z` tag builds Linux amd64 and arm64 images for GHCR and publishes Docker archives, server binaries, NSH packages, and SHA-256 checksums to GitHub Releases.

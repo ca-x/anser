@@ -6,7 +6,7 @@ import {
 } from "@elastic/eui";
 import { Api, segment, type Account, type Channel, type JsonObject, type Page, type Policy, type Subscription, type Topic } from "../api";
 import { baselinePolicy, modes, PolicyFields } from "../components/PolicyFields";
-import { Confirm, useDate, Drawer, Empty, Failure, JsonInput, More, object, PageTitle, Progress, split, Tags } from "../components/Common";
+import { RowAction, Confirm, useDate, Drawer, Empty, Failure, JsonInput, More, object, PageTitle, Progress, split, Tags } from "../components/Common";
 import { LazycatDeviceField, useDeviceDirectory } from "../components/LazycatDeviceField";
 import { serializeDeviceTarget, type DeviceTarget } from "../form-values";
 import { useMutation, usePage, useResource } from "../resources";
@@ -36,8 +36,9 @@ export function Topics({ api }: { api: Api }) {
           {topic.protected && <EuiBadge iconType="lock">{t("需要密码")}</EuiBadge>}
         </div> },
         { name: t("操作"), render: (topic: Topic) => <div className="row-actions">
-          <EuiButtonEmpty size="xs" onClick={() => setSubscribers(topic)}>{t("订阅")}</EuiButtonEmpty>
-          <EuiButtonEmpty size="xs" color="danger" onClick={() => { remove.clear(); setRemoving(topic); }}>{t("删除")}</EuiButtonEmpty>
+          <RowAction icon="pencil" onClick={() => setEditor(topic)}>{t("编辑")}</RowAction>
+          <RowAction icon="users" onClick={() => setSubscribers(topic)}>{t("订阅")}</RowAction>
+          <RowAction icon="trash" danger onClick={() => { remove.clear(); setRemoving(topic); }}>{t("删除")}</RowAction>
         </div> },
       ]} />
       <More next={topics.next} busy={topics.busy} load={() => void topics.loadMore()} />
@@ -167,7 +168,7 @@ function Subscriptions({ api, topic, accounts, close, moreAccounts }: {
           { field: "account_id", name: t("账号"), render: (id: string | null) => accounts.find((entry) => entry.id === id)?.name ?? id ?? t("主题路由") },
           { field: "filter", name: t("过滤标签"), render: (values: string[]) => <Tags values={values} /> },
           { field: "created_at", name: t("建立时间"), render: date },
-          { name: t("操作"), render: (item: Subscription) => <EuiButtonEmpty color="danger" size="xs" onClick={() => { remove.clear(); setRemoving(item); }}>{t("退订")}</EuiButtonEmpty> },
+          { name: t("操作"), render: (item: Subscription) => <RowAction icon="trash" danger onClick={() => { remove.clear(); setRemoving(item); }}>{t("退订")}</RowAction> },
         ]} /> : !list.error && <Empty title={t("还没有订阅")} description={t("添加接收人并按需要设置消息标签过滤。")} />}
         <More next={list.next} busy={list.busy} load={() => void list.loadMore()} />
       </div>

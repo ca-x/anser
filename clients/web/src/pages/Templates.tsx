@@ -4,13 +4,13 @@ import {
   EuiSwitch, EuiText, EuiTextArea,
 } from "@elastic/eui";
 import { segment, type Api, type NotificationTemplate } from "../api";
-import { Confirm, Drawer, Empty, Failure, More, PageTitle, Progress, Tags } from "../components/Common";
+import { RowAction, Confirm, Drawer, Empty, Failure, More, PageTitle, Progress, Tags } from "../components/Common";
 import { useT } from "../preferences";
 import { useMutation, usePage } from "../resources";
 import type { SendSession } from "../send-draft";
 import { useTemplateName } from "../template-name";
 
-type Editor = { mode: "create" } | { mode: "view" | "edit"; template: NotificationTemplate };
+type Editor = { mode: "create" } | { mode: "view" | "edit" | "copy"; template: NotificationTemplate };
 
 export default function Templates({ api, session, navigate }: {
   api: Api; session: SendSession; navigate: (path: string) => void;
@@ -43,14 +43,15 @@ export default function Templates({ api, session, navigate }: {
         </EuiBadge> },
         { field: "variables", name: t("变量"), render: (variables: string[]) => <Tags values={variables} /> },
         { name: t("操作"), render: (template: NotificationTemplate) => <div className="row-actions">
-          <EuiButtonEmpty size="xs" onClick={() => useTemplate(template)}>{t("使用模板")}</EuiButtonEmpty>
-          <EuiButtonEmpty size="xs" onClick={() => setEditor({ mode: template.can_edit ? "edit" : "view", template })}>
-            {template.can_edit ? t("编辑") : t("查看")}
-          </EuiButtonEmpty>
-          {template.can_edit && <EuiButtonEmpty size="xs" color="danger" onClick={() => {
+          <RowAction icon="plusInCircle" onClick={() => useTemplate(template)}>{t("使用模板")}</RowAction>
+          <RowAction icon={template.can_edit ? "pencil" : "inspect"} onClick={() => setEditor({ mode: template.can_edit ? "edit" : "view", template })}>
+            {template.can_edit ? t("编辑模板") : t("查看")}
+          </RowAction>
+          {!template.can_edit && <RowAction icon="copy" onClick={() => setEditor({ mode: "copy", template })}>{t("复制并编辑")}</RowAction>}
+          {template.can_edit && <RowAction icon="trash" danger onClick={() => {
             remove.clear();
             setRemoving(template);
-          }}>{t("删除")}</EuiButtonEmpty>}
+          }}>{t("删除")}</RowAction>}
         </div> },
       ]} />
       <More next={templates.next} busy={templates.busy} load={() => void templates.loadMore()} />
@@ -79,13 +80,14 @@ function TemplateEditor({ api, editor, close, onDone }: {
   const id = useId();
   const template = editor.mode === "create" ? undefined : editor.template;
   const readOnly = editor.mode === "view";
-  const [name, setName] = useState(template?.name ?? "");
+  const copying = editor.mode === "copy";
+  const [name, setName] = useState(copying ? `${editor.template.name.replace(/^builtin\./, "").slice(0, 75)}.copy` : template?.name ?? "");
   const [title, setTitle] = useState(template?.title ?? "");
   const [body, setBody] = useState(template?.body ?? "");
   const [format, setFormat] = useState<NotificationTemplate["format"]>(template?.format ?? "text");
-  const [shared, setShared] = useState(template?.shared ?? false);
+  const [shared, setShared] = useState(!copying && (template?.shared ?? false));
   const task = useMutation();
-  const heading = template ? templateName(template) : t("创建模板");
+  const heading = copying ? t("复制并编辑模板") : editor.mode === "edit" ? t("编辑模板") : template ? templateName(template) : t("创建模板");
   return <Drawer title={heading} close={close}
     footer={readOnly ? <EuiButton onClick={close}>{t("完成")}</EuiButton> : <>
       <EuiButtonEmpty onClick={close}>{t("取消")}</EuiButtonEmpty>
@@ -95,7 +97,8 @@ function TemplateEditor({ api, editor, close, onDone }: {
       event.preventDefault();
       if (readOnly) return;
       void task.run(async () => {
-        await api.write(template ? `/templates/${segment(template.id)}` : "/templates", template ? "PUT" : "POST",
+        const existing = editor.mode === "edit" ? editor.template.id : undefined;
+        await api.write(existing ? `/templates/${segment(existing)}` : "/templates", existing ? "PUT" : "POST",
           { name, title, body, format, shared });
         onDone();
       });

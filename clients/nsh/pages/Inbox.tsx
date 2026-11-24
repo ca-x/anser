@@ -1,7 +1,7 @@
 import { t } from "nsh/i18n";
 import { announce, cleanup, signal, Text, View } from "nsh";
 import { messageFor, type AnserApi } from "../api";
-import type { Format, InboxItem } from "../contracts";
+import type { Format, InboxInteraction, InboxItem, InteractionReply } from "../contracts";
 import type { SpeechPlayback } from "../components/Speech";
 import type { InboxState } from "../inbox";
 import {
@@ -89,6 +89,7 @@ export function Inbox(props: {
 }
 
 export function InboxDetail(props: {
+  api: AnserApi;
   state: InboxState;
   speech: SpeechPlayback;
   id: number;
@@ -130,6 +131,9 @@ export function InboxDetail(props: {
             <If when={message().audio_path}>
               <Action label={t("speech.play")} onPress={() => props.speech.replay(message())} class="self-start" />
             </If>
+            <If when={message().interaction_id}>
+              <InteractionControls api={props.api} id={props.id} />
+            </If>
             <If when={message().from_username}>
               {(username) => (
                 <Action
@@ -152,6 +156,67 @@ export function InboxDetail(props: {
       </If>
     </WorkspacePage>
   );
+}
+
+function InteractionControls(props: { api: AnserApi; id: number }) {
+  const action = operation();
+  const form = signal<InboxInteraction | undefined>(undefined);
+  const note = signal("");
+  const choice = signal<string | null>(null);
+  const abort = new AbortController();
+  cleanup(() => abort.abort());
+
+  const load = () => void action.run(async () => {
+    form.set(await props.api.inboxInteraction(props.id, abort.signal));
+  });
+  const submit = (reply: InteractionReply) => void action.run(async () => {
+    const result = await props.api.replyToInteraction(props.id, reply);
+    const current = form();
+    if (current && action.live()) {
+      form.set({ ...current, ...result });
+      announce(t("inbox.interaction_answered"));
+    }
+  });
+  load();
+
+  return <View class="gap-3 border-t border-border pt-4">
+    <Problem message={action.problem()} />
+    <If when={form()} else={
+      <If when={action.busy()} else={<Action label={t("inbox.interaction_retry")} onPress={load} />}>
+        <Hint>{t("inbox.interaction_loading")}</Hint>
+      </If>
+    }>
+      {(value) => <If when={value().status === "pending"} else={
+        <Hint>{t(value().status === "answered" ? "inbox.interaction_answered" : "inbox.interaction_expired")}</Hint>
+      }>
+        <Hint>{t("inbox.interaction_expires", { time: localTime(value().expires_at) })}</Hint>
+        <Each of={value().form.buttons} key={(button) => button.value}>
+          {(button) => <Action label={button().label} disabled={action.busy()}
+            onPress={() => submit({ kind: "action", value: button().value })} />}
+        </Each>
+        <If when={value().form.select}>
+          {(field) => <View class="gap-2">
+            <Choice label={field().label} value={choice()} disabled={action.busy()}
+              items={field().options.map((option) => ({ value: option.value, title: option.label }))} onChange={choice.set} />
+            <Action kind="primary" label={field().submit} disabled={action.busy() || choice() == null}
+              onPress={() => { const selected = choice(); if (selected != null) submit({ kind: "choice", value: selected }); }} />
+          </View>}
+        </If>
+        <If when={value().form.input}>
+          {(field) => <View class="gap-2">
+            <Field label={field().label} value={note()} onChange={note.set} disabled={action.busy()}
+              multiline={field().multiline} placeholder={field().placeholder ?? undefined} />
+            <If when={Array.from(note()).length > field().max_length}>
+              <Hint>{t("inbox.interaction_text_limit", { count: field().max_length })}</Hint>
+            </If>
+            <Action kind="primary" label={field().submit}
+              disabled={action.busy() || !note().trim() || Array.from(note()).length > field().max_length}
+              onPress={() => submit({ kind: "text", text: note() })} />
+          </View>}
+        </If>
+      </If>}
+    </If>
+  </View>;
 }
 
 export function inboxDraft(fixedRecipient = "") {

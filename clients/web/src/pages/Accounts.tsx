@@ -6,7 +6,7 @@ import {
 } from "@elastic/eui";
 import { Api, segment, type Account, type Channel, type JsonObject, type OutboundProxy, type Page } from "../api";
 import { useMutation, usePage, useResource } from "../resources";
-import { Confirm, Drawer, Empty, Failure, More, PageTitle, Progress, split, Tags } from "../components/Common";
+import { RowAction, Confirm, Drawer, Empty, Failure, More, PageTitle, Progress, split, Tags } from "../components/Common";
 import { blankMessage, Composer } from "../components/Composer";
 import { LazycatDeviceField, useDeviceDirectory } from "../components/LazycatDeviceField";
 import { initialProxyChoice, proxySettings, serializeConfig, serializeDeviceTarget, usesDevicePicker, type DeviceTarget } from "../form-values";
@@ -55,8 +55,9 @@ export function AccountList({ api, catalog, channel }: {
           return <EuiBadge color={!enabled ? "default" : offline ? "warning" : "success"}>{!enabled ? t("停用") : offline ? t("渠道暂停") : t("启用")}</EuiBadge>;
         } },
         { name: t("操作"), render: (item: Account) => <div className="row-actions">
-          <EuiButtonEmpty size="xs" disabled={!canTest(item)} onClick={() => setTesting(item)}>{t("测试")}</EuiButtonEmpty>
-          <EuiButtonEmpty size="xs" color="danger" onClick={() => { action.clear(); setRemoving(item); }}>{t("删除")}</EuiButtonEmpty>
+          <RowAction icon="pencil" onClick={() => setEditor(item)}>{t("编辑账号")}</RowAction>
+          <RowAction icon="play" disabled={!canTest(item)} onClick={() => setTesting(item)}>{t("测试")}</RowAction>
+          <RowAction icon="trash" danger onClick={() => { action.clear(); setRemoving(item); }}>{t("删除")}</RowAction>
         </div> },
       ]} />
     </div> : !list.error && !list.next && <Empty title={t("还没有渠道账号")} description={available.length ? t("新增一个账号并测试发送，确认凭据与接收端正常。") : undefined} />}

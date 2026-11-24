@@ -297,6 +297,42 @@ test("clears private drafts when disconnecting and signing back in", async () =>
   expect(app.value("label:正文")).toBe("");
 });
 
+test("renders an inbox interaction and submits a declared response", async () => {
+  const app = await open("./App.tsx", {
+    storage: chinesePreferences,
+    platform: "linux",
+    width: 430,
+    network: {
+      ...baseNetwork(),
+      [`${endpoints}/inbox`]: { body: page([{ ...inboxItem, interaction_id: "question1" }], "1") },
+      [`${endpoints}/inbox?*`]: { body: page([], "1") },
+      [`POST ${endpoints}/inbox/1/read`]: { status: 204 },
+      [`${endpoints}/inbox/1/interaction`]: { body: {
+        id: "question1", status: "pending", expires_at: 1893459600000, reply: null,
+        form: { buttons: [{ label: "同意", value: "approve" }],
+          input: { name: "note", label: "附上原因", submit: "发送原因", placeholder: "可输入原因", multiline: false, max_length: 4 },
+          select: null },
+      }},
+      [`POST ${endpoints}/inbox/1/interaction`]: ({ body }) => {
+        expect(JSON.parse(body ?? "{}")).toEqual({ kind: "action", value: "approve" });
+        return { body: { id: "question1", status: "answered", expires_at: 1893459600000,
+          reply: { kind: "action", value: "approve" } } };
+      },
+    },
+  });
+  await login(app);
+  await app.waitFor("收件箱 (1)");
+  await app.press("收件箱 (1)");
+  await app.waitFor("Incoming test");
+  await app.press("查看");
+  await app.waitFor("同意");
+  await app.type("label:附上原因", "超过四个字符");
+  await app.waitFor("请填写不超过 4 个字符。");
+  await app.press("同意");
+  await app.waitFor("回复已提交。");
+  expect(app.shows("同意")).toBe(false);
+});
+
 test("opens a reply to its sender, restores a body-only reply and shows its inbox receipt", async () => {
   const keys: string[] = [];
   const app = await open("./App.tsx", {

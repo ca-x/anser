@@ -6,6 +6,9 @@ import type {
   ChannelRuntime,
   HistoryEntry,
   InboxItem,
+  InboxInteraction,
+  Interaction,
+  InteractionReply,
   InstalledPlugin,
   JsonObject,
   LazycatDevices,
@@ -292,6 +295,12 @@ export class AnserApi {
       undefined,
       signal,
     );
+  }
+  inboxInteraction(id: number, signal?: AbortSignal) {
+    return this.request<InboxInteraction>(`/inbox/${id}/interaction`, "GET", undefined, signal);
+  }
+  replyToInteraction(id: number, reply: InteractionReply) {
+    return this.request<Interaction>(`/inbox/${id}/interaction`, "POST", reply);
   }
   readInbox(id: number) {
     return this.request<void>(`/inbox/${id}/read`, "POST");

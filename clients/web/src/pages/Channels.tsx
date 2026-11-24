@@ -2,7 +2,7 @@ import { useState, type MouseEvent } from "react";
 import { EuiBadge, EuiButton, EuiButtonEmpty, EuiLink, EuiTab, EuiTabs, EuiText } from "@elastic/eui";
 import { Api, segment, type Channel, type ChannelRuntime, type InstalledPlugin, type Page } from "../api";
 import { PluginRunner } from "../components/PluginRunner";
-import { Confirm, Empty, Failure, PageTitle, Progress } from "../components/Common";
+import { RowAction, Confirm, Empty, Failure, PageTitle, Progress } from "../components/Common";
 import { pluginLabel } from "../form-values";
 import { useChannelName, useLanguage, useT } from "../preferences";
 import { useMutation, useResource } from "../resources";
@@ -32,13 +32,12 @@ const pluginGroups = [
 ] as const;
 
 export function PluginsWorkspace({ tab, navigate, children }: {
-  tab: "built-in" | "market" | "schedules"; navigate: Navigate; children: React.ReactNode;
+  tab: "built-in" | "market"; navigate: Navigate; children: React.ReactNode;
 }) {
   const t = useT();
   const tabs = [
     ["built-in", listPath, "内置插件"],
     ["market", `${listPath}/market`, "插件市场"],
-    ["schedules", `${listPath}/schedules`, "定时推送"],
   ] as const;
   const panel = "plugin-workspace-panel";
   return <>
@@ -81,11 +80,11 @@ export function Channels({ api, navigate }: { api: Api; navigate: Navigate }) {
           <h2>{plugin.kind === "channel" ? <EuiLink href={path} onClick={(event) => follow(event, path, navigate)}>{name(plugin)}</EuiLink> : name(plugin)}</h2>
           <div className="plugin-tile-actions">
             {plugin.version && <span className="muted">{plugin.version}</span>}
-            {plugin.kind === "channel" ? <EuiButtonEmpty size="xs" href={path} onClick={(event: MouseEvent<HTMLAnchorElement>) => follow(event, path, navigate)}>{t("配置插件")}</EuiButtonEmpty>
-              : <EuiButtonEmpty size="xs" onClick={() => setActive(plugin)} disabled={!plugin.available}
-                aria-label={t("运行 {name}", { name: name(plugin) })}>{t("运行插件")}</EuiButtonEmpty>}
-            {plugin.kind === "task" && <EuiButtonEmpty size="xs" iconType="clock" href={`${listPath}/schedules?plugin=${segment(plugin.id)}`}
-              onClick={(event: MouseEvent<HTMLAnchorElement>) => follow(event, `${listPath}/schedules?plugin=${segment(plugin.id)}`, navigate)}>{t("创建定时推送")}</EuiButtonEmpty>}
+            {plugin.kind === "channel" ? <RowAction icon="gear" href={path} onClick={(event) => follow(event, path, navigate)}>{t("配置插件")}</RowAction>
+              : <RowAction icon="play" onClick={() => setActive(plugin)} disabled={!plugin.available}
+                label={t("运行 {name}", { name: name(plugin) })}>{t("运行插件")}</RowAction>}
+            {plugin.kind === "task" && <RowAction icon="clock" href={`/admin/schedules?plugin=${segment(plugin.id)}`}
+              onClick={(event) => follow(event, `/admin/schedules?plugin=${segment(plugin.id)}`, navigate)}>{t("创建定时推送")}</RowAction>}
           </div>
         </li>;
       })}

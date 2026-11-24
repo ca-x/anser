@@ -2247,7 +2247,8 @@ async fn templates_render_once_in_the_queue_and_respect_visibility() {
 #[cfg(all(
     feature = "certificate-expiration",
     feature = "openai-tts",
-    feature = "weather-wttr"
+    feature = "weather-wttr",
+    feature = "weather-open-meteo"
 ))]
 #[tokio::test]
 async fn installed_plugins_group_typed_actions_and_require_global_admin_to_run() {
@@ -2266,16 +2267,17 @@ async fn installed_plugins_group_typed_actions_and_require_global_admin_to_run()
     let sender = json_string(&private_key, "token");
     let inventory: Value = server.get("/v1/plugins", Some(sender)).await;
     let installed = inventory["items"].as_array().unwrap();
-    for (kind, expected) in [
-        ("task", "certificate-expiration"),
-        ("task", "wttr-weather"),
-        ("content_transform", "openai-tts"),
+    for (kind, expected, version) in [
+        ("task", "certificate-expiration", "0.1.0"),
+        ("task", "wttr-weather", "0.2.0"),
+        ("task", "open-meteo-weather", "0.1.0"),
+        ("content_transform", "openai-tts", "0.1.0"),
     ] {
         assert!(installed.iter().any(|plugin| {
             plugin["id"] == expected
                 && plugin["kind"] == kind
                 && plugin["available"] == true
-                && plugin["version"] == "0.1.0"
+                && plugin["version"] == version
         }));
     }
 
@@ -2346,6 +2348,30 @@ async fn schedule_api_accepts_legacy_and_weekly_rules_and_finishes_a_due_one_tim
         .await;
     assert_eq!(legacy["interval_minutes"], 120);
     assert_eq!(legacy["rule"], json!({"kind":"interval","minutes":120}));
+    let legacy_path = format!("{SCHEDULES}/{}", json_string(&legacy, "id"));
+    let detail: Value = server.get(&legacy_path, Some(&admin)).await;
+    assert_eq!(detail["config"], json!({"location":""}));
+    assert!(detail.get("input").is_none());
+    let edited: Value = server
+        .json(
+            Method::PATCH,
+            &legacy_path,
+            Some(&admin),
+            json!({"name":"Edited weather","plugin_id":"wttr-weather","topic":null,
+            "config":{"location":"Paris","forecast":"custom","forecast_days":3},"input":{"private":"never returned"}}),
+            StatusCode::OK,
+        )
+        .await;
+    assert_eq!(edited["name"], "Edited weather");
+    assert_eq!(edited["next_at"], legacy["next_at"]);
+    assert_eq!(edited["rule"], legacy["rule"]);
+    assert!(edited.get("config").is_none());
+    let detail: Value = server.get(&legacy_path, Some(&admin)).await;
+    assert_eq!(
+        detail["config"],
+        json!({"location":"Paris","forecast":"custom","forecast_days":3})
+    );
+    assert!(detail.get("input").is_none());
 
     let rule = json!({"kind":"weekly","weekdays":[1,7],"time":"08:30","time_zone":"Asia/Shanghai"});
     let weekly: Value = server
@@ -2441,6 +2467,255 @@ async fn schedule_api_accepts_legacy_and_weekly_rules_and_finishes_a_due_one_tim
     assert_eq!(error["code"], "not_found");
     let schedules: Value = restarted.get(SCHEDULES, Some(&admin)).await;
     assert!(schedules["items"].as_array().unwrap().contains(&finished));
+    let next = now_ms() + 600_000;
+    let rearmed: Value = restarted.json(
+        Method::PATCH,
+        &format!("{SCHEDULES}/{id}"),
+        Some(&admin),
+        json!({"name":"Weather again","plugin_id":"wttr-weather","topic":null,"rule":{"kind":"once","at":next}}),
+        StatusCode::OK,
+    ).await;
+    assert_eq!(rearmed["next_at"], next);
+    assert_eq!(rearmed["enabled"], true);
+    assert_eq!(rearmed["completed"], false);
+    assert_eq!(rearmed["last_at"], finished["last_at"]);
+}
+
+#[tokio::test]
+async fn mcp_sends_a_durable_interaction_and_wakes_when_only_the_recipient_replies() {
+    async fn mcp(server: &Server, key: &str, method: &str, params: Value) -> Value {
+        let response = server
+            .request(Method::POST, "/mcp", Some(key))
+            .header("Accept", "application/json, text/event-stream")
+            .json(&json!({"jsonrpc":"2.0","method":method,"id":1,"params":params}))
+            .send()
+            .await
+            .unwrap();
+        checked_json(response, StatusCode::OK).await
+    }
+
+    let temp = tempfile::tempdir().unwrap();
+    let db = temp.path().join("anser.sqlite3");
+    let server = Server::start(&db);
+    let admin = server.login(BOOTSTRAP_USER, BOOTSTRAP_PASSWORD).await;
+    for name in ["alice", "bob"] {
+        let _: Value = server
+            .json(
+                Method::POST,
+                "/v1/users",
+                Some(&admin),
+                json!({"username":name,"password":ACCOUNT_PASSWORD,"admin":false}),
+                StatusCode::CREATED,
+            )
+            .await;
+    }
+    let alice = server.login("alice", ACCOUNT_PASSWORD).await;
+    let bob = server.login("bob", ACCOUNT_PASSWORD).await;
+    let issue = |name, scopes| {
+        server.json::<Value>(
+            Method::POST,
+            "/v1/api-keys",
+            Some(&admin),
+            json!({"name":name,"scopes":scopes}),
+            StatusCode::CREATED,
+        )
+    };
+    let owner = issue("owner", vec!["interact"]).await;
+    let owner = json_string(&owner, "token");
+    let other = issue("other", vec!["interact"]).await;
+    let other = json_string(&other, "token");
+    let sender = issue("sender", vec!["send"]).await;
+    let sender = json_string(&sender, "token");
+    let keys: Value = server
+        .get("/v1/api-keys?scope=interact&limit=8", Some(&admin))
+        .await;
+    let items = keys["items"].as_array().unwrap();
+    assert_eq!(items.len(), 2);
+    assert!(
+        items
+            .iter()
+            .all(|item| item["scopes"] == json!(["interact"]))
+    );
+    let settings: Value = server.get("/v1/settings/mcp", Some(&admin)).await;
+    assert!(settings["endpoint"].is_null());
+
+    for key in [sender, &admin] {
+        let denied = server
+            .request(Method::POST, "/mcp", Some(key))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(denied.status(), StatusCode::FORBIDDEN);
+    }
+    let denied = server
+        .request(Method::POST, "/mcp", Some(owner))
+        .header("Origin", "https://other.example")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(denied.status(), StatusCode::FORBIDDEN);
+    let initialized = mcp(&server, owner, "initialize", json!({
+        "protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"test","version":"1"}
+    })).await;
+    assert_eq!(initialized["result"]["serverInfo"]["name"], "anser");
+    let tools = mcp(&server, owner, "tools/list", json!({})).await;
+    assert_eq!(tools["result"]["tools"].as_array().unwrap().len(), 2);
+    let parameters = json!({"name":"ask_user","arguments":{
+        "recipient":"alice","title":"Approve release","body":"Preview is ready",
+        "request_key":"build-42","mcd":":::buttons\n- [Approve](yes)\n- [Later](later)\n:::"
+    }});
+    let asked = mcp(&server, owner, "tools/call", parameters.clone()).await;
+    let question = &asked["result"]["structuredContent"];
+    assert_eq!(question["status"], "pending");
+    let id = json_string(question, "id");
+    let receipt = question["inbox_id"].as_i64().unwrap();
+    let duplicate = mcp(&server, owner, "tools/call", parameters).await;
+    assert_eq!(duplicate["result"]["structuredContent"]["id"], id);
+    let own_inbox: Value = server.get("/v1/inbox", Some(&alice)).await;
+    assert_eq!(own_inbox["items"].as_array().unwrap().len(), 1);
+    assert_eq!(own_inbox["items"][0]["interaction_id"], id);
+
+    let inbox = format!("/v1/inbox/{receipt}/interaction");
+    let result_path = format!("/v1/interactions/{id}");
+    for (url, credentials) in [(&inbox, bob.as_str()), (&result_path, other)] {
+        let denied = server
+            .request(Method::GET, url, Some(credentials))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(denied.status(), StatusCode::NOT_FOUND);
+    }
+    let form: Value = server.get(&inbox, Some(&alice)).await;
+    assert_eq!(form["form"]["buttons"][0]["value"], "yes");
+    let unexplained: Value = server
+        .json(
+            Method::POST,
+            &inbox,
+            Some(&alice),
+            json!({"kind":"action","value":"unlisted"}),
+            StatusCode::BAD_REQUEST,
+        )
+        .await;
+    assert_eq!(unexplained["code"], "invalid_request");
+
+    let wait = mcp(
+        &server,
+        owner,
+        "tools/call",
+        json!({"name":"get_interaction","arguments":{"id":id,"wait_seconds":2}}),
+    );
+    let respond = async {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        server
+            .json::<Value>(
+                Method::POST,
+                &inbox,
+                Some(&alice),
+                json!({"kind":"action","value":"yes"}),
+                StatusCode::OK,
+            )
+            .await
+    };
+    let (read, answer) = tokio::join!(wait, respond);
+    assert_eq!(read["result"]["structuredContent"], answer);
+    assert_eq!(answer["status"], "answered");
+    let retried: Value = server
+        .json(
+            Method::POST,
+            &inbox,
+            Some(&alice),
+            json!({"kind":"action","value":"yes"}),
+            StatusCode::OK,
+        )
+        .await;
+    assert_eq!(retried, answer);
+    let changed: Value = server
+        .json(
+            Method::POST,
+            &inbox,
+            Some(&alice),
+            json!({"kind":"action","value":"later"}),
+            StatusCode::CONFLICT,
+        )
+        .await;
+    assert_eq!(changed["code"], "conflict");
+
+    let structured: Value = server
+        .json(
+            Method::POST,
+            "/v1/interactions",
+            Some(owner),
+            json!({
+                "recipient":"alice","title":"Environment","expires_in_seconds":1,
+                "form":{"select":{"name":"env","label":"Environment","submit":"Choose",
+                    "options":[{"label":"Preview","value":"preview"}]}}
+            }),
+            StatusCode::CREATED,
+        )
+        .await;
+    let structured_path = format!("/v1/interactions/{}", json_string(&structured, "id"));
+    let expired = mcp(
+        &server,
+        owner,
+        "tools/call",
+        json!({"name":"get_interaction","arguments":{
+            "id":structured["id"],"wait_seconds":2
+        }}),
+    )
+    .await;
+    assert_eq!(expired["result"]["structuredContent"]["status"], "expired");
+    drop(server);
+
+    let restarted = Server::start(&db);
+    let fetched: Value = restarted.get(&result_path, Some(owner)).await;
+    assert_eq!(fetched, answer);
+    let expired: Value = restarted.get(&structured_path, Some(owner)).await;
+    assert_eq!(expired["status"], "expired");
+}
+
+#[tokio::test]
+async fn history_retention_settings_require_global_admin_and_survive_restart() {
+    const SETTINGS: &str = "/v1/settings/history-retention";
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("anser.sqlite3");
+    let server = Server::with_environment(&path, "", &[("ANSER_RETENTION_DAYS", "29")]);
+    let admin = server.login(BOOTSTRAP_USER, BOOTSTRAP_PASSWORD).await;
+    let default: Value = server.get(SETTINGS, Some(&admin)).await;
+    assert_eq!(default, json!({"enabled":true,"days":29}));
+    for (body, status) in [
+        (json!({"enabled":false,"days":0}), StatusCode::BAD_REQUEST),
+        (json!({"enabled":false,"days":45}), StatusCode::OK),
+    ] {
+        let response: Value = server
+            .json(Method::PUT, SETTINGS, Some(&admin), body.clone(), status)
+            .await;
+        if status.is_success() {
+            assert_eq!(response, body);
+        }
+    }
+    let private_key: Value = server
+        .json(
+            Method::POST,
+            "/v1/api-keys",
+            Some(&admin),
+            json!({"name":"test sender","scopes":["send"]}),
+            StatusCode::CREATED,
+        )
+        .await;
+    let denied: Value = server
+        .json(
+            Method::PUT,
+            SETTINGS,
+            Some(json_string(&private_key, "token")),
+            json!({"enabled":true,"days":1}),
+            StatusCode::FORBIDDEN,
+        )
+        .await;
+    assert_eq!(denied["code"], "forbidden");
+    drop(server);
+    let restarted = Server::start(&path);
+    let current: Value = restarted.get(SETTINGS, Some(&admin)).await;
+    assert_eq!(current, json!({"enabled":false,"days":45}));
 }
 
 #[tokio::test]

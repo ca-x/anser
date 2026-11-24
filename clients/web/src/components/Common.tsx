@@ -1,9 +1,9 @@
 import { useLanguage, useT } from "../preferences";
-import type { ReactNode } from "react";
+import type { MouseEventHandler, ReactNode } from "react";
 import {
-  EuiBadge, EuiButton, EuiButtonEmpty, EuiCallOut, EuiConfirmModal, EuiEmptyPrompt,
+  EuiBadge, EuiButton, EuiButtonEmpty, EuiButtonIcon, EuiCallOut, EuiConfirmModal, EuiEmptyPrompt,
   EuiFlyout, EuiFlyoutBody, EuiFlyoutFooter, EuiFlyoutHeader, EuiFormRow, EuiLoadingSpinner,
-  EuiText, EuiTextArea, EuiTitle,
+  EuiText, EuiTextArea, EuiTitle, EuiToolTip, type IconType,
 } from "@elastic/eui";
 import { useId, useMemo } from "react";
 import type { JsonObject } from "../api";
@@ -16,6 +16,21 @@ export function PageTitle({ title, action, description }: { title: string; actio
     </div>
     {action && <div className="page-actions">{action}</div>}
   </header>;
+}
+
+export function RowAction({ icon, children, onClick, disabled, danger, href, label }: {
+  icon: IconType; children: string; onClick?: MouseEventHandler<HTMLElement>; disabled?: boolean; danger?: boolean;
+  href?: string; label?: string;
+}) {
+  const button = { "aria-label": label ?? children, onClick };
+  const iconButton = { ...button, iconType: icon, size: "s", color: danger ? "danger" : "text" } as const;
+  return <>
+    <span className="row-action-desktop"><EuiToolTip content={children}>
+      {href ? <EuiButtonIcon {...iconButton} href={href} /> : <EuiButtonIcon {...iconButton} disabled={disabled} />}
+    </EuiToolTip></span>
+    <span className="row-action-mobile"><EuiButtonEmpty {...button} size="xs" color={danger ? "danger" : "text"}
+      href={href} disabled={disabled}>{children}</EuiButtonEmpty></span>
+  </>;
 }
 
 export function Failure({ message, retry }: { message?: string; retry?: () => void }) {

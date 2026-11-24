@@ -4,7 +4,7 @@ import {
   EuiFieldText, EuiFormRow, EuiSwitch,
 } from "@elastic/eui";
 import { Api, ApiError, segment, type OutboundProxy } from "../api";
-import { Confirm, Drawer, Empty, Failure, More, PageTitle, Progress } from "../components/Common";
+import { RowAction, Confirm, Drawer, Empty, Failure, More, PageTitle, Progress } from "../components/Common";
 import { useT } from "../preferences";
 import { useMutation, usePage } from "../resources";
 
@@ -28,8 +28,9 @@ export function Proxies({ api }: { api: Api }) {
         { field: "authenticated", name: t("身份验证"), render: (authenticated: boolean) =>
           <EuiBadge color={authenticated ? "primary" : "default"}>{t(authenticated ? "已配置凭据" : "无凭据")}</EuiBadge> },
         { name: t("操作"), render: (proxy: OutboundProxy) => <div className="row-actions">
-          <EuiButtonEmpty size="xs" onClick={() => setTesting(proxy)}>{t("测试连接")}</EuiButtonEmpty>
-          <EuiButtonEmpty size="xs" color="danger" onClick={() => { remove.clear(); setRemoving(proxy); }}>{t("删除")}</EuiButtonEmpty>
+          <RowAction icon="pencil" onClick={() => setEditor(proxy)}>{t("编辑")}</RowAction>
+          <RowAction icon="play" onClick={() => setTesting(proxy)}>{t("测试连接")}</RowAction>
+          <RowAction icon="trash" danger onClick={() => { remove.clear(); setRemoving(proxy); }}>{t("删除")}</RowAction>
         </div> },
       ]} />
       <More next={list.next} busy={list.busy} load={() => { void list.loadMore(); }} />

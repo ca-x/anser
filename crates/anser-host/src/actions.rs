@@ -13,7 +13,8 @@ use crate::lifecycle::{Factory, Lifecycle};
     test,
     feature = "certificate-expiration",
     feature = "openai-tts",
-    feature = "weather-wttr"
+    feature = "weather-wttr",
+    feature = "weather-open-meteo"
 ))]
 macro_rules! action_plugin {
     ($module:ident, $name:literal, $plugin:ty, $contract:ident, $method:ident, $input:ty, $output:ty) => {
@@ -102,6 +103,17 @@ action_plugin!(
     anser_plugin_api::TaskOutput
 );
 
+#[cfg(feature = "weather-open-meteo")]
+action_plugin!(
+    open_meteo_weather,
+    "anser.task.open-meteo-weather",
+    anser_plugin_weather_open_meteo::OpenMeteoWeather,
+    TaskService,
+    run,
+    Value,
+    anser_plugin_api::TaskOutput
+);
+
 struct Registration {
     kind: PluginKind,
     id: &'static str,
@@ -120,6 +132,12 @@ const BUILT_INS: &[Registration] = &[
         kind: PluginKind::Task,
         id: "wttr-weather",
         factory: |root| root.plugin(wttr_weather::Plugin),
+    },
+    #[cfg(feature = "weather-open-meteo")]
+    Registration {
+        kind: PluginKind::Task,
+        id: "open-meteo-weather",
+        factory: |root| root.plugin(open_meteo_weather::Plugin),
     },
     #[cfg(test)]
     Registration {

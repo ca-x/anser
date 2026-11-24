@@ -27,6 +27,11 @@ test("groups installed plugins by capability and renders website list options su
   ];
   let payload;
   let schedule;
+  let updated;
+  const finishedSchedule = () => ({
+    ...schedule, id: "test", enabled: false, completed: true, next_at: null,
+    last_at: Date.now(), last_status: "success", last_count: 1,
+  });
   await page.route(site + "/**", (route) => {
     const path = new URL(route.request().url()).pathname;
     if (path.startsWith("/admin")) return route.fulfill({ path: fileURLToPath(new URL("index.html", dist)) });
@@ -39,11 +44,15 @@ test("groups installed plugins by capability and renders website list options su
         schedule = route.request().postDataJSON();
         return route.fulfill({ status: 201, json: { id: "test" } });
       }
-      const items = schedule?.rule.kind === "once" ? [{
-        ...schedule, id: "test", enabled: false, completed: true, next_at: null,
-        last_at: Date.now(), last_status: "success", last_count: 1,
-      }] : [];
+      const items = schedule?.rule.kind === "once" ? [finishedSchedule()] : [];
       return route.fulfill({ json: { items } });
+    }
+    if (path === "/v1/schedules/test") {
+      if (route.request().method() === "PATCH") {
+        updated = route.request().postDataJSON();
+        schedule = { ...schedule, ...updated };
+      }
+      return route.fulfill({ json: finishedSchedule() });
     }
     if (path === "/v1/topics") return route.fulfill({ json: { items: [{ name: "alerts", enabled: true }] } });
     if (path === "/v1/plugins/task/certificate-expiration/run") {
@@ -72,6 +81,8 @@ test("groups installed plugins by capability and renders website list options su
   await page.keyboard.press("Escape");
   await dialog.waitFor({ state: "hidden" });
   await page.getByRole("link", { name: "Schedule a notification" }).click();
+  await page.waitForURL("**/admin/schedules?plugin=certificate-expiration");
+  await page.getByRole("heading", { name: "Scheduled tasks", exact: true }).waitFor();
   const fillSchedule = async (name) => {
     await dialog.getByLabel("Name", { exact: true }).fill(name);
     await dialog.getByLabel("Website URLs").fill("https://example.com");
@@ -122,5 +133,17 @@ test("groups installed plugins by capability and renders website list options su
   await finished.getByText("Finished", { exact: true }).waitFor();
   assert.ok(await finished.getByRole("button", { name: "Run now" }).isDisabled());
   assert.ok(await finished.getByRole("button", { name: "Resume" }).isDisabled());
+  await finished.getByRole("button", { name: "Edit", exact: true }).click();
+  assert.equal(await dialog.getByLabel("Website URLs").inputValue(), "https://example.com");
+  assert.equal(await dialog.getByLabel("Run date and time").inputValue(), at);
+  await dialog.getByLabel("Name", { exact: true }).fill("Renamed TLS check");
+  await dialog.getByLabel("Warning days").fill("14");
+  await save();
+  assert.deepEqual(updated, {
+    name: "Renamed TLS check", plugin_id: "certificate-expiration", topic: "alerts",
+    config: { urls: ["https://example.com"], warning_days: 14 },
+  });
+  await page.getByRole("row", { name: /Renamed TLS check/ }).waitFor();
+
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
 });

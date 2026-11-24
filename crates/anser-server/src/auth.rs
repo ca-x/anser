@@ -492,7 +492,14 @@ pub async fn keys(
     ApiQuery(page): ApiQuery<Pagination>,
 ) -> ApiResult<impl axum::response::IntoResponse> {
     identity.admin_global()?;
-    Ok(Json(app.store.keys(page.after(), page.limit()).await?))
+    Ok(Json(match page.scope.as_deref() {
+        Some(scope) => {
+            app.store
+                .keys_with_scope(page.after(), page.limit(), Some(scope))
+                .await?
+        }
+        None => app.store.keys(page.after(), page.limit()).await?,
+    }))
 }
 
 #[derive(Serialize)]
@@ -511,11 +518,11 @@ pub async fn add_key(
     if input.name.trim().is_empty()
         || input.name.len() > 128
         || input.scopes.is_empty()
-        || input.scopes.len() > 3
+        || input.scopes.len() > 4
         || input
             .scopes
             .iter()
-            .any(|scope| !matches!(scope.as_str(), "send" | "subscribe" | "admin"))
+            .any(|scope| !matches!(scope.as_str(), "send" | "subscribe" | "interact" | "admin"))
         || input.expires_at.is_some_and(|value| value <= now_ms())
         || input
             .topic_prefix
@@ -573,7 +580,7 @@ pub async fn rotate_key(
     Ok(Json(IssuedKey { token, key }))
 }
 
-fn valid_username(username: &str) -> bool {
+pub(crate) fn valid_username(username: &str) -> bool {
     (1..=64).contains(&username.len())
         && username
             .bytes()

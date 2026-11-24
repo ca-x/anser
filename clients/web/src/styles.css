@@ -98,8 +98,23 @@ code { overflow-wrap: anywhere; }
   background: var(--rail);
   border-inline-end: 1px solid var(--rule);
 }
-.nav-group { margin: 0; list-style: none; padding: 8px 0; }
-.nav-group + .nav-group { border-top: 1px solid var(--rule); margin-top: 6px; padding-top: 12px; }
+.nav-section + .nav-section { border-top: 1px solid var(--rule); margin-top: 6px; padding-top: 6px; }
+.nav-section summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 42px;
+  padding-inline: 13px;
+  border-radius: 8px;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.nav-section summary::-webkit-details-marker { display: none; }
+.nav-section[open] .nav-section-chevron { transform: rotate(90deg); }
+.nav-group { margin: 0; list-style: none; padding: 2px 0 8px 7px; }
 .nav-group li { margin: 3px 0; }
 .nav-group a { position: relative; display: flex; align-items: center; gap: 11px; padding: 10px 13px; min-height: 42px; border-radius: 8px; color: var(--muted); font-size: 14px; }
 .nav-group a[aria-current="page"] { background: var(--selected); color: var(--accent); font-weight: 700; }
@@ -256,7 +271,7 @@ code { overflow-wrap: anywhere; }
   .shell-header .nav-trigger { display: inline-flex; min-height: 44px; }
   .sidebar { display: none; }
   .console-navigation-flyout .nav-group { padding-block: 4px; }
-  .console-navigation-flyout .nav-group + .nav-group { padding-block-start: 10px; }
+  .console-navigation-flyout .nav-section summary { min-height: 44px; }
   .nav-group a { min-height: 44px; }
   .workspace { padding: 24px 16px 46px; }
   .page-title { align-items: start; flex-direction: column; margin-bottom: 18px; }
@@ -375,3 +390,13 @@ code { overflow-wrap: anywhere; }
 .plugin-tile-actions { min-height: 24px; }
 .plugin-search { display: flex; align-items: end; gap: 10px; }
 .plugin-search > :first-child { flex: 1; min-width: 0; }
+
+
+.row-action-desktop { display: inline-flex; align-items: center; }
+.row-action-mobile { display: none; }
+
+@media (max-width: 740px) {
+  .row-action-desktop { display: none; }
+  .row-action-mobile { display: inline-flex; }
+  .row-action-mobile .euiButtonEmpty { min-height: 44px; }
+}

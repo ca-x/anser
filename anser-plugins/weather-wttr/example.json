@@ -1,0 +1,9 @@
+{
+  "config": {
+    "location": "Shanghai",
+    "language": "zh",
+    "units": "metric",
+    "forecast": "custom",
+    "forecast_days": 3
+  }
+}

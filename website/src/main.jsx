@@ -74,7 +74,7 @@ function Website() {
     <header className="top">
       <nav className="wrap top-inner" aria-label={t.name}>
         <a className="brand" href="#"><img src={logo} width="38" height="38" alt="" />{t.name}</a>
-        <div className="nav-links"><a href="#features">{t.features}</a><a href="#downloads">{t.downloads}</a><a href="#sdk">{t.sdk}</a></div>
+        <div className="nav-links"><a href="#features">{t.features}</a><a href="#usage">{t.usage}</a><a href="#downloads">{t.downloads}</a><a href="#sdk">{t.sdk}</a></div>
         <div className="prefs">
           <label className="preference"><Globe size={17} aria-hidden="true" />
             <select aria-label={t.language} value={language} onChange={(e) => {
@@ -125,6 +125,18 @@ function Website() {
             <h3><EnvelopeSimple size={19} aria-hidden="true" />{t.channelsTitle}</h3>
             <ul>{t.channels.map((channel) => <li key={channel}>{channel}</li>)}</ul>
           </div>
+        </div>
+      </section>
+      <section className="wrap section" id="usage">
+        <h2>{t.usageTitle}</h2>
+        <div className="usage-grid">
+          {t.usageCards.map(([title, detail, label, path]) =>
+            <article className="feature usage-card" key={title}>
+              <h3>{title}</h3>
+              <p>{detail}</p>
+              {path && <a href={`${repo}/blob/main/${path}`}>{label}<ArrowSquareOut size={15} aria-hidden="true" /></a>}
+            </article>
+          )}
         </div>
       </section>
       <section className="wrap section" id="downloads">

@@ -53,6 +53,7 @@ ANSER_REQUIRE_WEB=1 cargo build --locked --release -p anser-server
 - [通知模板与 API 示例](docs/notification-templates.md)
 - [插件开发 Skill](.agents/skills/anser-plugin-authoring/SKILL.md)
 - [定时推送与市场发现](docs/scheduled-notifications.md)
+- [问询交互与 MCP](docs/interactions.md)
 
 ## 界面截图
 
@@ -133,7 +134,7 @@ ANSER_REQUIRE_WEB=1 cargo build --locked --release -p anser-server
 
 ## 插件与语音通知
 
-插件页按渠道、任务和内容转换分类。证书检查支持多个 HTTPS 站点和提前提醒天数，天气任务支持城市或机场代码、语言和单位。在「插件管理 → 定时推送」选择任务插件和目标后，可以按分钟、小时、天循环，按每周指定时间运行，或在指定日期和时间运行一次。服务器会把结果发到所选主题或默认路由。「插件市场」检索带 `anser-plugin` 标签的公开 GitHub 仓库，主题公告可在市场内单独访问。
+插件页按渠道、任务和内容转换分类。证书检查支持多个 HTTPS 站点和提前提醒天数，wttr.in 提供实时、当天、次日及 1 到 3 天预报，独立的 Open-Meteo 任务支持一周和自定义 1 到 16 天预报。在「定时任务」选择任务插件和目标后，可以按分钟、小时、天循环，按每周指定时间运行，或在指定日期和时间运行一次。服务器会把结果发到所选主题或默认路由。「插件市场」检索带 `anser-plugin` 标签的公开 GitHub 仓库，主题公告可在市场内单独访问。
 
 在「内容转换 → 文本转语音」可预听或发送语音。登录中的雁字客户端会依次播放新语音通知，可在收件箱关闭自动播放。其他渠道收到文字和限时音频链接。通过主题或默认渠道发送前，请配置可访问的 HTTPS `ANSER_PUBLIC_URL`。
 
@@ -169,5 +170,7 @@ ANSER_REQUIRE_WEB=1 cargo build --locked --release -p anser-server
 | `ANSER_CHANNEL_CONCURRENCY` / `ANSER_ACCOUNT_CONCURRENCY` | 默认单渠道 8、单账号 1 |
 | `ANSER_MAX_TTL_SECONDS` / `ANSER_RETENTION_DAYS` | 默认 86400 秒上限、30 天记录保留 |
 | `ANSER_QUEUE_LIMIT` / `ANSER_REQUESTS_PER_MINUTE` | 默认 10000 个待处理路线、每凭据每分钟 120000 次请求 |
+
+在「系统设置」中可调整投递记录保留天数，或关闭自动清理。开启清理后，已设置保留天数的主题按各自设置处理。个人收件箱和语音附件沿用各自的保留规则。
 
 服务端、Web 管理台和 NSH 客户端使用同一个 `x.y.z` 版本，渠道插件各自维护版本。GitHub Actions 在匹配的 `vX.Y.Z` 标签构建 GHCR 的 Linux amd64/arm64 镜像，并随 GitHub Release 发布 Docker 镜像归档、服务端多平台二进制、独立 NSH 客户端包及 SHA-256 校验和。

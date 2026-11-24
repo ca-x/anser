@@ -5,7 +5,7 @@ import {
   EuiFieldText, EuiFormRow, EuiIcon, EuiLink, EuiPanel, EuiSwitch, EuiText,
 } from "@elastic/eui";
 import { Api, segment, type Account, type ApiKey, type Channel, type IssuedKey, type MessageDetail, type Page, type Policy, type User } from "../api";
-import { Confirm, useDate, Drawer, Empty, Failure, More, PageTitle, Progress, Tags } from "../components/Common";
+import { RowAction, Confirm, useDate, Drawer, Empty, Failure, More, PageTitle, Progress, Tags } from "../components/Common";
 import { PolicyFields } from "../components/PolicyFields";
 import { useMutation, usePage, useResource } from "../resources";
 import { MessageTable } from "./Delivery";
@@ -92,6 +92,8 @@ export function Users({ api }: { api: Api }) {
         { field: "admin", name: t("权限"), render: (value: boolean) => value ? t("管理员") : t("普通用户") },
         { field: "enabled", name: t("状态"), render: (value: boolean) => <EuiBadge color={value ? "success" : "default"}>{value ? t("启用") : t("停用")}</EuiBadge> },
         { field: "created_at", name: t("创建时间"), render: date },
+        { name: t("操作"), render: (user: User) =>
+          <RowAction icon="pencil" onClick={() => setEditing(user)}>{t("编辑")}</RowAction> },
       ]} />
       <More next={users.next} busy={users.busy} load={() => void users.loadMore()} />
     </div> : !users.error && <Empty title={t("暂无用户")} description={t("新增用户后，可用密码登录与配对客户端。")} />}
@@ -168,18 +170,18 @@ function ApiKeyGuide() {
   </EuiPanel>;
 }
 
-export function Keys({ api }: { api: Api }) {
+export function Keys({ api, mcp = false }: { api: Api; mcp?: boolean }) {
   const t = useT();
   const date = useDate();
-  const list = usePage<ApiKey>(api, "/api-keys");
+  const list = usePage<ApiKey>(api, mcp ? "/api-keys?scope=interact" : "/api-keys");
   const [creating, setCreating] = useState(false);
   const [issued, setIssued] = useState<IssuedKey>();
   const [confirming, setConfirming] = useState<{ key: ApiKey; operation: "rotate" | "disable" }>();
   const task = useMutation();
   return <>
-    <PageTitle title={t("API 密钥")} description={t("为发送、订阅和自动化任务分配凭据。")}
-      action={<EuiButton fill iconType="plusCircle" onClick={() => setCreating(true)}>{t("创建密钥")}</EuiButton>} />
-    <ApiKeyGuide />
+    <PageTitle title={t(mcp ? "MCP" : "API 密钥")} description={t(mcp ? "连接 MCP 客户端，向雁字用户发起问询并获取回复。" : "为发送、订阅和自动化任务分配凭据。")}
+      action={<EuiButton fill iconType="plusCircle" onClick={() => setCreating(true)}>{t(mcp ? "创建 MCP 令牌" : "创建密钥")}</EuiButton>} />
+    {mcp ? <McpConnection api={api} /> : <ApiKeyGuide />}
     <Failure message={list.error} retry={list.reload} />
     {list.loading ? <Progress /> : list.items.length ? <div className="data-surface">
       <EuiBasicTable<ApiKey> rowHeader="name" tableCaption={t("API 凭据")} items={list.items} itemId="id" columns={[
@@ -190,13 +192,13 @@ export function Keys({ api }: { api: Api }) {
         { field: "last_used_at", name: t("最近使用"), render: date },
         { field: "enabled", name: t("状态"), render: (value: boolean) => <EuiBadge color={value ? "success" : "default"}>{value ? t("启用") : t("停用")}</EuiBadge> },
         { name: t("操作"), render: (key: ApiKey) => key.enabled && <div className="row-actions">
-          <EuiButtonEmpty size="xs" onClick={() => { task.clear(); setConfirming({ key, operation: "rotate" }); }}>{t("轮换")}</EuiButtonEmpty>
-          <EuiButtonEmpty size="xs" color="danger" onClick={() => { task.clear(); setConfirming({ key, operation: "disable" }); }}>{t("停用")}</EuiButtonEmpty>
+          <RowAction icon="refresh" onClick={() => { task.clear(); setConfirming({ key, operation: "rotate" }); }}>{t("轮换")}</RowAction>
+          <RowAction icon="stop" danger onClick={() => { task.clear(); setConfirming({ key, operation: "disable" }); }}>{t("停用密钥")}</RowAction>
         </div> },
       ]} />
       <More next={list.next} busy={list.busy} load={() => void list.loadMore()} />
-    </div> : !list.error && <Empty title={t("暂无 API 密钥")} description={t("创建一个具有所需作用域的密钥。")} />}
-    {creating && <KeyEditor api={api} close={() => setCreating(false)} done={(key) => { setCreating(false); setIssued(key); list.reload(); }} />}
+    </div> : !list.error && <Empty title={t(mcp ? "暂无 MCP 令牌" : "暂无 API 密钥")} description={mcp ? undefined : t("创建一个具有所需作用域的密钥。")} />}
+    {creating && <KeyEditor api={api} mcp={mcp} close={() => setCreating(false)} done={(key) => { setCreating(false); setIssued(key); list.reload(); }} />}
     {confirming && <Confirm title={confirming.operation === "rotate" ? t("轮换 API 密钥？") : t("停用 API 密钥？")}
       label={confirming.operation === "rotate" ? t("确认轮换") : t("确认停用")} busy={task.busy}
       close={() => setConfirming(undefined)} confirm={() => void task.run(async () => {
@@ -220,15 +222,35 @@ export function Keys({ api }: { api: Api }) {
   </>;
 }
 
-function KeyEditor({ api, close, done }: { api: Api; close: () => void; done: (key: IssuedKey) => void }) {
+function McpConnection({ api }: { api: Api }) {
+  const t = useT();
+  const settings = useResource<{ endpoint: string | null }>(api, "/settings/mcp");
+  const local = ["localhost", "127.0.0.1", "[::1]"].includes(location.hostname);
+  const address = settings.data?.endpoint ?? (local ? `${location.origin}/mcp` : undefined);
+  return <section className="channel-settings stack" aria-label={t("MCP 服务器地址")}>
+    <h2>{t("MCP 服务器地址")}</h2>
+    {settings.loading && <Progress />}
+    <Failure message={settings.error} retry={settings.reload} />
+    {address && <div className="row-actions">
+      <code className="new-token">{address}</code>
+      <EuiCopy textToCopy={address} afterMessage={t("已复制")}>
+        {(copy: () => void) => <EuiButtonEmpty iconType="copy" onClick={copy}>{t("复制 MCP 地址")}</EuiButtonEmpty>}
+      </EuiCopy>
+    </div>}
+    {settings.data && !address && <p className="muted">{t("远程连接 MCP 需要将 ANSER_PUBLIC_URL 设为雁字的外部地址。")}</p>}
+    <p className="muted">{t("传输方式为 Streamable HTTP。使用 MCP 令牌作为 Bearer 凭据。")}</p>
+  </section>;
+}
+
+function KeyEditor({ api, mcp, close, done }: { api: Api; mcp: boolean; close: () => void; done: (key: IssuedKey) => void }) {
   const t = useT();
   const [name, setName] = useState("");
-  const [scopes, setScopes] = useState<Record<string, boolean>>({ send: true });
+  const [scopes, setScopes] = useState<Record<string, boolean>>(mcp ? { interact: true } : { send: true });
   const [prefix, setPrefix] = useState("");
   const [expiry, setExpiry] = useState("");
   const id = useId();
   const task = useMutation();
-  return <Drawer title={t("创建 API 密钥")} close={close} size="s"
+  return <Drawer title={t(mcp ? "创建 MCP 令牌" : "创建 API 密钥")} close={close} size="s"
     footer={<EuiButton type="submit" form={id} fill isLoading={task.busy}>{t("生成密钥")}</EuiButton>}>
     <form className="stack" id={id} onSubmit={(event) => {
       event.preventDefault();
@@ -244,10 +266,10 @@ function KeyEditor({ api, close, done }: { api: Api; close: () => void; done: (k
     }}>
       <Failure message={task.error} />
       <EuiFormRow label={t("密钥名称")} fullWidth><EuiFieldText fullWidth required value={name} onChange={(event) => setName(event.target.value)} /></EuiFormRow>
-      <EuiFormRow label={t("作用域")} fullWidth><EuiCheckboxGroup
-        options={[{ id: "send", label: t("发送") }, { id: "subscribe", label: t("订阅") }, { id: "admin", label: t("管理") }]} idToSelectedMap={scopes}
-        onChange={(scope) => setScopes((value) => ({ ...value, [scope]: !value[scope] }))} /></EuiFormRow>
-      <EuiFormRow label={t("主题前缀（可选）")} fullWidth><EuiFieldText fullWidth value={prefix} onChange={(event) => setPrefix(event.target.value)} /></EuiFormRow>
+      {!mcp && <EuiFormRow label={t("作用域")} fullWidth><EuiCheckboxGroup
+        options={[{ id: "send", label: t("发送") }, { id: "subscribe", label: t("订阅") }, { id: "interact", label: t("问询交互") }, { id: "admin", label: t("管理") }]} idToSelectedMap={scopes}
+        onChange={(scope) => setScopes((value) => ({ ...value, [scope]: !value[scope] }))} /></EuiFormRow>}
+      {!mcp && <EuiFormRow label={t("主题前缀（可选）")} fullWidth><EuiFieldText fullWidth value={prefix} onChange={(event) => setPrefix(event.target.value)} /></EuiFormRow>}
       <EuiFormRow label={t("到期时间（可选）")} fullWidth><EuiFieldText fullWidth type="datetime-local" value={expiry} onChange={(event) => setExpiry(event.target.value)} /></EuiFormRow>
     </form>
   </Drawer>;

@@ -39,6 +39,7 @@ pub struct App {
     pub queue_limit: u32,
     pub ttl_limit_ms: i64,
     pub retention_ms: i64,
+    pub interaction_wakeup: tokio::sync::Notify,
     pub inbox_wakeup: tokio::sync::Notify,
     pub inbox_waiters: tokio::sync::Semaphore,
     pub send_waiters: tokio::sync::Semaphore,
@@ -49,6 +50,7 @@ pub struct Pagination {
     cursor: Option<String>,
     limit: Option<u32>,
     channel: Option<String>,
+    pub(crate) scope: Option<String>,
 }
 
 impl Pagination {
@@ -66,6 +68,10 @@ pub fn router() -> Router<Arc<App>> {
         .route("/v1/health", get(health))
         .route("/v1/info", get(info))
         .route("/v1/openapi.json", get(crate::openapi::document))
+        .route(
+            "/v1/settings/history-retention",
+            get(crate::settings::history).put(crate::settings::save_history),
+        )
         .route("/v1/auth/login", post(auth::login))
         .route("/v1/auth/totp", get(crate::totp::status))
         .route("/v1/auth/totp/setup", post(crate::totp::setup))
@@ -109,7 +115,9 @@ pub fn router() -> Router<Arc<App>> {
         )
         .route(
             "/v1/schedules/{id}",
-            axum::routing::put(crate::scheduled_tasks::change)
+            get(crate::scheduled_tasks::detail)
+                .put(crate::scheduled_tasks::change)
+                .patch(crate::scheduled_tasks::edit)
                 .delete(crate::scheduled_tasks::delete),
         )
         .route(
@@ -163,6 +171,14 @@ pub fn router() -> Router<Arc<App>> {
         .route("/v1/messages", get(messages))
         .route("/v1/messages/{id}", get(message))
         .route("/v1/messages/{id}/replay", post(replay))
+        .route("/mcp", axum::routing::any(crate::mcp::handle))
+        .route("/v1/settings/mcp", get(crate::mcp::settings))
+        .route("/v1/interactions", post(crate::interactions::create))
+        .route("/v1/interactions/{id}", get(crate::interactions::read))
+        .route(
+            "/v1/inbox/{id}/interaction",
+            get(crate::interactions::inbox_form).post(crate::interactions::inbox_reply),
+        )
         .route("/v1/inbox", get(inbox))
         .route("/v1/inbox/send", post(send_inbox))
         .route("/v1/inbox/{id}/read", post(read_inbox))

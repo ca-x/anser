@@ -40,6 +40,8 @@ pub struct InboxItem {
     pub read_at: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub audio_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub interaction_id: Option<String>,
 }
 
 #[derive(Serialize, sqlx::FromRow)]
@@ -247,8 +249,9 @@ impl Store {
     ) -> Result<Page<InboxItem>> {
         let mut values = sqlx::QueryBuilder::<sqlx::Sqlite>::new(
             "SELECT i.id,i.from_username,i.topic,i.title,i.body,i.format,i.created_at,i.read_at,
-              '/v1/speech/audio/' || audio.token || '.mp3' AS audio_path
-             FROM inbox i LEFT JOIN notification_audio audio ON i.message_id=audio.message_id
+              '/v1/speech/audio/' || audio.token || '.mp3' AS audio_path, a.id AS interaction_id
+             FROM inbox i LEFT JOIN interactions a ON a.inbox_id=i.id
+             LEFT JOIN notification_audio audio ON i.message_id=audio.message_id
              AND audio.expires_at>",
         );
         values
@@ -331,8 +334,6 @@ impl Store {
             "inbox"
         };
         let request_key = idempotency_key.map(|key| format!("{prefix} {key}"));
-        let body = serde_json::to_string(message)?;
-        let format = serde_json::to_value(message.format)?;
         let _writer = self.2.lock().await;
         let mut tx = self.0.begin_with("BEGIN IMMEDIATE").await?;
         let now = now_ms();
@@ -350,37 +351,67 @@ impl Store {
             tx.commit().await?;
             return Ok(receipt);
         }
-        let message_id = new_id();
-        sqlx::query("INSERT INTO messages(id,key_id,body,request,status,inbox_deliveries,inbox_recipient,created_at,retain_until)
-            VALUES(?1,?2,?3,?3,'success',1,?4,?5,?6)")
-            .bind(&message_id).bind(key_id).bind(body).bind(recipient).bind(now).bind(now.saturating_add(retention_ms))
-            .execute(&mut *tx).await?;
-        if let Some(speech) = speech {
-            speech
-                .insert(&mut tx, &message_id, now, retention_ms)
-                .await?;
-        }
-        let id = sqlx::query_scalar(
-            "INSERT INTO inbox(user_id,message_id,from_username,title,body,format,created_at)
-            SELECT id,?,?,?,?,?,? FROM users WHERE username=? AND enabled=1 RETURNING id",
+        let receipt = enqueue_inbox(
+            &mut tx,
+            key_id,
+            sender,
+            recipient,
+            InboxSpeech { message, speech },
+            now,
+            retention_ms,
         )
-        .bind(&message_id)
-        .bind(sender)
-        .bind(&message.title)
-        .bind(&message.body)
-        .bind(format.as_str().unwrap_or("text"))
-        .bind(now)
-        .bind(recipient)
-        .fetch_optional(&mut *tx)
-        .await?
-        .ok_or(DataError::Missing)?;
+        .await?;
         if let Some(key) = &request_key {
-            crate::queue::remember_receipt(&mut tx, key_id, key, &message_id, Some(id), now)
-                .await?;
+            crate::queue::remember_receipt(
+                &mut tx,
+                key_id,
+                key,
+                &receipt.message_id,
+                Some(receipt.id),
+                now,
+            )
+            .await?;
         }
         tx.commit().await?;
-        Ok(InboxReceipt { id, message_id })
+        Ok(receipt)
     }
+}
+
+pub(crate) async fn enqueue_inbox(
+    tx: &mut sqlx::SqliteConnection,
+    key_id: &str,
+    sender: Option<&str>,
+    recipient: &str,
+    input: InboxSpeech<'_>,
+    now: i64,
+    retention_ms: i64,
+) -> Result<InboxReceipt> {
+    let InboxSpeech { message, speech } = input;
+    let body = serde_json::to_string(message)?;
+    let format = serde_json::to_value(message.format)?;
+    let message_id = new_id();
+    sqlx::query("INSERT INTO messages(id,key_id,body,request,status,inbox_deliveries,inbox_recipient,created_at,retain_until)
+        VALUES(?1,?2,?3,?3,'success',1,?4,?5,?6)")
+        .bind(&message_id).bind(key_id).bind(body).bind(recipient).bind(now).bind(now.saturating_add(retention_ms))
+        .execute(&mut *tx).await?;
+    if let Some(speech) = speech {
+        speech.insert(tx, &message_id, now, retention_ms).await?;
+    }
+    let id = sqlx::query_scalar(
+        "INSERT INTO inbox(user_id,message_id,from_username,title,body,format,created_at)
+        SELECT id,?,?,?,?,?,? FROM users WHERE username=? AND enabled=1 RETURNING id",
+    )
+    .bind(&message_id)
+    .bind(sender)
+    .bind(&message.title)
+    .bind(&message.body)
+    .bind(format.as_str().unwrap_or("text"))
+    .bind(now)
+    .bind(recipient)
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or(DataError::Missing)?;
+    Ok(InboxReceipt { id, message_id })
 }
 
 async fn session(

@@ -4,13 +4,16 @@ mod channel_runtime;
 mod cli;
 mod error;
 mod github_market;
+mod interactions;
 mod lazycat;
+mod mcp;
 mod openapi;
 mod plugin_market;
 mod plugins;
 mod profile;
 mod proxies;
 mod scheduled_tasks;
+mod settings;
 mod speech;
 mod templates;
 mod totp;
@@ -183,6 +186,7 @@ async fn serve(config: ServerConfig, host: Arc<ChannelHost>) -> anyhow::Result<(
         queue_limit: config.queue_limit,
         ttl_limit_ms: i64::from(config.ttl_seconds) * 1000,
         retention_ms: i64::from(config.retention_days) * 86_400_000,
+        interaction_wakeup: tokio::sync::Notify::new(),
         inbox_wakeup: tokio::sync::Notify::new(),
         inbox_waiters: tokio::sync::Semaphore::new(1_024),
         send_waiters: tokio::sync::Semaphore::new(128),
@@ -257,7 +261,13 @@ fn cors(origins: &[String]) -> anyhow::Result<CorsLayer> {
         .collect::<anyhow::Result<Vec<_>>>()?;
     Ok(CorsLayer::new()
         .allow_origin(AllowOrigin::list(origins))
-        .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE])
+        .allow_methods([
+            Method::GET,
+            Method::POST,
+            Method::PUT,
+            Method::PATCH,
+            Method::DELETE,
+        ])
         .allow_headers([
             header::AUTHORIZATION,
             header::CONTENT_TYPE,
