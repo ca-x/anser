@@ -58,11 +58,15 @@ pub(crate) async fn search(
         })
         .await
         .map_err(|_| unavailable())?;
+    let mut endpoint = reqwest::Url::parse(SEARCH).map_err(|_| unavailable())?;
+    endpoint
+        .query_pairs_mut()
+        .append_pair("q", &q)
+        .append_pair("per_page", &PAGE_SIZE.to_string())
+        .append_pair("page", &page.to_string());
     let mut request = client
-        .get(SEARCH)
-        .header("Accept", "application/vnd.github+json")
-        .query(&[("q", q)])
-        .query(&[("per_page", PAGE_SIZE), ("page", page)]);
+        .get(endpoint)
+        .header("Accept", "application/vnd.github+json");
     if let Ok(token) = std::env::var("ANSER_GITHUB_TOKEN")
         && !token.trim().is_empty()
     {
