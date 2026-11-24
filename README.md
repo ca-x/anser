@@ -70,6 +70,10 @@ ANSER_REQUIRE_WEB=1 cargo build --locked --release -p anser-server
 
 ![渠道插件的运行和账号设置](docs/screenshots/zh-CN/server-plugin.png)
 
+![按能力分类的已安装插件](docs/screenshots/zh-CN/server-plugins-catalog.png)
+
+![通知模板管理](docs/screenshots/zh-CN/server-templates.png)
+
 ![出站代理设置](docs/screenshots/zh-CN/server-proxies.png)
 
 ![账号安全设置](docs/screenshots/zh-CN/server-security.png)
@@ -90,6 +94,8 @@ ANSER_REQUIRE_WEB=1 cargo build --locked --release -p anser-server
 ![移动端导航抽屉](docs/screenshots/zh-CN/server-mobile-menu.png)
 
 ![移动端发送通知](docs/screenshots/zh-CN/server-mobile-send.png)
+
+![移动端合成与发送语音通知](docs/screenshots/zh-CN/server-mobile-speech.png)
 
 ![移动端渠道插件](docs/screenshots/zh-CN/server-mobile-channels.png)
 
@@ -141,7 +147,8 @@ ANSER_REQUIRE_WEB=1 cargo build --locked --release -p anser-server
 - `POST /v1/send` 或 `POST /v1/topics/{name}/publish` 持久化入队，支持 `Idempotency-Key` 和 `?wait=true`。API Key 使用 `Authorization: Bearer ...`。
 - `POST /v1/inbox/send` 按用户名直发，支持 `Idempotency-Key`。回执中的 `id` 用于操作收件箱条目，`message_id` 用于查询发送结果。升级前的直发消息仍保留在收件人的收件箱中。
 - `GET /v1/messages/{id}` 查看路由投递和历史尝试。管理台可配置广播、有序故障转移、按权重选择、加权首选再故障转移、限流和退避。
-- [Rust SDK](crates/anser-sdk) 支持类型化发送、主题订阅、查询、登录及收件箱。CLI 用 `anser api --help` 查看管理命令，例如 `anser api channels ntfy --action disable`。
+- 官方 SDK 支持发送、模板发布、投递查询和订阅管理。查看 [Rust](https://crates.io/crates/anser-sdk)、[Go](https://github.com/lib-x/anser-sdk-go)、[TypeScript](https://github.com/lib-x/anser-sdk-ts) 与[双语使用说明](https://ca-x.github.io/anser/?lang=zh-CN#sdk)。
+- 终端用户可通过 `anser api --help` 查看管理命令与示例。
 - 支持 ntfy、Server酱、Bark、SMTP 邮件、懒猫通知、微信公众号、企业微信应用、飞书、Telegram、Gotify、QQ 机器人、钉钉、Slack、Discord、IFTTT 和 Chanify。PushPlus 和 gorush 用作设计参考。[渠道配置](anser-plugins) · [懒猫通知配置](docs/lazycat.md)
 
 ## 配置

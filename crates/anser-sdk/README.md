@@ -1,5 +1,7 @@
 # Anser Rust SDK
 
+正式 SDK 已单独维护。使用 `cargo add anser-sdk` 安装，示例与版本记录见[官方 Rust SDK 仓库](https://github.com/lib-x/anser-sdk-rust)。此目录供工作区内部开发和兼容性验证。
+
 从 Anser 仓库引用 `crates/anser-sdk`。异步请求使用 Tokio。
 
 ```rust,no_run

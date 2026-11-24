@@ -70,6 +70,10 @@ The delivery overview shows the queue, successful deliveries, dead letters, and 
 
 ![Channel plugin runtime and account settings](docs/screenshots/en/server-plugin.png)
 
+![Installed plugins grouped by capability](docs/screenshots/en/server-plugins-catalog.png)
+
+![Manage notification templates](docs/screenshots/en/server-templates.png)
+
 ![Outbound proxy settings](docs/screenshots/en/server-proxies.png)
 
 ![Account security settings](docs/screenshots/en/server-security.png)
@@ -90,6 +94,8 @@ The delivery overview shows the queue, successful deliveries, dead letters, and 
 ![Mobile navigation drawer](docs/screenshots/en/server-mobile-menu.png)
 
 ![Sending a notification on mobile](docs/screenshots/en/server-mobile-send.png)
+
+![Compose a voice notification on mobile](docs/screenshots/en/server-mobile-speech.png)
 
 ![Channel plugins on mobile](docs/screenshots/en/server-mobile-channels.png)
 
@@ -141,7 +147,8 @@ Open Anser through your signed-in LazyCat app and create a LazyCat channel accou
 - `POST /v1/send` and `POST /v1/topics/{name}/publish` durably queue messages and accept `Idempotency-Key` and `?wait=true`. Send API keys in `Authorization: Bearer ...`.
 - `POST /v1/inbox/send` sends directly to a username and accepts an `Idempotency-Key`. The receipt contains the recipient’s inbox item `id` and a sender-visible `message_id` for delivery history. Direct messages sent before the upgrade remain in their recipients’ inboxes.
 - `GET /v1/messages/{id}` shows deliveries and their attempts. The console supports broadcast, priority failover, weighted selection, weighted failover, rate limits, and retry backoff.
-- The Rust SDK covers typed message submission, topic subscriptions, status queries, sign-in, and the inbox. Use `anser api --help` to find commands such as `anser api channels ntfy --action disable`. [Rust SDK](crates/anser-sdk)
+- Official SDKs support sending notifications, publishing templates, checking delivery status, and managing subscriptions. See [Rust on crates.io](https://crates.io/crates/anser-sdk), [Go](https://github.com/lib-x/anser-sdk-go), [TypeScript](https://github.com/lib-x/anser-sdk-ts), and the [SDK guide](https://ca-x.github.io/anser/?lang=en#sdk).
+- Use `anser api --help` to find management commands and examples.
 - Available channels include ntfy, ServerChan, Bark, SMTP email, LazyCat, WeChat Official Account, WeCom, Lark, Telegram, Gotify, QQ Bot, DingTalk, Slack, Discord, IFTTT, and Chanify. PushPlus and gorush served as design references. [Channel setup](anser-plugins) · [LazyCat setup](docs/lazycat.md)
 
 ## Configuration

@@ -6,6 +6,7 @@ import { ArrowDown, ArrowDownRight, ArrowSquareOut, Code, DesktopTower, Envelope
 import "@cloudflare/kumo/styles/kumo-standalone";
 import "./style.css";
 import { copy } from "./copy";
+import { SdkGuide } from "./SdkGuide";
 import logo from "../../clients/web/src/assets/logo.png";
 import consoleZh from "../../docs/screenshots/zh-CN/server-overview.png";
 import consoleEn from "../../docs/screenshots/en/server-overview.png";
@@ -73,7 +74,7 @@ function Website() {
     <header className="top">
       <nav className="wrap top-inner" aria-label={t.name}>
         <a className="brand" href="#"><img src={logo} width="38" height="38" alt="" />{t.name}</a>
-        <div className="nav-links"><a href="#features">{t.features}</a><a href="#downloads">{t.downloads}</a></div>
+        <div className="nav-links"><a href="#features">{t.features}</a><a href="#downloads">{t.downloads}</a><a href="#sdk">{t.sdk}</a></div>
         <div className="prefs">
           <label className="preference"><Globe size={17} aria-hidden="true" />
             <select aria-label={t.language} value={language} onChange={(e) => {
@@ -148,11 +149,12 @@ function Website() {
         </div>
         <a className="checksum" href={latest + "SHA256SUMS"}>{t.checksums} <ArrowDown size={15} aria-hidden="true" /></a>
       </section>
+      <SdkGuide t={t} />
     </main>
     <footer className="footer">
       <div className="wrap footer-inner">
         <a className="brand" href="#"><img src={logo} width="32" height="32" alt="" />{t.name}</a>
-        <div><a href={repo + (language === "en" ? "/blob/main/README.en.md" : "/blob/main/README.md")}>{t.docs}</a>
+        <div><a href="#sdk">{t.sdk}</a><a href={repo + (language === "en" ? "/blob/main/README.en.md" : "/blob/main/README.md")}>{t.docs}</a>
           <a href={repo + "/blob/main/LICENSE"}>Apache 2.0</a><a href={repo}>GitHub</a></div>
       </div>
     </footer>
