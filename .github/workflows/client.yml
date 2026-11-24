@@ -34,7 +34,8 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y clang llvm libclang-dev libgtk-4-dev libwebkitgtk-6.0-dev
+          sudo apt-get install -y clang llvm libclang-dev libgtk-4-dev libwebkitgtk-6.0-dev \
+            libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
           rustup toolchain install 1.100.0 --profile minimal --target wasm32-unknown-unknown
           echo 'RUSTUP_TOOLCHAIN=1.100.0' >> "$GITHUB_ENV"
       - name: Build pinned NSH and install TypeScript

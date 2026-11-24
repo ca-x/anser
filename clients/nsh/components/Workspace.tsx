@@ -4,7 +4,7 @@ import { NavPage } from "nsh/base";
 import { Action } from "./Controls";
 import logo from "../assets/logo.png";
 
-export function Brand(props: { compact?: boolean }) {
+export function Brand(props: { compact?: boolean; iconOnly?: boolean }) {
   return (
     <View
       class={
@@ -18,7 +18,7 @@ export function Brand(props: { compact?: boolean }) {
         fadeDuration={0}
         class={props.compact ? "size-10" : "size-16"}
       />
-      <Text
+      <If when={!props.iconOnly}><Text
         class={
           props.compact
             ? "text-lg font-semibold text-foreground"
@@ -27,6 +27,7 @@ export function Brand(props: { compact?: boolean }) {
       >
         {t("workspace.anser")}
       </Text>
+      </If>
     </View>
   );
 }

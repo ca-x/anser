@@ -3,7 +3,9 @@ import {
   cleanup,
   effect,
   Image,
+  LayoutAnimation,
   platform,
+  reduceMotion,
   resource,
   signal,
   Text,
@@ -11,8 +13,9 @@ import {
   View,
   windowSize,
   type ImageAsset,
+  type Signal,
 } from "nsh";
-import { Button, createNavStack, NavStack } from "nsh/base";
+import { Button, createNavStack, NavStack, Tooltip } from "nsh/base";
 import { currentWindow, isAvailable as desktopAvailable } from "nsh/desktop";
 import { TabBar } from "nsh/mobile";
 import { Head } from "nsh/web";
@@ -28,6 +31,7 @@ import { Action, confirm, Hint } from "./components/Controls";
 import { AccountMenu } from "./components/AccountMenu";
 import { Brand, WorkspacePage } from "./components/Workspace";
 import { PreferenceControls } from "./components/Preferences";
+import { ServerProfiles } from "./components/ServerProfiles";
 import { createPreferences, type Preferences } from "./preferences";
 import type { Account, Channel, ProxyProfile, Topic, User } from "./contracts";
 import { inboxState } from "./inbox";
@@ -45,8 +49,15 @@ import { Profile } from "./pages/Profile";
 import { ProxyEditor, ProxyProfiles } from "./pages/Proxies";
 import { Security } from "./pages/Security";
 import { TopicDetail, TopicEditor, Topics } from "./pages/Topics";
+import { createServers, type Servers } from "./servers";
 
-type Session = { api: AnserApi; channels: Channel[]; user?: User };
+type Session = {
+  api: AnserApi;
+  channels: Signal<Channel[]>;
+  user?: User;
+  compose: ReturnType<typeof sessionDrafts<ReturnType<typeof composeDraft>>>;
+  inboxDraft: ReturnType<typeof sessionDrafts<ReturnType<typeof inboxDraft>>>;
+};
 
 type Section = "compose" | "topics" | "accounts" | "history" | "inbox";
 
@@ -57,6 +68,8 @@ type Route =
   | { name: "topic-editor"; topic?: Topic }
   | { name: "default-route" }
   | { name: "preferences" }
+  | { name: "servers" }
+  | { name: "connect-server"; origin: string; activate: boolean }
   | { name: "about" }
   | { name: "security" }
   | { name: "accounts" }
@@ -117,11 +130,13 @@ const sections: {
 
 export function AnserApp() {
   const preferences = createPreferences();
+  const servers = createServers();
   if (desktopAvailable && platform.os !== "web") {
     const appWindow = currentWindow();
     effect(() => appWindow.set({ title: t("workspace.anser") }));
   }
   const session = signal<Session | undefined>(undefined);
+  const sessions = signal<Session[]>([]);
   const pairing = signal<Pairing | undefined>(undefined);
   const linkError = signal("");
   const disconnecting = signal(false);
@@ -135,13 +150,24 @@ export function AnserApp() {
   });
   cleanup(() => {
     listener();
-    session()?.api.close();
+    for (const connection of sessions()) connection.api.close();
   });
 
-  function connected(api: AnserApi, channels: Channel[], user?: User) {
+  function connected(api: AnserApi, channels: Channel[], user?: User, activate = true) {
     pairing.set(undefined);
     linkError.set("");
-    session.set({ api, channels, user });
+    const previous = sessions().find((item) => item.api.origin === api.origin);
+    previous?.api.close();
+    const connection = {
+      api,
+      channels: signal(channels),
+      user,
+      compose: sessionDrafts(composeDraft),
+      inboxDraft: sessionDrafts(inboxDraft),
+    };
+    sessions.update((items) => [...items.filter((item) => item !== previous), connection]);
+    servers.remember(api.origin);
+    if (activate) session.set(connection);
   }
 
   async function signOut(keepPairing = false) {
@@ -150,7 +176,9 @@ export function AnserApp() {
     disconnecting.set(true);
     if (!keepPairing) pairing.set(undefined);
     // Remove local session, screens, and notification previews immediately.
-    session.set(undefined);
+    const remaining = sessions().filter((item) => item !== current);
+    sessions.set(remaining);
+    session.set(keepPairing ? undefined : remaining[0]);
     if (current.user)
       void current.api
         .logout()
@@ -163,12 +191,13 @@ export function AnserApp() {
   return (
     <View class="flex-1 bg-background" testID="app-background">
       {platform.os === "web" && <Head title={t("workspace.anser")} />}
-      <If when={preferences.ready()}>
+      <If when={preferences.ready() && servers.ready()}>
         <If
           when={session()}
           else={
             <Connection
               preferences={preferences}
+              servers={servers}
               pairing={pairing()}
               linkError={linkError()}
               onConnect={connected}
@@ -176,13 +205,24 @@ export function AnserApp() {
           }
         >
           {(active) => (
-            <Workspace
-              preferences={preferences}
-              session={active()}
-              onDisconnect={signOut}
-              pendingPairing={pairing()}
-              onDismissPairing={() => pairing.set(undefined)}
-            />
+            <Each of={[active()]} key={(current) => current.api.origin}>
+              {(current) => (
+                <Workspace
+                  preferences={preferences}
+                  servers={servers}
+                  session={current()}
+                  sessions={sessions()}
+                  onSwitch={(origin) => {
+                    const next = sessions().find((item) => item.api.origin === origin);
+                    if (next) session.set(next);
+                  }}
+                  onConnect={connected}
+                  onDisconnect={signOut}
+                  pendingPairing={pairing()}
+                  onDismissPairing={() => pairing.set(undefined)}
+                />
+              )}
+            </Each>
           )}
         </If>
       </If>
@@ -204,7 +244,11 @@ function sessionDrafts<T>(create: (destination: string) => T) {
 
 function Workspace(props: {
   session: Session;
+  sessions: Session[];
   preferences: Preferences;
+  servers: Servers;
+  onSwitch: (origin: string) => void;
+  onConnect: (api: AnserApi, channels: Channel[], user?: User, activate?: boolean) => void;
   onDisconnect: (keepPairing?: boolean) => void;
   pendingPairing?: Pairing;
   onDismissPairing: () => void;
@@ -215,16 +259,18 @@ function Workspace(props: {
   );
   const showProfile = signal(false);
   const displayName = () => profile()?.nickname || user?.username || "";
-  const serverName = api.origin.replace(/^https:\/\//, "");
-  const channels = signal(props.session.channels);
+  const serverName = () => props.servers.label(api.origin);
+  const isConnected = (origin: string) => props.sessions.some((item) => item.api.origin === origin);
+  const channels = props.session.channels;
   const accountsRevision = signal(0);
   const proxyRevision = signal(0);
   const nav = createNavStack<Route>([{ name: "compose" }]);
-  const draftFor = sessionDrafts(composeDraft);
-  const inboxDraftFor = sessionDrafts(inboxDraft);
+  const draftFor = props.session.compose;
+  const inboxDraftFor = props.session.inboxDraft;
   const selection = signal<Section>("compose");
   const systemTabs = platform.os === "ios" || platform.os === "android";
   const wide = () => !systemTabs && windowSize().width >= 780;
+  const collapsed = () => wide() && props.preferences.settings().sidebarCollapsed === true;
   const accountAdmin = user?.admin ?? true;
   const globalAdmin = () => {
     const permissions = channels().filter(
@@ -245,6 +291,15 @@ function Workspace(props: {
     accountsRevision.update((revision) => revision + 1);
     back();
   };
+  const openServers = () => {
+    if (nav.routes().at(-1)?.name !== "servers") open({ name: "servers" });
+  };
+  const showingServers = () => nav.routes().at(-1)?.name === "servers";
+  function selectServer(origin: string) {
+    if (origin === api.origin) return;
+    if (isConnected(origin)) props.onSwitch(origin);
+    else open({ name: "connect-server", origin, activate: true });
+  }
   const go = (tab: Section) => {
     if (selection() !== tab || nav.routes().length !== 1) {
       selection.set(tab);
@@ -272,12 +327,14 @@ function Workspace(props: {
   const links = () => (
     <Each of={enabledSections} key={(tab) => tab.id}>
       {(tab) => {
-        const selected = () => selection() === tab().id;
+        const selected = () => !showingServers() && selection() === tab().id;
         return (
           <Button
             onPress={() => go(tab().id)}
+            accessibilityLabel={collapsed() ? (badge(tab().id) ? `${tab().title()} (${badge(tab().id)})` : tab().title()) : undefined}
             selected={selected()}
-            class={`min-h-12 rounded-(--radius) items-center hover:bg-muted active:bg-accent focus-visible:ring-2 focus-visible:ring-ring transition-colors duration-100 motion-reduce:transition-none ${wide() ? "flex-row gap-2.5 px-3 py-2" : "min-w-0 flex-1 justify-center gap-0.5 px-1 py-1"} ${selected() ? "bg-accent" : ""}`}
+            tooltip={collapsed() ? navigationTip(tab().title()) : undefined}
+            class={`min-h-12 rounded-(--radius) items-center hover:bg-muted active:bg-accent focus-visible:ring-2 focus-visible:ring-ring transition-colors duration-100 motion-reduce:transition-none ${collapsed() ? "justify-center" : wide() ? "flex-row gap-2.5 px-3 py-2" : "min-w-0 flex-1 justify-center gap-0.5 px-1 py-1"} ${selected() ? "bg-accent" : ""}`}
           >
             <Image
               src={tab().icon}
@@ -285,12 +342,13 @@ function Workspace(props: {
               fadeDuration={0}
               accessibilityElementsHidden
             />
-            <Text
+            <If when={!collapsed()}><Text
               class={`${wide() ? "text-sm" : "text-center text-xs"} ${selected() ? "font-semibold text-accent-foreground" : "text-foreground"}`}
             >
               {tab().title()}
               {badge(tab().id) ? ` (${badge(tab().id)})` : ""}
             </Text>
+            </If>
           </Button>
         );
       }}
@@ -333,30 +391,60 @@ function Workspace(props: {
         <If when={wide()}>
           <View
             role="navigation"
-            class="w-52 gap-5 border-r border-border bg-sidebar px-3 pt-5 pb-4"
+            testID="desktop-sidebar"
+            class={`shrink-0 gap-5 border-r border-border bg-sidebar pt-5 pb-4 ${collapsed() ? "w-16 px-2" : "w-52 px-3"}`}
           >
-            <Brand compact />
-            <View class="gap-1">{links()}</View>
+            <View class={`items-center ${collapsed() ? "gap-2" : "flex-row justify-between gap-1"}`}>
+              <Brand compact iconOnly={collapsed()} />
+              <Button
+                accessibilityLabel={t(collapsed() ? "shell.expand_sidebar" : "shell.collapse_sidebar")}
+                tooltip={navigationTip(t(collapsed() ? "shell.expand_sidebar" : "shell.collapse_sidebar"))}
+                class="min-h-11 min-w-11 items-center justify-center rounded-(--radius) hover:bg-muted active:bg-accent focus-visible:ring-2 focus-visible:ring-ring"
+                onPress={() => {
+                  if (!reduceMotion()) LayoutAnimation.configureNext(
+                    LayoutAnimation.create(180, "easeInEaseOut", "opacity"),
+                  );
+                  props.preferences.toggleSidebar();
+                }}
+              >
+                <Text accessibilityElementsHidden class="text-lg text-foreground">{collapsed() ? "›" : "‹"}</Text>
+              </Button>
+            </View>
+            <View class="gap-1">
+              {links()}
+              <Button
+                accessibilityLabel={t("servers.title")}
+                selected={showingServers()}
+                tooltip={collapsed() ? navigationTip(t("servers.title")) : undefined}
+                class={`min-h-12 items-center rounded-(--radius) hover:bg-muted active:bg-accent focus-visible:ring-2 focus-visible:ring-ring transition-colors duration-100 motion-reduce:transition-none ${collapsed() ? "justify-center" : "flex-row gap-2.5 px-3 py-2"} ${showingServers() ? "bg-accent" : ""}`}
+                onPress={openServers}
+              >
+                <Image src={accountIcon} class="size-6 shrink-0" fadeDuration={0} accessibilityElementsHidden />
+                <If when={!collapsed()}>
+                  <Text class={showingServers() ? "text-sm font-semibold text-accent-foreground" : "text-sm text-foreground"}>{t("servers.title")}</Text>
+                </If>
+              </Button>
+            </View>
             <View class="flex-1" />
             <View class="gap-1 border-t border-border pt-3">
               <If
                 when={user}
                 else={
-                  <View class="gap-1 px-3 pb-2">
+                  <If when={!collapsed()}><View class="gap-1 px-3 pb-2">
                     <Hint>{t("shell.api_key_session")}</Hint>
                     <Text
-                      accessibilityLabel={api.origin}
-                      class="line-clamp-2 text-sm text-muted-foreground"
+                      class="line-clamp-1 text-sm text-muted-foreground"
                     >
-                      {serverName}
+                      {serverName()}
                     </Text>
-                  </View>
+                  </View></If>
                 }
               >
                 <AccountMenu
                   name={displayName()}
                   avatar={profile()?.avatar}
-                  server={serverName}
+                  server={serverName()}
+                  iconOnly={collapsed()}
                   onProfile={() => showProfile.set(true)}
                   onSecurity={() => open({ name: "security" })}
                 />
@@ -364,12 +452,16 @@ function Workspace(props: {
               <Action
                 label={t("preferences.title")}
                 icon={preferencesIcon}
+                iconOnly={collapsed()}
+                tooltip={collapsed() ? navigationTip(t("preferences.title")) : undefined}
                 onPress={openPreferences}
                 kind="quiet"
                 class="self-start"
               />
               <Action
-                label={t("shell.disconnect")}
+                label={collapsed() ? "↪" : t("shell.disconnect")}
+                accessibilityLabel={t("shell.disconnect")}
+                tooltip={collapsed() ? navigationTip(t("shell.disconnect")) : undefined}
                 onPress={() => props.onDisconnect()}
                 kind="quiet"
                 class="self-start"
@@ -386,6 +478,10 @@ function Workspace(props: {
                     api={api}
                     channels={channels()}
                     draft={draftFor(route.topic?.name)}
+                    servers={props.servers}
+                    connections={props.sessions.map((item) => item.api)}
+                    onConnectServer={(origin) => open({ name: "connect-server", origin, activate: false })}
+                    onManageServers={openServers}
                     fixedTopic={route.topic}
                     onBack={route.topic ? back : undefined}
                     onAccepted={(id) => {
@@ -547,10 +643,32 @@ function Workspace(props: {
                 return (
                   <WorkspacePage title={t("preferences.title")} back={back}>
                     <PreferenceControls preferences={props.preferences} />
+                    <Action label={t("servers.title")} class="self-start" onPress={openServers} />
                     <Action
                       label={t("about.title")}
                       class="self-start"
                       onPress={() => open({ name: "about" })}
+                    />
+                  </WorkspacePage>
+                );
+              case "servers":
+                return (
+                  <WorkspacePage title={t("servers.title")} back={back}>
+                    <ServerProfiles servers={props.servers} active={api.origin} isConnected={isConnected} onChoose={selectServer} />
+                  </WorkspacePage>
+                );
+              case "connect-server":
+                return (
+                  <WorkspacePage title={t("servers.sign_in")} back={back}>
+                    <Connection
+                      preferences={props.preferences}
+                      servers={props.servers}
+                      initialOrigin={route.origin}
+                      embedded
+                      onConnect={(next, nextChannels, nextUser) => {
+                        props.onConnect(next, nextChannels, nextUser, route.activate);
+                        if (!route.activate) back();
+                      }}
                     />
                   </WorkspacePage>
                 );
@@ -654,9 +772,7 @@ function Workspace(props: {
               <If
                 when={user}
                 else={
-                  <Text class="line-clamp-1 flex-1 text-[13px] text-muted-foreground">
-                    {serverName}
-                  </Text>
+                  <Action label={t("servers.title")} kind="quiet" onPress={openServers} />
                 }
               >
                 <AccountMenu
@@ -690,5 +806,18 @@ function Workspace(props: {
         />
       </If>
     </View>
+  );
+}
+
+function navigationTip(label: string) {
+  return (
+    <Tooltip
+      placement="right"
+      startingClass="opacity-0"
+      endingClass="opacity-0"
+      class="rounded-(--radius) border border-border bg-popover px-2 py-1 shadow-sm transition-opacity duration-100 motion-reduce:transition-none"
+    >
+      <Text class="text-sm text-popover-foreground">{label}</Text>
+    </Tooltip>
   );
 }

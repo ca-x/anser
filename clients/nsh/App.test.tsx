@@ -56,7 +56,7 @@ function baseNetwork(): Exclude<
 }
 
 async function login(app: App, url = origin) {
-  await app.type("id:server-address", url);
+  if (app.shows("id:server-address")) await app.type("id:server-address", url);
   await app.type("id:username", "alice");
   await app.type("id:password", "fixture-password");
   await app.press("role:button[连接]");
@@ -295,6 +295,114 @@ test("clears private drafts when disconnecting and signing back in", async () =>
   await login(app);
   expect(app.value("label:标题")).toBe("");
   expect(app.value("label:正文")).toBe("");
+});
+
+test("manages saved server names, defaults, and the desktop sidebar", async () => {
+  const other = "https://cloud.example.test";
+  const app = await open("./App.tsx", {
+    platform: "linux", locale: "zh-CN", width: 1120, height: 900,
+    storage: chinesePreferences,
+    network: baseNetwork(),
+  });
+  await login(app);
+  await app.press("role:button[服务器]");
+  await app.press("label:编辑 anser.example.test");
+  expect(app.value("label:服务器地址")).toBe(origin);
+  await app.type("label:服务器备注", "家庭服务");
+  await app.press("保存服务器");
+  await app.press("添加服务器");
+  await app.type("label:服务器备注", "云端服务");
+  await app.type("label:服务器地址", other);
+  await app.press("保存服务器");
+  expect(app.texts()).not.toContain(other);
+  expect(app.texts()).not.toContain(origin);
+  await app.press("role:checkbox[家庭服务]");
+  await app.press("role:checkbox[云端服务]");
+  await app.waitUntil(() => {
+    const value = JSON.parse(app.storage()["anser.servers"] ?? "{}");
+    return value.defaults?.length === 2;
+  });
+  expect(JSON.parse(app.storage()["anser.servers"])).toEqual({
+    profiles: [{ origin, name: "家庭服务" }, { origin: other, name: "云端服务" }],
+    defaults: [origin, other],
+  });
+  expect(app.layout("id:desktop-sidebar")?.width).toBe(208);
+  await app.press("收起侧栏");
+  expect(app.layout("id:desktop-sidebar")?.width).toBe(64);
+  await app.press("role:button[发送]");
+  await app.waitFor("发送服务器");
+  expect(String(app.accessibility("role:checkbox[家庭服务]")?.checked)).toBe("true");
+  expect(String(app.accessibility("role:checkbox[云端服务]")?.checked)).toBe("true");
+  expect(app.enabled("role:button[发送通知]")).toBe(false);
+  await app.press("展开侧栏");
+  expect(app.layout("id:desktop-sidebar")?.width).toBe(208);
+});
+
+test("signs in separately and retries only the failed server for the same notification", async () => {
+  const other = "https://cloud.example.test";
+  const received: { origin: string; key: string | undefined }[] = [];
+  let attempts = 0;
+  const app = await open("./App.tsx", {
+    platform: "linux", locale: "zh-CN", width: 1120, height: 980,
+    storage: {
+      ...chinesePreferences,
+      "anser.servers": JSON.stringify({
+        profiles: [{ origin, name: "家庭服务" }, { origin: other, name: "云端服务" }],
+        defaults: [origin, other],
+      }),
+    },
+    network: {
+      ...baseNetwork(),
+      [`POST ${other}/v1/auth/login`]: ({ body }) => {
+        expect(JSON.parse(body ?? "{}")).toEqual({ username: "bob", password: "cloud-fixture" });
+        return { body: { token: "cloud-token", user: { ...user, username: "bob" } } };
+      },
+      [`${other}/v1/channels`]: { body: page([channel]) },
+      [`POST ${endpoints}/send`]: ({ body, headers }) => {
+        expect(headers.authorization ?? headers.Authorization).toBe("Bearer fixture-token");
+        expect(JSON.parse(body ?? "{}").title).toBe("Different servers");
+        received.push({ origin, key: headers["idempotency-key"] ?? headers["Idempotency-Key"] });
+        return { status: 202, body: { message_id: "m-home", status: "pending" } };
+      },
+      [`POST ${other}/v1/send`]: ({ body, headers }) => {
+        expect(headers.authorization ?? headers.Authorization).toBe("Bearer cloud-token");
+        expect(JSON.parse(body ?? "{}").title).toBe("Different servers");
+        received.push({ origin: other, key: headers["idempotency-key"] ?? headers["Idempotency-Key"] });
+        attempts += 1;
+        return attempts === 1
+          ? { status: 503, body: { code: "unavailable", message: "Temporary failure" } }
+          : { status: 202, body: { message_id: "m-cloud", status: "pending" } };
+      },
+    },
+  });
+  await login(app);
+  await app.type("label:标题", "Different servers");
+  expect(app.enabled("role:button[发送通知]")).toBe(false);
+  await app.press("登录 云端服务");
+  expect(app.shows("id:server-address")).toBe(false);
+  await app.type("id:username", "bob");
+  await app.type("id:password", "cloud-fixture");
+  await app.press("role:button[连接]");
+  await app.waitFor("发送服务器");
+  expect(app.value("label:标题")).toBe("Different servers");
+  await app.press("role:button[发送通知]");
+  await app.waitFor("提交结果");
+  await app.waitFor("用相同草稿再次发送即可重试失败项，已入队的服务器会自动跳过。");
+  await app.press("role:button[发送通知]");
+  await app.waitUntil(() => app.count("text:已入队") === 2);
+  expect(received.filter((item) => item.origin === origin).length).toBe(1);
+  const remote = received.filter((item) => item.origin === other);
+  expect(remote.length).toBe(2);
+  expect(Boolean(remote[0].key)).toBe(true);
+  expect(remote[0].key).toBe(remote[1].key);
+  expect(JSON.stringify(app.storage()).includes("cloud-token")).toBe(false);
+  expect(JSON.stringify(app.storage()).includes("cloud-fixture")).toBe(false);
+  await app.press("role:button[服务器]");
+  await app.press("label:打开 云端服务");
+  await app.waitFor("bob");
+  await app.press("role:button[服务器]");
+  await app.press("label:打开 家庭服务");
+  await app.waitFor("alice");
 });
 
 test("renders an inbox interaction and submits a declared response", async () => {

@@ -14,7 +14,7 @@ export const copy = {
       "server-plugins-catalog": ["插件管理", "按渠道、任务与内容转换筛选已安装插件。"],
       "server-delivery": ["投递详情", "查看各渠道的发送尝试、错误和投递状态。"],
       "server-tts": ["文本转语音", "选择模型和音色，并设置音频保留期限。"],
-      "nsh-compose": ["原生客户端", "连接服务器后，直接发送通知或发布到主题。"],
+      "nsh-compose": ["NSH 客户端", "用标签选择一台或多台服务器，直接发送通知。"],
     },
     featuresTitle: "从一条消息，到多个目的地",
     featuresList: [
@@ -26,6 +26,7 @@ export const copy = {
     channels: ["ntfy", "Bark", "邮件", "懒猫通知", "微信公众号", "企业微信", "飞书", "Telegram", "Server酱", "QQ 机器人", "钉钉", "Gotify", "Slack", "Discord", "IFTTT", "Chanify"],
     usageTitle: "从管理台和收件箱开始",
     usageCards: [
+      ["多服务器发送", "在客户端「服务器」页保存地址、备注和默认发送列表。直接发送时用标签选择目标，每台服务器分别登录。", "客户端用法", "clients/nsh/README.md"],
       ["定时任务", "在「通知 → 定时任务」创建计划，选择任务插件、目标和执行时间。行内「编辑」可改插件参数、路由或时间。", "定时任务文档", "docs/scheduled-notifications.md"],
       ["投递记录保留", "在「系统管理 → 系统设置」设置保留天数，或关闭自动清理。主题有专属保留规则时，按该主题的设置执行。"],
       ["模板和渠道账号", "在各自列表的操作栏选择编辑。内置模板可「复制并编辑」，生成可修改的副本；渠道账号可在插件设置或渠道账号页编辑。"],
@@ -64,7 +65,7 @@ export const copy = {
       "server-plugins-catalog": ["Plugin management", "Browse installed plugins by channel, task, or content transformation."],
       "server-delivery": ["Delivery details", "Inspect send attempts, errors, and status by channel."],
       "server-tts": ["Text to speech", "Choose a model, select a voice, and set audio retention."],
-      "nsh-compose": ["Native client", "Connect to your server to send directly or publish to a topic."],
+      "nsh-compose": ["NSH client", "Select one or more saved servers to send a direct notification."],
     },
     featuresTitle: "One message, many destinations",
     featuresList: [
@@ -76,6 +77,7 @@ export const copy = {
     channels: ["ntfy", "Bark", "Email", "LazyCat", "WeChat Official Account", "WeCom", "Feishu", "Telegram", "ServerChan", "QQ Bot", "DingTalk", "Gotify", "Slack", "Discord", "IFTTT", "Chanify"],
     usageTitle: "Start in the console and inbox",
     usageCards: [
+      ["Send to multiple servers", "Save addresses, display names, and default destinations on the Servers page. Use the tags to select destinations when sending directly and sign in to each server.", "Client guide", "clients/nsh/README.md"],
       ["Scheduled tasks", "Open Notifications → Scheduled tasks and set a task plugin, destination, and timing. Use Edit on an existing row to update plugin options, routing, or timing.", "Schedule guide", "docs/scheduled-notifications.md"],
       ["Delivery history retention", "Under Administration → System settings, choose how long to keep delivery records or turn automatic cleanup off. A topic can set its own retention period."],
       ["Templates and channel accounts", "Use the row actions to edit a template or channel account. Choose Duplicate and edit on a built-in template to make an editable copy."],

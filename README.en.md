@@ -116,7 +116,9 @@ The delivery overview shows the queue, successful deliveries, dead letters, and 
 
 ![Delivery receipt after a reply in the native client](docs/screenshots/en/nsh-receipt.png)
 
-![Sending a notification in the native client](docs/screenshots/en/nsh-compose.png)
+![Selecting multiple destinations in the NSH client](docs/screenshots/en/nsh-compose.png)
+
+![Managing saved servers and default destinations in the NSH client](docs/screenshots/en/nsh-servers.png)
 
 ![Selecting a group of LazyCat devices in the native client (sample devices)](docs/screenshots/en/nsh-account-device.png)
 

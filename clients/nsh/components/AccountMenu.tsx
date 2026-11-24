@@ -7,6 +7,7 @@ export function AccountMenu(props: {
   name: string;
   avatar?: string | null;
   server?: string;
+  iconOnly?: boolean;
   onProfile: () => void;
   onSecurity: () => void;
 }) {
@@ -17,7 +18,7 @@ export function AccountMenu(props: {
       placement="top"
       align="start"
       offset={4}
-      class={props.server ? "min-w-0" : "min-w-0 flex-1"}
+      class={props.server || props.iconOnly ? "min-w-0" : "min-w-0 flex-1"}
       popupClass="min-w-44 rounded-(--radius) border border-border bg-popover p-1.5 shadow-md"
       backdropClass="bg-foreground/30"
       trigger={
@@ -26,6 +27,7 @@ export function AccountMenu(props: {
           class="min-h-12 min-w-0 flex-row items-center gap-2 rounded-(--radius) px-2 py-1.5 hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
         >
           <ProfileAvatar name={props.name} avatar={props.avatar} />
+          <If when={!props.iconOnly}>
           <View class="min-w-0 flex-1 gap-0.5">
             <Text class="line-clamp-1 text-sm font-semibold text-foreground">
               {props.name}
@@ -42,6 +44,7 @@ export function AccountMenu(props: {
           >
             ⌄
           </Text>
+          </If>
         </View>
       }
     >

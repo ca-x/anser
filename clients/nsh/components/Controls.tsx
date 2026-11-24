@@ -26,13 +26,16 @@ export function Action(props: {
   testID?: string;
   accessibilityLabel?: string;
   icon?: ImageAsset;
+  iconOnly?: boolean;
+  tooltip?: JSX.Element;
 }) {
   return (
     <Button
       onPress={props.onPress}
       disabled={props.disabled}
       testID={props.testID}
-      accessibilityLabel={props.accessibilityLabel}
+      tooltip={props.tooltip}
+      accessibilityLabel={props.accessibilityLabel ?? (props.iconOnly ? props.label : undefined)}
       class={`min-h-12 items-center justify-center rounded-(--radius) px-3 py-2 focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 transition-colors duration-100 motion-reduce:transition-none ${buttonSurfaces[props.kind ?? "secondary"]} ${props.icon ? "flex-row gap-2" : ""} ${props.class ?? ""}`}
     >
       <If when={props.icon}>
@@ -45,11 +48,12 @@ export function Action(props: {
           />
         )}
       </If>
-      <Text
+      <If when={!props.iconOnly}><Text
         class={`text-sm font-semibold ${buttonText[props.kind ?? "secondary"]}`}
       >
         {props.label}
       </Text>
+      </If>
     </Button>
   );
 }

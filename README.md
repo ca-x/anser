@@ -116,7 +116,9 @@ ANSER_REQUIRE_WEB=1 cargo build --locked --release -p anser-server
 
 ![原生客户端回复后的送达回执](docs/screenshots/zh-CN/nsh-receipt.png)
 
-![原生客户端发送通知](docs/screenshots/zh-CN/nsh-compose.png)
+![NSH 客户端勾选多台发送服务器](docs/screenshots/zh-CN/nsh-compose.png)
+
+![NSH 客户端管理服务器备注和默认发送列表](docs/screenshots/zh-CN/nsh-servers.png)
 
 ![在原生客户端勾选一组懒猫设备（演示设备）](docs/screenshots/zh-CN/nsh-account-device.png)
 

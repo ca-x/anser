@@ -14,7 +14,7 @@ const storageKey = "anser.preferences";
 
 type Language = "system" | "en" | "zh-CN";
 type Appearance = "system" | "light" | "dark" | "omarchy";
-type Settings = { language: Language; appearance: Appearance };
+type Settings = { language: Language; appearance: Appearance; sidebarCollapsed?: true };
 
 function resolveAppearance(value: unknown, omarchyAvailable: boolean): Appearance {
   if (value === "light" || value === "dark") return value;
@@ -27,10 +27,11 @@ function parseSettings(raw: string | null, omarchyAvailable: boolean): Settings 
   try {
     const value: unknown = JSON.parse(raw);
     if (typeof value !== "object" || value === null) return undefined;
-    const { language, appearance } = value as Partial<Settings>;
+    const { language, appearance, sidebarCollapsed } = value as Partial<Settings>;
     return {
       language: language === "en" || language === "zh-CN" ? language : "system",
       appearance: resolveAppearance(appearance, omarchyAvailable),
+      ...(sidebarCollapsed === true ? { sidebarCollapsed: true as const } : {}),
     };
   } catch {
     return undefined;
@@ -111,6 +112,10 @@ export function createPreferences() {
         ...settings(),
         appearance: resolveAppearance(appearance, omarchyAvailable),
       });
+    },
+    toggleSidebar() {
+      const { language, appearance, sidebarCollapsed } = settings();
+      update(sidebarCollapsed ? { language, appearance } : { language, appearance, sidebarCollapsed: true });
     },
   };
 }

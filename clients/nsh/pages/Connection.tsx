@@ -17,15 +17,22 @@ import {
 import { Brand } from "../components/Workspace";
 import { operation } from "../state";
 import { PreferenceControls } from "../components/Preferences";
+import { ServerProfiles } from "../components/ServerProfiles";
 import type { Preferences } from "../preferences";
+import type { Servers } from "../servers";
 
 export function Connection(props: {
   preferences: Preferences;
+  servers: Servers;
+  initialOrigin?: string;
+  embedded?: boolean;
   pairing?: Pairing;
   linkError?: string;
   onConnect: (api: AnserApi, channels: Channel[], user?: User) => void;
 }) {
-  const address = signal("");
+  const address = signal(props.initialOrigin ?? props.servers.items()[0]?.origin ?? "");
+  const managing = signal(false);
+  const saved = () => props.servers.items().some((item) => item.origin === address());
   const method = signal("password");
   const username = signal("");
   const key = signal("");
@@ -46,11 +53,23 @@ export function Connection(props: {
   });
 
   function usePairing(imported: Pairing) {
-    resetChallenge();
-    address.set(imported.origin);
+    choose(imported.origin);
     pair.set(imported.code ? imported : undefined);
     link.set("");
     showImport.set(false);
+  }
+
+  function choose(origin: string) {
+    if (origin !== address()) {
+      address.set(origin);
+      username.set("");
+      password.set("");
+      key.set("");
+      resetChallenge();
+      pair.set(undefined);
+      connect.problem.set("");
+    }
+    managing.set(false);
   }
 
   function resetChallenge() {
@@ -144,15 +163,28 @@ export function Connection(props: {
     void connect.run(async () => usePairing(parsePairing(link())));
   }
 
-  return (
-    <Scroll class="flex-1 bg-background" keyboardDismissMode="on-drag">
-      <View class="w-full max-w-lg self-center gap-5 px-4 pt-8 pb-10 md:gap-6 md:px-6 md:pt-16">
-        <Brand />
+  const content = () => (
+      <View class={props.embedded ? "w-full max-w-lg self-center gap-4" : "w-full max-w-lg self-center gap-5 px-4 pt-8 pb-10 md:gap-6 md:px-6 md:pt-16"}>
+        <If when={!props.embedded}><Brand /></If>
+        <If when={managing()}>
+          <ServerProfiles
+            servers={props.servers}
+            selected={address()}
+            onChoose={choose}
+            onChange={(previous, next) => { if (address() === previous) choose(next); }}
+          />
+          <View class="flex-row flex-wrap gap-2">
+            <Action label={t("workspace.back")} kind="quiet" onPress={() => managing.set(false)} />
+            <Action label={t("servers.connect_another")} onPress={() => choose("")} />
+          </View>
+        </If>
+        <If when={!managing()}>
         <Panel>
           <Text role="header" class="text-[22px] font-semibold text-foreground">
             {t("connection.connect_to_an_anser_server")}
           </Text>
           <Problem message={connect.problem() || props.linkError || ""} />
+          <If when={!saved() || Boolean(pair()?.code)}>
           <Field
             label={t("connection.server_address")}
             keyboard="url"
@@ -165,6 +197,13 @@ export function Connection(props: {
             testID="server-address"
             disabled={connect.busy()}
           />
+          </If>
+          <If when={saved() && !pair()?.code}>
+            <Text class="text-base font-semibold text-foreground">{props.servers.label(address())}</Text>
+          </If>
+          <If when={!props.embedded && props.servers.items().length}>
+            <Action label={t("servers.title")} kind="quiet" class="self-start" disabled={connect.busy()} onPress={() => managing.set(true)} />
+          </If>
           <If
             when={pair()?.code}
             else={
@@ -282,6 +321,7 @@ export function Connection(props: {
             </View>
           </If>
         </Panel>
+        <If when={!props.embedded}>
         <Action
           label={
             showImport()
@@ -311,6 +351,9 @@ export function Connection(props: {
             />
           </Panel>
         </If>
+        <If when={!props.servers.items().length}>
+          <Action label={t("servers.title")} kind="quiet" class="self-start" onPress={() => managing.set(true)} />
+        </If>
 
         <Action
           label={t("preferences.title")}
@@ -330,7 +373,11 @@ export function Connection(props: {
             <AboutContent />
           </If>
         </If>
+        </If>
+        </If>
       </View>
-    </Scroll>
   );
+  return props.embedded
+    ? content()
+    : <Scroll class="flex-1 bg-background" keyboardDismissMode="on-drag">{content()}</Scroll>;
 }

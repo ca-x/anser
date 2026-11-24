@@ -15,6 +15,8 @@ import {
 } from "../components/Controls";
 import { strategyDraft, StrategyEditor, Targets } from "../components/Routing";
 import { WorkspacePage } from "../components/Workspace";
+import { ServerTags } from "../components/ServerProfiles";
+import { toggleOrigin, type Servers } from "../servers";
 import { paged } from "../state";
 
 const formats = () => [
@@ -45,12 +47,14 @@ export function composeDraft(initialTopic = "") {
   const busy = signal(false);
   const problem = signal("");
   const receipt = signal<string | undefined>(undefined);
-  let pending: { request: string; key: string; expiry?: number } | undefined;
+  const servers = signal<string[] | undefined>(undefined);
+  const results = signal<{ origin: string; id?: string; error?: string }[]>([]);
+  let pending: { request: string; key: string; expiry?: number; accepted: Map<string, string> } | undefined;
 
   const canSubmit = () => !busy() && Boolean(title().trim() || body().trim());
 
-  async function submit(api: AnserApi) {
-    if (!canSubmit()) return;
+  async function submit(apis: AnserApi[], local: boolean) {
+    if (!canSubmit() || !apis.length) return;
     busy.set(true);
     problem.set("");
     try {
@@ -59,12 +63,13 @@ export function composeDraft(initialTopic = "") {
         body: body(),
         format: format(),
       };
-      if (targets().length) next.channels = targets();
+      if (local && targets().length) next.channels = targets();
       const messageTags = tagsFrom(tags());
       if (messageTags.length) next.tags = messageTags;
       next.url = optionalHttpUrl(link(), t("compose.notification_link"));
       next.level = level();
-      if (topic() && topicPassword()) next.topic_password = topicPassword();
+      const destination = local ? topic() || undefined : undefined;
+      if (destination && topicPassword()) next.topic_password = topicPassword();
       const file = optionalHttpUrl(attachment(), t("compose.attachment_url"));
       if (file)
         next.attachments = [
@@ -85,33 +90,49 @@ export function composeDraft(initialTopic = "") {
       const expirySeconds = expiresIn().trim()
         ? integer(expiresIn(), t("compose.expiration"), 1, 604800)
         : undefined;
-      const requestedStrategy = strategy.value();
-      if (Object.keys(requestedStrategy).length)
-        next.strategy = requestedStrategy;
-      const request = JSON.stringify([topic(), next, expirySeconds]);
+      if (local) {
+        const requestedStrategy = strategy.value();
+        if (Object.keys(requestedStrategy).length) next.strategy = requestedStrategy;
+      }
+      const request = JSON.stringify([destination, next, expirySeconds]);
       if (!pending || pending.request !== request) {
         pending = {
           request,
           key: crypto.randomUUID(),
+          accepted: new Map(),
           expiry:
             expirySeconds === undefined
               ? undefined
               : Date.now() + expirySeconds * 1000,
         };
       }
-      next.expire_at = pending.expiry;
-      const accepted = await api.publish(
-        topic() || undefined,
-        next,
-        pending.key,
-        wait(),
-      );
+      const batch = pending;
+      next.expire_at = batch.expiry;
+      const outcomes = await Promise.all(apis.map(async (api) => {
+        const previous = batch.accepted.get(api.origin);
+        if (previous) return { origin: api.origin, id: previous };
+        try {
+          const accepted = await api.publish(destination, next, batch.key, wait());
+          batch.accepted.set(api.origin, accepted.message_id);
+          return { origin: api.origin, id: accepted.message_id };
+        } catch (error) {
+          return { origin: api.origin, error: messageFor(error) };
+        }
+      }));
+      results.set(local ? [] : outcomes);
+      const failed = outcomes.find((result) => result.error);
+      if (failed) {
+        if (local) problem.set(failed.error ?? "");
+        return;
+      }
       pending = undefined;
       title.set("");
       body.set("");
       topicPassword.set("");
-      receipt.set(accepted.message_id);
-      return accepted.message_id;
+      servers.set(undefined);
+      const id = local ? outcomes[0]?.id : undefined;
+      receipt.set(id);
+      return id;
     } catch (error) {
       problem.set(messageFor(error));
     } finally {
@@ -141,6 +162,8 @@ export function composeDraft(initialTopic = "") {
     busy,
     problem,
     receipt,
+    servers,
+    results,
     canSubmit,
     submit,
   };
@@ -151,6 +174,10 @@ export function Compose(props: {
   channels: Channel[];
   fixedTopic?: Topic;
   draft: ReturnType<typeof composeDraft>;
+  servers: Servers;
+  connections: AnserApi[];
+  onConnectServer: (origin: string) => void;
+  onManageServers: () => void;
   onBack?: () => void;
   onAccepted: (id: string) => void;
 }) {
@@ -183,12 +210,24 @@ export function Compose(props: {
     canSubmit,
     submit,
   } = props.draft;
+  const configured = () => props.servers.defaults();
+  const selected = () => (props.draft.servers() ?? (configured().length ? configured() : [props.api.origin]))
+    .filter((origin) => origin === props.api.origin || props.servers.items().some((item) => item.origin === origin));
+  const local = () => Boolean(topic() || props.fixedTopic) ||
+    (selected().length === 1 && selected()[0] === props.api.origin);
+  const destinations = () => topic() || props.fixedTopic ? [props.api.origin] : selected();
+  const missing = () => destinations().filter((origin) => !props.connections.some((api) => api.origin === origin));
   let mounted = true;
   cleanup(() => {
     mounted = false;
   });
   async function send() {
-    const id = await submit(props.api);
+    if (missing().length) return;
+    const apis = destinations().flatMap((origin) => {
+      const api = props.connections.find((item) => item.origin === origin);
+      return api ? [api] : [];
+    });
+    const id = await submit(apis, local());
     if (!mounted) return;
     if (id) props.onAccepted(id);
     else if (problem()) announce(problem());
@@ -203,7 +242,7 @@ export function Compose(props: {
           <Problem message={problem()} />
           <View class="flex-row flex-wrap items-center justify-between gap-3">
             <Hint>
-              {topic()
+              {!local() ? t("servers.count", { count: destinations().length }) : topic()
                 ? t("common.topic_name_value", { name: topic() })
                 : targets().length
                   ? t("compose.target_count", { count: targets().length })
@@ -217,7 +256,7 @@ export function Compose(props: {
               }
               onPress={() => void send()}
               kind="primary"
-              disabled={!canSubmit()}
+              disabled={!canSubmit() || !destinations().length || Boolean(missing().length)}
             />
           </View>
         </View>
@@ -234,7 +273,44 @@ export function Compose(props: {
           }}
         />
       </If>
+      <If when={props.draft.results().length}>
+        <Section title={t("servers.send_results")}>
+          <If when={props.draft.results().some((outcome) => outcome.error)}>
+            <Hint>{t("servers.retry_hint")}</Hint>
+          </If>
+          <Each of={props.draft.results()} key={(result) => result.origin}>
+            {(result) => (
+              <View class="gap-1 rounded-(--radius) border border-border bg-card px-3 py-2">
+                <Text class="font-semibold text-foreground">{props.servers.label(result().origin)}</Text>
+                <If when={result().id} else={<Problem message={result().error ?? ""} />}>
+                  <Text class="text-sm text-success">{t("servers.queued")}</Text>
+                </If>
+              </View>
+            )}
+          </Each>
+        </Section>
+      </If>
       <Section title={t("compose.recipients")}>
+        <If when={!props.fixedTopic && !topic()}>
+          <View class="flex-row flex-wrap items-center justify-between gap-2">
+            <Text class="text-sm font-semibold text-foreground">{t("servers.destinations")}</Text>
+            <Action label={t("servers.manage")} kind="quiet" onPress={props.onManageServers} disabled={busy()} />
+          </View>
+          <ServerTags
+            items={props.servers.items()}
+            selected={selected()}
+            disabled={busy()}
+            onToggle={(origin) => props.draft.servers.set(toggleOrigin(selected(), origin))}
+          />
+          <If when={!local()}><Hint>{t("servers.route_hint")}</Hint></If>
+          <Each of={missing()}>
+            {(origin) => (
+              <Action kind="secondary" class="self-start"
+                label={t("servers.sign_in_name", { name: props.servers.label(origin()) })}
+                onPress={() => props.onConnectServer(origin())} />
+            )}
+          </Each>
+        </If>
         <If
           when={props.fixedTopic}
           else={
@@ -289,6 +365,9 @@ export function Compose(props: {
         <If when={topics?.problem()}>
           <Hint>{topics?.problem()}</Hint>
         </If>
+        <If when={topic() || props.fixedTopic}>
+          <Hint>{t("servers.topic_on", { name: props.servers.label(props.api.origin) })}</Hint>
+        </If>
       </Section>
       <Panel>
         <Field
@@ -314,6 +393,7 @@ export function Compose(props: {
           onChange={(value) => format.set((value ?? "text") as Format)}
         />
       </Panel>
+      <If when={local()}>
       <Targets
         title={t("compose.choose_channels_or_accounts")}
         targets={targets()}
@@ -334,6 +414,7 @@ export function Compose(props: {
           disabled={accounts.loading()}
           onPress={accounts.more}
         />
+      </If>
       </If>
       <Action
         label={
@@ -414,7 +495,7 @@ export function Compose(props: {
             checked={wait()}
             onChange={wait.set}
           />
-          <StrategyEditor draft={strategy} optional />
+          <If when={local()}><StrategyEditor draft={strategy} optional /></If>
         </Panel>
       </If>
     </WorkspacePage>
