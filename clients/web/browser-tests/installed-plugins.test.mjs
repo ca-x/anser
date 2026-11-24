@@ -26,6 +26,7 @@ test("groups installed plugins by capability and renders website list options su
     { id: "openai-tts", kind: "content_transform", display_name: "OpenAI TTS", available: true, enabled: true, config_schema: {} },
   ];
   let payload;
+  let schedule;
   await page.route(site + "/**", (route) => {
     const path = new URL(route.request().url()).pathname;
     if (path.startsWith("/admin")) return route.fulfill({ path: fileURLToPath(new URL("index.html", dist)) });
@@ -33,6 +34,14 @@ test("groups installed plugins by capability and renders website list options su
     if (path.startsWith(asset)) return route.fulfill({ path: fileURLToPath(new URL(path.slice(asset.length), dist)) });
     if (path === "/v1/auth/me") return route.fulfill({ json: { id: "admin", username: "admin", admin: true, enabled: true } });
     if (path === "/v1/plugins") return route.fulfill({ json: { items: installed } });
+    if (path === "/v1/schedules") {
+      if (route.request().method() === "POST") {
+        schedule = route.request().postDataJSON();
+        return route.fulfill({ status: 201, json: { id: "test" } });
+      }
+      return route.fulfill({ json: { items: [] } });
+    }
+    if (path === "/v1/topics") return route.fulfill({ json: { items: [{ name: "alerts", enabled: true }] } });
     if (path === "/v1/plugins/task/certificate-expiration/run") {
       payload = route.request().postDataJSON();
       return route.fulfill({ json: {
@@ -44,9 +53,10 @@ test("groups installed plugins by capability and renders website list options su
   });
   await page.addInitScript(() => sessionStorage.setItem("anser.auth.session", "test-session"));
   await page.goto(site + "/admin/channels");
-  for (const group of ["Channel plugins", "Task plugins", "Content transforms"]) {
-    await page.getByRole("heading", { name: group, exact: true }).waitFor();
-  }
+  const filters = page.getByRole("group", { name: "Plugin type" });
+  await filters.getByRole("button", { name: /Task plugins/ }).click();
+  await page.getByRole("heading", { name: "TLS certificate expiration", exact: true }).waitFor();
+  assert.equal(await page.getByRole("heading", { name: "OpenAI TTS", exact: true }).count(), 0);
   assert.equal(await page.getByText("Not the localized name", { exact: true }).count(), 0);
   await page.getByRole("button", { name: "Run TLS certificate expiration" }).click();
   const dialog = page.getByRole("dialog");
@@ -55,5 +65,18 @@ test("groups installed plugins by capability and renders website list options su
   await dialog.getByRole("button", { name: "Run plugin", exact: true }).click();
   await dialog.getByText("Certificate warning", { exact: true }).waitFor();
   assert.deepEqual(payload.config, { urls: ["https://example.com", "https://example.org"], warning_days: 14 });
+  await page.keyboard.press("Escape");
+  await dialog.waitFor({ state: "hidden" });
+  await page.getByRole("link", { name: "Schedule a notification" }).click();
+  await dialog.getByLabel("Name", { exact: true }).fill("TLS reminders");
+  await dialog.getByLabel("Website URLs").fill("https://example.com");
+  await dialog.getByLabel("Send to").selectOption("alerts");
+  await dialog.getByLabel("Interval (minutes)").fill("30");
+  await dialog.getByRole("button", { name: "Save schedule" }).click();
+  await dialog.waitFor({ state: "hidden" });
+  assert.deepEqual(schedule, {
+    name: "TLS reminders", plugin_id: "certificate-expiration", interval_minutes: 30, topic: "alerts",
+    config: { urls: ["https://example.com"], warning_days: 30 }, input: null,
+  });
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
 });

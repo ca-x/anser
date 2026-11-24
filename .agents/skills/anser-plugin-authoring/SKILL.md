@@ -15,7 +15,7 @@ Read [AGENTS.md](../../../AGENTS.md), the [plugin API](../../../crates/anser-plu
 | Task | `TaskService`, `anser.task.<id>` | Zero or more message drafts |
 | Content transform | `ContentTransformService`, `anser.content_transform.<id>` | A transformed message and optional media artifacts |
 
-Keep certificate checks and weather collection in a task. A task produces drafts and the caller chooses where to publish them. Keep an LLM rewrite or speech synthesis in a content transform. Run the transform before publishing when the result should be shared by multiple deliveries. Account retries and failover call the channel again, so they must not run the task or repeat the transform.
+Keep certificate checks and weather collection in a task. A task produces drafts. The scheduler runs it at the configured interval and sends the drafts through the chosen Topic or the default route. A manual plugin run still previews the drafts. Keep an LLM rewrite or speech synthesis in a content transform. Run the transform before publishing when the result should be shared by multiple deliveries. Account retries and failover call the channel again, so they must not run the task or repeat the transform.
 
 Use a stable lowercase identifier and an independent `X.Y.Z` plugin version. Put the Rust crate in `anser-plugins/<id>` and add its feature and service registration in [anser-host](../../../crates/anser-host) and the [server features](../../../crates/anser-server/Cargo.toml). Review the OpenAI-compatible [TTS plugin](../../../anser-plugins/openai-tts/src/lib.rs) for an action returning a media artifact and [Gotify](../../../anser-plugins/gotify/src/lib.rs) for a channel.
 
@@ -49,7 +49,7 @@ Use the host's allowed native widgets for privileged operations such as selectin
 
 ## Announce a release
 
-Publish immutable release artifacts under the plugin's own version. To announce a release, use **Topics → Plugin marketplace** in the admin console or publish a manifest to `POST /v1/topics/{name}/plugin-listings`:
+Publish immutable release artifacts under the plugin's own version. Add the GitHub repository topic `anser-plugin` to appear in **Plugin management → Marketplace**. To notify Topic subscribers about a release, use **Plugin management → Marketplace → Topic announcements** or publish a manifest to `POST /v1/topics/{name}/plugin-listings`:
 
 ```json
 {

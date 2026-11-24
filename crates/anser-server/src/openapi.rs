@@ -82,6 +82,28 @@ pub async fn document() -> Json<Value> {
             &["GET / List installed plugins by capability"],
         ),
         (
+            "/v1/plugins/market",
+            &["GET / Search public GitHub plugin repositories"],
+        ),
+        (
+            "/v1/schedules",
+            &[
+                "GET / List scheduled pushes",
+                "POST / Create a scheduled push",
+            ],
+        ),
+        (
+            "/v1/schedules/{id}",
+            &[
+                "PUT / Pause or resume a schedule",
+                "DELETE / Delete a schedule",
+            ],
+        ),
+        (
+            "/v1/schedules/{id}/run",
+            &["POST / Request an immediate run"],
+        ),
+        (
             "/v1/plugins/task/{id}/run",
             &["POST / Run one task and return notification drafts (global administrator only)"],
         ),
@@ -204,6 +226,7 @@ pub async fn document() -> Json<Value> {
                         | "/v1/users"
                         | "/v1/api-keys"
                         | "/v1/proxies"
+                        | "/v1/schedules"
                         | "/v1/inbox"
                         | "/v1/topics/{name}/subscriptions"
                 )
@@ -211,6 +234,12 @@ pub async fn document() -> Json<Value> {
                 method_params.extend([
                     json!({"name":"cursor","in":"query","schema":{"type":"string"}}),
                     json!({"name":"limit","in":"query","schema":{"type":"integer","minimum":1,"maximum":100}}),
+                ]);
+            }
+            if path == "/v1/plugins/market" {
+                method_params.extend([
+                    json!({"name":"q","in":"query","schema":{"type":"string"}}),
+                    json!({"name":"cursor","in":"query","schema":{"type":"integer","minimum":1,"maximum":50}}),
                 ]);
             }
             if path == "/v1/inbox" {
@@ -238,7 +267,11 @@ pub async fn document() -> Json<Value> {
                 }
                 operation["responses"]["416"] = json!({"description":"Invalid byte range"});
             }
-            if method == "DELETE" || path.ends_with("/logout") || path.ends_with("/read") {
+            if method == "DELETE"
+                || path.ends_with("/logout")
+                || path.ends_with("/read")
+                || (method == "PUT" && path == "/v1/schedules/{id}")
+            {
                 operation["responses"]["204"] =
                     json!({"description":"Resource changed successfully"});
             }
@@ -364,6 +397,8 @@ fn request_schema(path: &str, method: &str) -> Option<&'static str> {
         ("POST", "/v1/accounts") => Some("AccountCreate"),
         ("PUT", "/v1/accounts/{id}") => Some("AccountUpdate"),
         ("POST", "/v1/accounts/{id}/test") => Some("Message"),
+        ("POST", "/v1/schedules") => Some("ScheduleInput"),
+        ("PUT", "/v1/schedules/{id}") => Some("ScheduleState"),
         ("POST", "/v1/plugins/task/{id}/run") => Some("PluginTaskInput"),
         ("POST", "/v1/plugins/content_transform/{id}/run") => Some("PluginTransformInput"),
         ("PUT", "/v1/channels/{id}/runtime") => Some("ChannelChange"),
@@ -405,6 +440,13 @@ fn success_schema(path: &str, method: &str) -> Option<(&'static str, Value)> {
         ("GET", "/v1/accounts") => ("200", page("Account")),
         ("POST", "/v1/accounts") => ("201", reference("Account")),
         ("GET" | "PUT", "/v1/accounts/{id}") => ("200", reference("Account")),
+        ("GET", "/v1/plugins/market") => ("200", page("GithubPlugin")),
+        ("GET", "/v1/schedules") => ("200", page("Schedule")),
+        ("POST", "/v1/schedules") => ("201", reference("Schedule")),
+        ("POST", "/v1/schedules/{id}/run") => (
+            "202",
+            json!({"type":"object","properties":{"queued":{"const":true}}}),
+        ),
         ("GET", "/v1/plugins") => ("200", page("InstalledPlugin")),
         ("POST", "/v1/plugins/task/{id}/run") => ("200", reference("PluginTaskOutput")),
         ("POST", "/v1/plugins/content_transform/{id}/run") => {
@@ -550,6 +592,10 @@ fn schemas() -> Value {
             "LazycatDevices":{"type":"object","required":["user_id","devices"],"properties":{"user_id":{"type":"string","description":"UID verified by the LazyCat ingress."},"devices":{"type":"array","items":reference("LazycatDevice")},"max_selection":{"type":"integer"},"configured_device_ids":{"type":"array","items":{"type":"string"}}}},
             "LazycatDevice":{"type":"object","required":["device_id","name","online"],"properties":{"device_id":string,"name":string,"online":boolean}},
             "InstalledPlugin":{"type":"object","required":["id","kind","display_name","config_schema","enabled","available"],"properties":{"id":string,"kind":{"type":"string","enum":["channel","task","content_transform"]},"display_name":string,"version":string,"config_schema":{"type":"object"},"enabled":boolean,"available":boolean}},
+            "GithubPlugin":{"type":"object","properties":{"full_name":string,"description":{"type":["string","null"]},"stargazers_count":integer}},
+            "ScheduleInput":{"type":"object","required":["name","plugin_id","interval_minutes","config"],"properties":{"name":string,"plugin_id":string,"interval_minutes":{"type":"integer","minimum":1,"maximum":43200},"topic":{"type":["string","null"]},"start_at":{"type":"integer","description":"Unix epoch in milliseconds; omission runs after one interval"},"config":{"type":"object","writeOnly":true},"input":{"writeOnly":true}}},
+            "ScheduleState":{"type":"object","required":["enabled"],"properties":{"enabled":boolean}},
+            "Schedule":{"type":"object","properties":{"id":string,"name":string,"plugin_id":string,"topic":{"type":["string","null"]},"interval_minutes":integer,"enabled":boolean,"next_at":integer,"last_at":{"type":["integer","null"]},"last_status":{"type":["string","null"]},"last_count":integer}},
             "PluginTaskInput":{"type":"object","required":["config"],"properties":{"config":{"type":"object","writeOnly":true},"input":{}}},
             "PluginTransformInput":{"type":"object","required":["config","message"],"properties":{"config":{"type":"object","writeOnly":true},"message":reference("Message")}},
             "PluginTaskOutput":{"type":"object","required":["notifications"],"properties":{"notifications":{"type":"array","items":reference("Message")},"details":{"description":"Optional diagnostics independent of notification drafts."}}},

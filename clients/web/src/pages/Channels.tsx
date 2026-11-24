@@ -1,5 +1,5 @@
 import { useState, type MouseEvent } from "react";
-import { EuiBadge, EuiBasicTable, EuiButton, EuiButtonEmpty, EuiLink, EuiText } from "@elastic/eui";
+import { EuiBadge, EuiButton, EuiButtonEmpty, EuiLink, EuiTab, EuiTabs, EuiText } from "@elastic/eui";
 import { Api, segment, type Channel, type ChannelRuntime, type InstalledPlugin, type Page } from "../api";
 import { PluginRunner } from "../components/PluginRunner";
 import { Confirm, Empty, Failure, PageTitle, Progress } from "../components/Common";
@@ -31,48 +31,67 @@ const pluginGroups = [
   { kind: "content_transform", label: "内容转换插件" },
 ] as const;
 
+export function PluginsWorkspace({ tab, navigate, children }: {
+  tab: "built-in" | "market" | "schedules"; navigate: Navigate; children: React.ReactNode;
+}) {
+  const t = useT();
+  const tabs = [
+    ["built-in", listPath, "内置插件"],
+    ["market", `${listPath}/market`, "插件市场"],
+    ["schedules", `${listPath}/schedules`, "定时推送"],
+  ] as const;
+  const panel = "plugin-workspace-panel";
+  return <>
+    <PageTitle title={t("插件管理")} />
+    <EuiTabs aria-label={t("插件管理")}>
+      {tabs.map(([id, path, title]) => <EuiTab key={id} id={`plugin-tab-${id}`} aria-controls={panel}
+        isSelected={tab === id} onClick={() => navigate(path)}>{t(title)}</EuiTab>)}
+    </EuiTabs>
+    <div className="stack plugin-tab-content" id={panel} role="tabpanel" aria-labelledby={`plugin-tab-${tab}`}>{children}</div>
+  </>;
+}
+
 export function Channels({ api, navigate }: { api: Api; navigate: Navigate }) {
   const t = useT();
   const language = useLanguage();
   const channelName = useChannelName();
   const list = useResource<Page<InstalledPlugin>>(api, "/plugins");
   const [active, setActive] = useState<InstalledPlugin>();
-  const listItems = list.data?.items ?? [];
+  const [filter, setFilter] = useState<InstalledPlugin["kind"]>();
+  const items = list.data?.items ?? [];
   const name = (plugin: InstalledPlugin) => pluginLabel(plugin, language) ??
     (plugin.kind === "channel" ? channelName(plugin.id, plugin.display_name) : plugin.display_name);
+  const typeLabel = (kind: InstalledPlugin["kind"]) => pluginGroups.find((group) => group.kind === kind)?.label ?? kind;
 
-  return <>
-    <PageTitle title={t("插件管理")} description={t("按用途查看已安装的插件，管理渠道账号或运行任务与内容转换。")}
-      action={<EuiButton iconType="globe" onClick={() => navigate("/admin/topics/plugin-market")}>{t("插件市场")}</EuiButton>} />
+  return <PluginsWorkspace tab="built-in" navigate={navigate}>
+    <div className="plugin-filters" role="group" aria-label={t("插件类型")}>
+      {[{ kind: undefined, label: "全部插件" }, ...pluginGroups].map(({ kind, label }) =>
+        <button key={label} type="button" aria-pressed={filter === kind} onClick={() => setFilter(kind)}>
+          {t(label)} <span>{kind ? items.filter((item) => item.kind === kind).length : items.length}</span>
+        </button>)}
+    </div>
     <Failure message={list.error} retry={list.reload} />
     {list.loading && <Progress />}
-    {list.data && !listItems.length && <Empty title={t("没有已安装的插件")} />}
-    {pluginGroups.map(({ kind, label }) => {
-      const items = listItems.filter((item) => item.kind === kind);
-      if (!items.length) return null;
-      const channel = kind === "channel";
-      return <section className="stack" key={kind} aria-labelledby={`plugin-group-${kind}`}>
-        <div className="section-header"><h2 id={`plugin-group-${kind}`}>{t(label)}</h2></div>
-        <div className="data-surface channel-plugin-list">
-          <EuiBasicTable<InstalledPlugin> tableCaption={t(label)} rowHeader="display_name" itemId="id" items={items} columns={[
-            { field: "display_name", name: t("插件"), render: (_, plugin) => {
-              if (!channel) return name(plugin);
-              const path = `${listPath}/${segment(plugin.id)}`;
-              return <EuiLink href={path} onClick={(event) => follow(event, path, navigate)}>{name(plugin)}</EuiLink>;
-            } },
-            { name: t("运行状态"), render: (plugin: InstalledPlugin) => <PluginStatus channel={plugin} /> },
-            ...(!channel ? [{
-              name: t("操作"),
-              render: (plugin: InstalledPlugin) => <EuiButtonEmpty size="xs" isDisabled={!plugin.available}
-                aria-label={t("运行 {name}", { name: name(plugin) })}
-                onClick={() => setActive(plugin)}>{t("运行插件")}</EuiButtonEmpty>,
-            }] : []),
-          ]} />
-        </div>
-      </section>;
-    })}
+    {list.data && !items.some((item) => !filter || item.kind === filter) && <Empty title={t("没有已安装的插件")} />}
+    <ul className="plugin-grid">
+      {items.filter((item) => !filter || item.kind === filter).map((plugin) => {
+        const path = `${listPath}/${segment(plugin.id)}`;
+        return <li key={`${plugin.kind}:${plugin.id}`} className="plugin-tile">
+          <div className="plugin-tile-meta"><EuiBadge>{t(typeLabel(plugin.kind))}</EuiBadge><PluginStatus channel={plugin} /></div>
+          <h2>{plugin.kind === "channel" ? <EuiLink href={path} onClick={(event) => follow(event, path, navigate)}>{name(plugin)}</EuiLink> : name(plugin)}</h2>
+          <div className="plugin-tile-actions">
+            {plugin.version && <span className="muted">{plugin.version}</span>}
+            {plugin.kind === "channel" ? <EuiButtonEmpty size="xs" href={path} onClick={(event: MouseEvent<HTMLAnchorElement>) => follow(event, path, navigate)}>{t("配置插件")}</EuiButtonEmpty>
+              : <EuiButtonEmpty size="xs" onClick={() => setActive(plugin)} disabled={!plugin.available}
+                aria-label={t("运行 {name}", { name: name(plugin) })}>{t("运行插件")}</EuiButtonEmpty>}
+            {plugin.kind === "task" && <EuiButtonEmpty size="xs" iconType="clock" href={`${listPath}/schedules?plugin=${segment(plugin.id)}`}
+              onClick={(event: MouseEvent<HTMLAnchorElement>) => follow(event, `${listPath}/schedules?plugin=${segment(plugin.id)}`, navigate)}>{t("创建定时推送")}</EuiButtonEmpty>}
+          </div>
+        </li>;
+      })}
+    </ul>
     {active && <PluginRunner api={api} plugin={{ ...active, display_name: name(active) }} close={() => setActive(undefined)} />}
-  </>;
+  </PluginsWorkspace>;
 }
 
 export function ChannelSettings({ api, id, navigate }: { api: Api; id: string; navigate: Navigate }) {

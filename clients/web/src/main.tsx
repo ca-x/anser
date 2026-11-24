@@ -29,6 +29,8 @@ const Accounts = lazy(() => import("./pages/Accounts").then(({ Accounts }) => ({
 const Channels = lazy(() => import("./pages/Channels").then(({ Channels }) => ({ default: Channels })));
 const ChannelSettings = lazy(() => import("./pages/Channels").then(({ ChannelSettings }) => ({ default: ChannelSettings })));
 const Topics = lazy(() => import("./pages/Topics").then(({ Topics }) => ({ default: Topics })));
+const GithubMarket = lazy(() => import("./pages/GithubMarket"));
+const Schedules = lazy(() => import("./pages/Schedules"));
 const PluginMarket = lazy(() => import("./pages/PluginMarket"));
 const Dashboard = lazy(() => import("./pages/Admin").then(({ Dashboard }) => ({ default: Dashboard })));
 const DefaultRoute = lazy(() => import("./pages/Admin").then(({ DefaultRoute }) => ({ default: DefaultRoute })));
@@ -282,6 +284,9 @@ function decodeSegment(value: string) {
 function Workspace({ path, api, username, sendSession, navigate }: { path: string; api: Api; username: string; sendSession: SendSession; navigate: (path: string) => void }) {
   const detail = /^\/admin\/messages\/([^/]+)$/.exec(path);
   if (detail) return <MessageView api={api} id={decodeSegment(detail[1])} navigate={navigate} />;
+  if (path === "/admin/channels/market") return <GithubMarket api={api} navigate={navigate} />;
+  if (path === "/admin/channels/schedules") return <Schedules api={api} navigate={navigate} />;
+  if (path === "/admin/channels/announcements" || path === "/admin/topics/plugin-market") return <PluginMarket api={api} navigate={navigate} />;
   const channel = /^\/admin\/channels\/([^/]+)$/.exec(path);
   if (channel) return <ChannelSettings api={api} id={decodeSegment(channel[1])} navigate={navigate} />;
   switch (path) {
@@ -290,8 +295,7 @@ function Workspace({ path, api, username, sendSession, navigate }: { path: strin
     case "/admin/templates": return <Templates api={api} session={sendSession} navigate={navigate} />;
     case "/admin/accounts": return <Accounts api={api} />;
     case "/admin/channels": return <Channels api={api} navigate={navigate} />;
-    case "/admin/topics": return <Topics api={api} navigate={navigate} />;
-    case "/admin/topics/plugin-market": return <PluginMarket api={api} navigate={navigate} />;
+    case "/admin/topics": return <Topics api={api} />;
     case "/admin/routing": return <DefaultRoute api={api} />;
     case "/admin/proxies": return <Proxies api={api} />;
     case "/admin/users": return <Users api={api} />;

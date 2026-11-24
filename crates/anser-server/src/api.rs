@@ -102,6 +102,20 @@ pub fn router() -> Router<Arc<App>> {
         )
         .route("/v1/proxies/{id}/test", post(crate::proxies::test_proxy))
         .route("/v1/plugins", get(crate::plugins::list))
+        .route("/v1/plugins/market", get(crate::github_market::search))
+        .route(
+            "/v1/schedules",
+            get(crate::scheduled_tasks::list).post(crate::scheduled_tasks::create),
+        )
+        .route(
+            "/v1/schedules/{id}",
+            axum::routing::put(crate::scheduled_tasks::change)
+                .delete(crate::scheduled_tasks::delete),
+        )
+        .route(
+            "/v1/schedules/{id}/run",
+            post(crate::scheduled_tasks::run_now),
+        )
         .route("/v1/plugins/task/{id}/run", post(crate::plugins::run_task))
         .route(
             "/v1/plugins/content_transform/{id}/run",

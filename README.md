@@ -52,6 +52,7 @@ ANSER_REQUIRE_WEB=1 cargo build --locked --release -p anser-server
 
 - [通知模板与 API 示例](docs/notification-templates.md)
 - [插件开发 Skill](.agents/skills/anser-plugin-authoring/SKILL.md)
+- [定时推送与市场发现](docs/scheduled-notifications.md)
 
 ## 界面截图
 
@@ -132,7 +133,7 @@ ANSER_REQUIRE_WEB=1 cargo build --locked --release -p anser-server
 
 ## 插件与语音通知
 
-插件页按渠道、任务和内容转换分类。证书检查支持多个 HTTPS 站点和提前提醒天数，天气任务支持城市或机场代码、语言和单位。任务可由管理台或 API 按需运行，输出可供发布的通知草稿。在主题与订阅页可进入插件市场，查看或发布带独立版本的插件目录条目。
+插件页按渠道、任务和内容转换分类。证书检查支持多个 HTTPS 站点和提前提醒天数，天气任务支持城市或机场代码、语言和单位。在「插件管理 → 定时推送」选择任务插件、运行间隔和目标，服务器会把结果发到所选主题或默认路由。「插件市场」检索带 `anser-plugin` 标签的公开 GitHub 仓库，主题公告可在市场内单独访问。
 
 在「内容转换 → 文本转语音」可预听或发送语音。登录中的雁字客户端会依次播放新语音通知，可在收件箱关闭自动播放。其他渠道收到文字和限时音频链接。通过主题或默认渠道发送前，请配置可访问的 HTTPS `ANSER_PUBLIC_URL`。
 

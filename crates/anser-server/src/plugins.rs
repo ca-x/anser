@@ -75,9 +75,9 @@ pub(crate) async fn list(
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct TaskRequest {
-    config: Value,
+    pub config: Value,
     #[serde(default)]
-    input: Value,
+    pub input: Value,
 }
 
 pub(crate) async fn run_task(
@@ -87,12 +87,20 @@ pub(crate) async fn run_task(
     ApiJson(request): ApiJson<TaskRequest>,
 ) -> ApiResult<Json<TaskOutput>> {
     identity.admin_global()?;
+    Ok(Json(execute_task(&app, &id, request).await?))
+}
+
+pub(crate) async fn execute_task(
+    app: &App,
+    id: &str,
+    request: TaskRequest,
+) -> ApiResult<TaskOutput> {
     validate_config(&request.config)?;
     require_encoded_limit(&request.input, MAX_ACTION_INPUT_BYTES)?;
     let _permit = acquire_slot()?;
     let output = tokio::time::timeout(
         TIMEOUT,
-        app.host.run_task(&id, request.config, request.input),
+        app.host.run_task(id, request.config, request.input),
     )
     .await
     .map_err(|_| timed_out())?
@@ -105,7 +113,7 @@ pub(crate) async fn run_task(
     for message in &output.notifications {
         validate_output_message(message)?;
     }
-    Ok(Json(output))
+    Ok(output)
 }
 
 #[derive(Deserialize)]
@@ -150,14 +158,14 @@ fn acquire_slot() -> ApiResult<SemaphorePermit<'static>> {
     ACTION_SLOTS.try_acquire().map_err(|_| ApiError::limited())
 }
 
-fn validate_config(config: &Value) -> ApiResult<()> {
+pub(crate) fn validate_config(config: &Value) -> ApiResult<()> {
     if !config.is_object() {
         return Err(ApiError::bad("Plugin configuration must be a JSON object"));
     }
     require_encoded_limit(config, MAX_CONFIG_BYTES)
 }
 
-fn require_encoded_limit(data: &impl Serialize, limit: usize) -> ApiResult<()> {
+pub(crate) fn require_encoded_limit(data: &impl Serialize, limit: usize) -> ApiResult<()> {
     if serde_json::to_vec(data).is_ok_and(|bytes| bytes.len() <= limit) {
         Ok(())
     } else {

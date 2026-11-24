@@ -438,13 +438,16 @@ impl Store {
     }
 
     pub async fn key(&self, id: &str) -> Result<ApiKey> {
+        if id == crate::scheduled_tasks::RESERVED_SCHEDULE_KEY {
+            return Err(DataError::Missing);
+        }
         sqlx::query_as("SELECT id, secret_hash, name, scopes AS scopes_json, topic_prefix, expires_at, enabled, created_at, last_used_at, user_id, session FROM api_keys WHERE id=?")
             .bind(id).fetch_optional(&self.0).await?.ok_or(DataError::Missing)
     }
 
     pub async fn keys(&self, after: &str, limit: u32) -> Result<Page<serde_json::Value>> {
-        let mut keys = sqlx::query_as::<_, ApiKey>("SELECT id, secret_hash, name, scopes AS scopes_json, topic_prefix, expires_at, enabled, created_at, last_used_at, user_id, session FROM api_keys WHERE session=0 AND id>? ORDER BY id LIMIT ?")
-            .bind(after).bind(limit + 1).fetch_all(&self.0).await?;
+        let mut keys = sqlx::query_as::<_, ApiKey>("SELECT id, secret_hash, name, scopes AS scopes_json, topic_prefix, expires_at, enabled, created_at, last_used_at, user_id, session FROM api_keys WHERE session=0 AND id<>? AND id>? ORDER BY id LIMIT ?")
+            .bind(crate::scheduled_tasks::RESERVED_SCHEDULE_KEY).bind(after).bind(limit + 1).fetch_all(&self.0).await?;
         let keys = page(&mut keys, limit, |key| &key.id);
         Ok(Page {
             items: keys
@@ -532,7 +535,7 @@ pub(crate) fn page<T>(values: &mut Vec<T>, limit: u32, key: impl Fn(&T) -> &str)
 
 impl Store {
     pub async fn has_credentials(&self) -> Result<bool> {
-        Ok(sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM accounts) OR EXISTS(SELECT 1 FROM proxy_profiles) OR EXISTS(SELECT 1 FROM deliveries WHERE encrypted_target IS NOT NULL) OR EXISTS(SELECT 1 FROM user_totp WHERE setup_expires_at IS NULL OR setup_expires_at>?)")
+        Ok(sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM scheduled_tasks) OR EXISTS(SELECT 1 FROM accounts) OR EXISTS(SELECT 1 FROM proxy_profiles) OR EXISTS(SELECT 1 FROM deliveries WHERE encrypted_target IS NOT NULL) OR EXISTS(SELECT 1 FROM user_totp WHERE setup_expires_at IS NULL OR setup_expires_at>?)")
             .bind(now_ms()).fetch_one(&self.0).await?)
     }
 }

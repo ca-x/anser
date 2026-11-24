@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { EuiButton, EuiCallOut, EuiFieldText, EuiFormRow, EuiLink, EuiSelect, EuiTextArea } from "@elastic/eui";
 import { Api, segment, type InstalledPlugin, type JsonObject, type Message, type Receipt } from "../api";
-import { serializeConfig } from "../form-values";
+import { configDefaults, serializeConfig } from "../form-values";
 import { useT } from "../preferences";
 import { useMutation } from "../resources";
 import { ChannelFields } from "./ChannelFields";
@@ -38,14 +38,6 @@ function ArtifactDownload({ artifact }: { artifact: Artifact }) {
     {audio && href && <audio controls src={href} aria-label={artifact.name} />}
     {href && <EuiButton size="s" iconType="download" href={href} download={artifact.name}>{t("下载 {name}", { name: artifact.name })}</EuiButton>}
   </div>;
-}
-
-function configDefaults(schema: JsonObject): JsonObject {
-  const fields = schema.properties;
-  if (!fields || typeof fields !== "object") return {};
-  return Object.fromEntries(Object.entries(fields).filter(([, field]) =>
-    field && typeof field === "object" && !field.writeOnly && field.format !== "password" && field.default !== undefined
-  ).map(([name, field]) => [name, field.default]));
 }
 
 export function PluginRunner({ api, plugin, close }: { api: Api; plugin: InstalledPlugin; close: () => void }) {

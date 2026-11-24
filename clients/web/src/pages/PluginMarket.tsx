@@ -37,8 +37,8 @@ export default function PluginMarket({ api, navigate }: { api: Api; navigate: (p
   const topic = topics.items.find(({ name }) => name === selected);
 
   return <>
-    <PageTitle title={t("插件市场")} description={t("通过主题分享插件版本和源码。主题订阅者可以收到发布通知。")}
-      action={<EuiButtonEmpty size="s" iconType="arrowLeft" onClick={() => navigate("/admin/topics")}>{t("返回主题")}</EuiButtonEmpty>} />
+    <PageTitle title={t("主题插件公告")} description={t("通过主题分享插件版本和源码。主题订阅者可以收到发布通知。")}
+      action={<EuiButtonEmpty size="s" iconType="arrowLeft" onClick={() => navigate("/admin/channels/market")}>{t("返回插件市场")}</EuiButtonEmpty>} />
     <Failure message={topics.error} retry={topics.reload} />
     {topics.loading ? <Progress /> : topics.items.length ? <>
       <div className="form-grid">

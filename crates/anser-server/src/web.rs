@@ -12,6 +12,10 @@ pub fn router() -> Router {
         .route("/login", get(entry))
         .route("/admin", get(entry))
         .route("/admin/", get(entry))
+        .route(
+            "/admin/topics/plugin-market",
+            get(|| async { Redirect::temporary("/admin/channels/market") }),
+        )
         .route("/admin/{*page}", get(entry))
         .route("/assets/anser/{*path}", get(asset))
 }

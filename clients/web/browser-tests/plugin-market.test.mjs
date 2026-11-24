@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import { chromium } from "playwright-core";
 
-test("on narrow screens, publish and filter plugin announcements from the Topics page", async (t) => {
+test("on narrow screens, publish and filter plugin announcements from plugin management", async (t) => {
   const browser = await chromium.launch({ executablePath: process.env.CHROME_BIN || undefined });
   t.after(() => browser.close());
   const page = await browser.newPage({
@@ -23,6 +23,12 @@ test("on narrow screens, publish and filter plugin announcements from the Topics
     if (path === "/v1/auth/me") {
       return route.fulfill({ json: { id: "editor", username: "editor", admin: true, enabled: true } });
     }
+    if (path === "/v1/plugins/market") {
+      const q = url.searchParams.get("q");
+      return route.fulfill({ json: { items: q === "weather" ? [
+        { full_name: "example/anser-weather", description: "Weather for Anser", stargazers_count: 5 },
+      ] : [], next_cursor: null } });
+    }
     if (path === "/v1/topics") {
       return route.fulfill({ json: { items: [{ name: "plugin-news", enabled: true, policy: { mode: "broadcast" } }], next_cursor: null } });
     }
@@ -39,7 +45,16 @@ test("on narrow screens, publish and filter plugin announcements from the Topics
   });
   await page.addInitScript(() => sessionStorage.setItem("anser.auth.session", "test-session"));
   await page.goto(site + "/admin/topics");
-  await page.getByRole("button", { name: "Plugin marketplace" }).click();
+  assert.equal(await page.getByRole("button", { name: "Plugin marketplace" }).count(), 0);
+  await page.goto(site + "/admin/channels");
+  await page.getByRole("tab", { name: "Plugin marketplace" }).click();
+  await page.getByRole("heading", { name: "Discover plugins on GitHub" }).waitFor();
+  await page.getByLabel("Search GitHub plugins").fill("weather");
+  await page.getByRole("button", { name: "Search", exact: true }).click();
+  assert.equal(await page.getByRole("link", { name: /example\/anser-weather/ }).getAttribute("href"),
+    "https://github.com/example/anser-weather");
+  assert.match(page.url(), /channels\/market$/);
+  await page.getByRole("button", { name: "Topic announcements" }).click();
   await page.getByRole("combobox", { name: "Catalog topic" }).selectOption("plugin-news");
   await page.getByRole("button", { name: "Publish plugin listing" }).click();
   const dialog = page.getByRole("dialog");

@@ -146,6 +146,7 @@ pub mod manage;
 pub mod plugin_market;
 pub mod proxies;
 pub mod queue;
+pub mod scheduled_tasks;
 pub mod speech;
 pub mod templates;
 pub mod totp;

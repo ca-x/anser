@@ -590,7 +590,7 @@ pub(crate) async fn remember_receipt(
     Ok(())
 }
 
-async fn enqueue_one(tx: &mut SqliteConnection, input: Submission) -> Result<Receipt> {
+pub(crate) async fn enqueue_one(tx: &mut SqliteConnection, input: Submission) -> Result<Receipt> {
     let now = now_ms();
     if let Some(key) = input.idempotency_key.as_deref() {
         let existing: Option<(String, String)> = sqlx::query_as(
@@ -989,6 +989,71 @@ mod tests {
             listing: None,
             speech: None,
         }
+    }
+
+    #[tokio::test]
+    async fn schedule_recovers_and_commit_is_atomic_and_fenced() {
+        use crate::scheduled_tasks::NewSchedule;
+
+        let (temp, store) = fixture().await;
+        store
+            .create_schedule(NewSchedule {
+                id: "weather",
+                name: "Weather",
+                plugin_id: "wttr-weather",
+                encrypted_input: &[1],
+                topic: None,
+                interval_minutes: 60,
+                next_at: 0,
+            })
+            .await
+            .unwrap();
+        let stale = store.claim_schedule(now_ms()).await.unwrap().unwrap();
+        assert!(store.claim_schedule(now_ms()).await.unwrap().is_none());
+        store.change_schedule("weather", false).await.unwrap();
+        store.change_schedule("weather", true).await.unwrap();
+        assert!(
+            !store
+                .finish_schedule(&stale, vec![submission(None)], None)
+                .await
+                .unwrap()
+        );
+        drop(store);
+
+        let store = Store::open(&temp.path().join("test.sqlite3"))
+            .await
+            .unwrap();
+        let run = store.claim_schedule(now_ms()).await.unwrap().unwrap();
+        let mut bad = submission(None);
+        bad.available_channels.clear();
+        assert!(matches!(
+            store
+                .finish_schedule(&run, vec![submission(None), bad], None)
+                .await,
+            Err(DataError::NoTargets)
+        ));
+        let count: i64 = sqlx::query_scalar("SELECT count(*) FROM messages")
+            .fetch_one(&store.0)
+            .await
+            .unwrap();
+        assert_eq!(count, 0);
+        assert!(
+            store
+                .finish_schedule(&run, vec![submission(None), submission(None)], None)
+                .await
+                .unwrap()
+        );
+        assert!(
+            !store
+                .finish_schedule(&run, vec![submission(None)], None)
+                .await
+                .unwrap()
+        );
+        let schedules = store.schedules("", 50).await.unwrap();
+        assert_eq!(schedules.items[0].last_count, 2);
+        assert_eq!(schedules.items[0].last_status.as_deref(), Some("success"));
+        assert!(store.claim_schedule(now_ms()).await.unwrap().is_none());
+        assert_eq!(store.keys("", 50).await.unwrap().items.len(), 1);
     }
 
     #[tokio::test]

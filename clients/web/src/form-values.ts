@@ -102,3 +102,11 @@ export function proxySettings(choice: string, account?: Account): JsonObject {
   }
   return patch;
 }
+
+export function configDefaults(schema: JsonObject): JsonObject {
+  const fields = schema.properties;
+  if (!fields || typeof fields !== "object") return {};
+  return Object.fromEntries(Object.entries(fields).filter(([, field]) =>
+    field && typeof field === "object" && !field.writeOnly && field.format !== "password" && field.default !== undefined
+  ).map(([name, field]) => [name, field.default]));
+}

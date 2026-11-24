@@ -3,12 +3,14 @@ mod auth;
 mod channel_runtime;
 mod cli;
 mod error;
+mod github_market;
 mod lazycat;
 mod openapi;
 mod plugin_market;
 mod plugins;
 mod profile;
 mod proxies;
+mod scheduled_tasks;
 mod speech;
 mod templates;
 mod totp;
@@ -185,6 +187,8 @@ async fn serve(config: ServerConfig, host: Arc<ChannelHost>) -> anyhow::Result<(
         inbox_waiters: tokio::sync::Semaphore::new(1_024),
         send_waiters: tokio::sync::Semaphore::new(128),
     });
+    let schedule_stop = anser_queue::CancellationToken::new();
+    let schedules = tokio::spawn(scheduled_tasks::work(app.clone(), schedule_stop.clone()));
     let router = api::router()
         .layer(DefaultBodyLimit::max(3 * 1024 * 1024))
         .layer(cors)
@@ -210,9 +214,12 @@ async fn serve(config: ServerConfig, host: Arc<ChannelHost>) -> anyhow::Result<(
     )
     .with_graceful_shutdown(shutdown_signal())
     .await;
+    schedule_stop.cancel();
+    let schedules_result = schedules.await;
     let ingest_result = ingest.await;
     let channel_result = channel_changes.await;
     workers.stop().await;
+    schedules_result?;
     ingest_result?;
     channel_result?;
     result?;

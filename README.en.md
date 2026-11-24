@@ -52,6 +52,7 @@ Users can turn on two-factor authentication in their account security settings. 
 
 - [Notification templates and API examples](docs/notification-templates.en.md)
 - [Plugin authoring skill](.agents/skills/anser-plugin-authoring/SKILL.md)
+- [Scheduled notifications and discovery](docs/scheduled-notifications.md)
 
 ## Screenshots
 
@@ -132,7 +133,7 @@ List both the proxy host and the notification destination host in `ANSER_OUTBOUN
 
 ## Plugins and voice notifications
 
-The plugin page groups installed plugins into channels, tasks, and content transforms. The certificate task checks multiple HTTPS sites with a configurable warning window. The weather task accepts a city or airport code, language, and units. Run tasks from the console or API to get notification drafts. Open the plugin marketplace from the Topics page to browse or publish versioned listings.
+The plugin page groups installed plugins into channels, tasks, and content transforms. The certificate task checks multiple HTTPS sites with a configurable warning window. The weather task accepts a city or airport code, language, and units. Choose a task, interval, and destination under **Plugin management → Scheduled notifications**. The server publishes its output to the selected Topic or default route. The marketplace searches public GitHub repositories tagged `anser-plugin`. Topic announcements are a separate view within the marketplace.
 
 Use **Content transforms → OpenAI TTS** to preview speech or send a voice notification. Connected Anser clients play new voice notifications in order. Recipients can turn off autoplay in the inbox. Other channels receive the text and an expiring audio link. Set `ANSER_PUBLIC_URL` to a reachable HTTPS origin for topic and default-route voice sends.
 
