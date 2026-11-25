@@ -1,0 +1,9 @@
+{
+  "name": "anser-receive-sdk-tests",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "bark-push": "0.1.1",
+    "serverchan-sdk": "1.0.7"
+  }
+}

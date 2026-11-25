@@ -161,6 +161,30 @@ Open Anser through your signed-in LazyCat app and create a LazyCat channel accou
 - Use `anser api --help` to find management commands and examples.
 - Available channels include ntfy, ServerChan, Bark, SMTP email, LazyCat, WeChat Official Account, WeCom, Lark, Telegram, Gotify, QQ Bot, DingTalk, Slack, Discord, IFTTT, and Chanify. PushPlus and gorush served as design references. [Channel setup](anser-plugins) · [LazyCat setup](docs/lazycat.md)
 
+### Publish using a channel protocol
+
+Each channel in `GET /v1/channels` declares its direction. Ingress plugins translate incoming requests into Anser messages, egress plugins deliver messages through configured accounts, and bidirectional plugins do both. Read `direction` and `ingress_routes` to discover the methods and paths supported by this server. Route paths are relative to `/v1/receive/{plugin ID}`.
+
+Enable ingress in the channel’s settings, or send `{"ingress_enabled":true}` to `PUT /v1/channels/{id}/runtime` as an administrator. Ingress starts disabled. Egress has its own switch.
+
+| Ingress plugin | Method and path | Request body |
+| --- | --- | --- |
+| ntfy | `POST /v1/receive/ntfy`, or `PUT` or `POST /v1/receive/ntfy/{topic}` | JSON with `topic` and `message` at the root, or UTF-8 text at the Topic path |
+| Chanify | `POST /v1/receive/chanify/v1/sender` | JSON with `title` and `text` |
+| Bark | `POST /v1/receive/bark/push` | JSON with `title` and `body` |
+| ServerChan | `POST /v1/receive/serverchan/send` or `POST /v1/receive/serverchan/{topic}.send` | JSON or a URL-encoded form with `title` and `desp` |
+
+To connect a backup script to an existing `ops` Topic, configure its subscribers or delivery targets and issue an Anser API key with the `send` scope. The script can use the ntfy publish format while recipients use any outbound channels configured for that Topic.
+
+```sh
+curl --fail-with-body -X PUT "$ANSER_URL/v1/receive/ntfy/ops" \
+  -H "Authorization: Bearer $ANSER_API_KEY" \
+  -H "Idempotency-Key: backup-$BACKUP_ID" \
+  -H 'Title: Backup' --data-binary 'Backup completed'
+```
+
+HTTP 200 confirms that Anser persisted the message. Use the ntfy response’s `id` to query `GET /v1/messages/{id}`. Reuse the same `BACKUP_ID` when retrying a backup. Chanify’s `/v1/sender`, Bark’s `/push` and ServerChan’s `/send` use the default route unless you set `X-Anser-Topic`. If the request already names a Topic, the header must match it. Use `X-Anser-Topic-Password` when the destination requires its password. Authenticate incoming requests with Anser credentials and store outbound provider credentials on their channel accounts. The Chanify SDK can pass the Anser key in its native `token` header. Bark clients that require a device key can use `default`. The official ServerChan SDK fixes its public origin and requires a transport adapter for self-hosting. [SDK interoperability tests and examples](https://github.com/ca-x/anser/tree/main/tests/receive-sdk)
+
 ## Configuration
 
 | Environment variable | Default or purpose |

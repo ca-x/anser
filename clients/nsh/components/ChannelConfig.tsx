@@ -11,6 +11,7 @@ type LocaleText = Partial<Record<"en" | "zh-CN", string>>;
 type Condition = { field: string; equals: string | number | boolean };
 type ConfigPreset = { id: string; label: LocaleText; description?: LocaleText; values: JsonObject };
 type Presentation = {
+  help?: LocaleText;
   presets?: ConfigPreset[];
   account_editor?: { fields: string[]; credentials?: Record<string, string[]> };
   dynamic_options?: { fields: string[] };
@@ -60,6 +61,11 @@ function fieldType(property: Property) {
 
 function localized(value: LocaleText | undefined): string | undefined {
   return value?.[locale().toLowerCase().startsWith("zh") ? "zh-CN" : "en"];
+}
+
+export function pluginHelp(plugin: ConfigSchema) {
+  const help = localized((plugin.config_schema["x-anser-ui"] as Presentation | undefined)?.help);
+  return typeof help === "string" ? help.trim() : "";
 }
 
 export function pluginLabel(plugin: ConfigSchema): string | undefined {

@@ -12,6 +12,7 @@ mod plugin_market;
 mod plugins;
 mod profile;
 mod proxies;
+mod receive;
 mod scheduled_tasks;
 mod settings;
 mod speech;
@@ -166,7 +167,7 @@ async fn serve(config: ServerConfig, host: Arc<ChannelHost>) -> anyhow::Result<(
     let dummy_password = auth::hash_password(auth::random_secret().as_str().to_owned())
         .await
         .map_err(|_| anyhow::anyhow!("could not initialize password authentication"))?;
-    let cors = cors(&config.cors_origins)?;
+    let cors = cors(&config.cors_origins, &host)?;
     channel_runtime::ChannelRuntime::restore(&store, &host).await?;
     let listener = tokio::net::TcpListener::bind(config.bind).await?;
     let (channel_runtime, channel_changes) =
@@ -242,7 +243,7 @@ async fn no_store(
     response
 }
 
-fn cors(origins: &[String]) -> anyhow::Result<CorsLayer> {
+fn cors(origins: &[String], host: &ChannelHost) -> anyhow::Result<CorsLayer> {
     let origins = origins
         .iter()
         .map(|origin| {
@@ -260,6 +261,19 @@ fn cors(origins: &[String]) -> anyhow::Result<CorsLayer> {
             Ok(HeaderValue::from_str(&url.origin().ascii_serialization())?)
         })
         .collect::<anyhow::Result<Vec<_>>>()?;
+    let mut headers = vec![
+        header::AUTHORIZATION,
+        header::CONTENT_TYPE,
+        header::HeaderName::from_static("idempotency-key"),
+        header::HeaderName::from_static("x-anser-topic"),
+        header::HeaderName::from_static("x-anser-topic-password"),
+    ];
+    for name in host.receive_header_names() {
+        let name = header::HeaderName::from_bytes(name.as_bytes())?;
+        if !headers.contains(&name) {
+            headers.push(name);
+        }
+    }
     Ok(CorsLayer::new()
         .allow_origin(AllowOrigin::list(origins))
         .allow_methods([
@@ -269,11 +283,7 @@ fn cors(origins: &[String]) -> anyhow::Result<CorsLayer> {
             Method::PATCH,
             Method::DELETE,
         ])
-        .allow_headers([
-            header::AUTHORIZATION,
-            header::CONTENT_TYPE,
-            header::HeaderName::from_static("idempotency-key"),
-        ])
+        .allow_headers(headers)
         .expose_headers([header::RETRY_AFTER]))
 }
 

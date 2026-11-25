@@ -1083,6 +1083,399 @@ mod durable_delivery {
         }
     }
 
+    async fn enable_ingress(server: &Server, id: &str) {
+        let _: Value = server
+            .json(
+                Method::PUT,
+                &format!("/v1/channels/{id}/runtime"),
+                Some(BOOTSTRAP_KEY),
+                json!({"ingress_enabled":true}),
+                StatusCode::OK,
+            )
+            .await;
+    }
+
+    #[tokio::test]
+    async fn ntfy_ingress_authorizes_the_topic_and_publishes_once_to_its_subscribers() {
+        const ROOT: &str = "/v1/receive/ntfy";
+        const PATH: &str = "/v1/receive/ntfy/ops-alerts";
+        let temp = tempfile::tempdir().unwrap();
+        let server = Server::start(&temp.path().join("ingress.sqlite3"));
+        assert_eq!(
+            server
+                .request(Method::POST, ROOT, Some(BOOTSTRAP_KEY))
+                .body("{}")
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::NOT_FOUND
+        );
+        enable_ingress(&server, "ntfy").await;
+        let admin = server.login(BOOTSTRAP_USER, BOOTSTRAP_PASSWORD).await;
+        let _: Value = server
+            .json(
+                Method::POST,
+                "/v1/topics",
+                Some(&admin),
+                json!({"name":"ops-alerts","password":TOPIC_PASSWORD}),
+                StatusCode::CREATED,
+            )
+            .await;
+        let _: Value = server
+            .json(
+                Method::POST,
+                "/v1/topics/ops-alerts/subscriptions",
+                Some(&admin),
+                json!({"subscriber_ref":"admin"}),
+                StatusCode::CREATED,
+            )
+            .await;
+        let mut tokens = Vec::new();
+        for scope in ["send", "subscribe"] {
+            let issued: Value = server
+                .json(
+                    Method::POST,
+                    "/v1/api-keys",
+                    Some(&admin),
+                    json!({"name":scope,"scopes":[scope],"topic_prefix":"ops-"}),
+                    StatusCode::CREATED,
+                )
+                .await;
+            tokens.push(json_string(&issued, "token").to_owned());
+        }
+        let send = tokens[0].as_str();
+        let payload = json!({"topic":"ops-alerts","title":"Backup","message":"Completed"});
+        for (path, method, token, status) in [
+            (ROOT, Method::POST, None, StatusCode::UNAUTHORIZED),
+            (
+                ROOT,
+                Method::POST,
+                Some(tokens[1].as_str()),
+                StatusCode::FORBIDDEN,
+            ),
+            (ROOT, Method::POST, Some(send), StatusCode::FORBIDDEN),
+            (
+                "/v1/receive/ntfy/team",
+                Method::PUT,
+                Some(send),
+                StatusCode::FORBIDDEN,
+            ),
+            (
+                "/v1/receive/absent",
+                Method::POST,
+                Some(send),
+                StatusCode::NOT_FOUND,
+            ),
+            (
+                PATH,
+                Method::DELETE,
+                Some(send),
+                StatusCode::METHOD_NOT_ALLOWED,
+            ),
+        ] {
+            let response = server
+                .request(method.clone(), path, token)
+                .json(&payload)
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(response.status(), status, "{method} {path}");
+        }
+        let response = server
+            .request(Method::POST, ROOT, Some(send))
+            .header("Content-Type", "application/json")
+            .body("{")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let response = server
+            .request(Method::PUT, PATH, Some(send))
+            .header("X-Anser-Topic", "ops-other")
+            .body("Conflicting topic")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let publish = |data: &Value| {
+            server
+                .request(Method::POST, ROOT, Some(send))
+                .header("X-Anser-Topic-Password", TOPIC_PASSWORD)
+                .header("Idempotency-Key", "backup-1")
+                .json(data)
+        };
+        let first: Value =
+            checked_json(publish(&payload).send().await.unwrap(), StatusCode::OK).await;
+        assert_eq!(first["event"], "message");
+        let first_id = json_string(&first, "id");
+        for retry in [
+            payload,
+            json!({"topic":"ops-alerts","title":"Changed","message":"Replacement"}),
+        ] {
+            let response = publish(&retry).send().await.unwrap();
+            let native: Value = checked_json(response, StatusCode::OK).await;
+            assert_eq!(native["id"], first_id);
+            assert_eq!(native["topic"], "ops-alerts");
+            assert_eq!(native["title"], "Backup");
+            assert_eq!(native["message"], "Completed");
+        }
+        let _: Value = server
+            .json(
+                Method::POST,
+                "/v1/topics",
+                Some(&admin),
+                json!({"name":"ops-other"}),
+                StatusCode::CREATED,
+            )
+            .await;
+        let cross_topic = publish(&json!({"topic":"ops-other","message":"different destination"}))
+            .send()
+            .await
+            .unwrap();
+        let conflict: Value = checked_json(cross_topic, StatusCode::CONFLICT).await;
+        assert!(!conflict.to_string().contains(first_id));
+        assert!(!conflict.to_string().contains("Completed"));
+        let plain = || {
+            server
+                .request(Method::PUT, PATH, Some(send))
+                .header("X-Anser-Topic-Password", TOPIC_PASSWORD)
+                .header("Title", "Health")
+                .body("Online")
+        };
+        let _: Value = checked_json(plain().send().await.unwrap(), StatusCode::OK).await;
+        let inbox: Value = server.get("/v1/inbox", Some(&admin)).await;
+        let items = inbox["items"].as_array().unwrap();
+        assert_eq!(items.len(), 2);
+        assert!(
+            items
+                .iter()
+                .any(|m| m["title"] == "Backup" && m["body"] == "Completed")
+        );
+        assert!(
+            items
+                .iter()
+                .any(|m| m["title"] == "Health" && m["body"] == "Online")
+        );
+        let _: Value = server
+            .json(
+                Method::PUT,
+                "/v1/channels/ntfy/runtime",
+                Some(&admin),
+                json!({"enabled":false}),
+                StatusCode::OK,
+            )
+            .await;
+        assert_eq!(
+            plain().send().await.unwrap().status(),
+            StatusCode::NOT_FOUND
+        );
+        let _: Value = server
+            .json(
+                Method::PUT,
+                "/v1/channels/ntfy/runtime",
+                Some(&admin),
+                json!({"enabled":true}),
+                StatusCode::OK,
+            )
+            .await;
+        assert_eq!(plain().send().await.unwrap().status(), StatusCode::OK);
+        let spec: Value = server.get("/v1/openapi.json", None).await;
+        assert!(spec["paths"][ROOT]["post"]["responses"]["200"].is_object());
+        assert!(spec["paths"]["/v1/receive/ntfy/{topic}"]["put"].is_object());
+    }
+
+    #[cfg(all(feature = "serverchan", feature = "chanify"))]
+    #[tokio::test]
+    async fn serverchan_forms_and_chanify_json_reach_the_selected_topic() {
+        let temp = tempfile::tempdir().unwrap();
+        let server = Server::start(&temp.path().join("protocols.sqlite3"));
+        enable_ingress(&server, "serverchan").await;
+        enable_ingress(&server, "chanify").await;
+        let admin = server.login(BOOTSTRAP_USER, BOOTSTRAP_PASSWORD).await;
+        let _: Value = server
+            .json(
+                Method::POST,
+                "/v1/topics",
+                Some(&admin),
+                json!({"name":"releases"}),
+                StatusCode::CREATED,
+            )
+            .await;
+        let _: Value = server
+            .json(
+                Method::POST,
+                "/v1/topics/releases/subscriptions",
+                Some(&admin),
+                json!({"subscriber_ref":"admin"}),
+                StatusCode::CREATED,
+            )
+            .await;
+        let form = server
+            .request(
+                Method::POST,
+                "/v1/receive/serverchan/releases.send",
+                Some(&admin),
+            )
+            .header("content-type", "application/x-www-form-urlencoded")
+            .body("title=Build+finished&desp=Package+is+ready")
+            .send()
+            .await
+            .unwrap();
+        let received: Value = checked_json(form, StatusCode::OK).await;
+        assert_eq!(received["code"], 0);
+        let chanify = server
+            .request(Method::POST, "/v1/receive/chanify/v1/sender", Some(&admin))
+            .header("X-Anser-Topic", "releases")
+            .json(&json!({"title":"New release", "text":"Published"}))
+            .send()
+            .await
+            .unwrap();
+        let _: Value = checked_json(chanify, StatusCode::OK).await;
+        let inbox: Value = server.get("/v1/inbox", Some(&admin)).await;
+        let items = inbox["items"].as_array().unwrap();
+        assert_eq!(items.len(), 2);
+        assert!(items.iter().all(|m| m["topic"] == "releases"));
+        assert!(items.iter().any(|m| m["body"] == "Package is ready"));
+        assert!(items.iter().any(|m| m["body"] == "Published"));
+    }
+
+    #[cfg(feature = "bark")]
+    #[tokio::test]
+    async fn bark_ingress_routes_to_an_ntfy_account() {
+        let temp = tempfile::tempdir().unwrap();
+        let (mock, address, _provider) = mock_server().await;
+        mock.success.store(true, Ordering::SeqCst);
+        let server = Server::start(&temp.path().join("bark-ingress.sqlite3"));
+        enable_ingress(&server, "bark").await;
+        let account: Value = server.json(Method::POST,"/v1/accounts",Some(BOOTSTRAP_KEY),
+            json!({"name":"Independent ntfy receiver","channel":"ntfy","config":{
+                "server_url":format!("http://{address}"),"topic":"restart-alerts","token":PROVIDER_TOKEN}}),
+            StatusCode::CREATED).await;
+        let _: Value = server
+            .json(
+                Method::PUT,
+                "/v1/default-route",
+                Some(BOOTSTRAP_KEY),
+                json!({"mode":"broadcast","targets":[{"account_id":account["id"]}]}),
+                StatusCode::OK,
+            )
+            .await;
+        let ack: Value = server
+            .json(
+                Method::POST,
+                "/v1/receive/bark/push",
+                Some(BOOTSTRAP_KEY),
+                json!({"title":"Restart test","body":"Bark to ntfy"}),
+                StatusCode::OK,
+            )
+            .await;
+        assert_eq!(ack["code"], 200);
+        let messages: Value = server.get("/v1/messages", Some(BOOTSTRAP_KEY)).await;
+        let id = json_string(&messages["items"][0], "id");
+        let detail = wait_for(&server, id, |m| m.status == "success").await;
+        assert_eq!(detail.deliveries[0].channel, "ntfy");
+        assert_eq!(mock.calls.load(Ordering::SeqCst), 1);
+        assert!(mock.correct_request.load(Ordering::SeqCst));
+    }
+
+    #[cfg(all(feature = "bark", feature = "chanify", feature = "serverchan"))]
+    #[tokio::test]
+    #[ignore = "requires Go and npm ci --prefix tests/receive-sdk"]
+    async fn provider_sdks_publish_through_all_four_receive_routes() {
+        let temp = tempfile::tempdir().unwrap();
+        let server = Server::start(&temp.path().join("sdks.sqlite3"));
+        let (delivered, mut received) = tokio::sync::mpsc::channel(4);
+        let (provider, _mock) = listen_mock(Router::new().route(
+            "/",
+            post(move |Json(message): Json<Value>| {
+                let tx = delivered.clone();
+                async move {
+                    tx.send((message["topic"].clone(), message["message"].clone()))
+                        .await
+                        .unwrap();
+                    Json(json!({"id":"fixture","event":"message"}))
+                }
+            }),
+        ))
+        .await;
+        let account: Value = server
+            .json(
+                Method::POST,
+                "/v1/accounts",
+                Some(BOOTSTRAP_KEY),
+                json!({"name":"SDK destination","channel":"ntfy","config":{
+                "server_url":format!("http://{provider}"),"topic":"wire-results"}}),
+                StatusCode::CREATED,
+            )
+            .await;
+        let policy = json!({"mode":"broadcast","targets":[{"account_id":account["id"]}]});
+        let _: Value = server
+            .json(
+                Method::PUT,
+                "/v1/default-route",
+                Some(BOOTSTRAP_KEY),
+                policy.clone(),
+                StatusCode::OK,
+            )
+            .await;
+        let _: Value = server
+            .json(
+                Method::POST,
+                "/v1/topics",
+                Some(BOOTSTRAP_KEY),
+                json!({"name":"sdk-checks","policy":policy}),
+                StatusCode::CREATED,
+            )
+            .await;
+        for id in ["ntfy", "bark", "serverchan", "chanify"] {
+            enable_ingress(&server, id).await;
+        }
+        let key: Value = server
+            .json(
+                Method::POST,
+                "/v1/api-keys",
+                Some(BOOTSTRAP_KEY),
+                json!({"name":"SDK fixture","scopes":["send"]}),
+                StatusCode::CREATED,
+            )
+            .await;
+        let origin = server.url("");
+        let key = json_string(&key, "token").to_owned();
+        tokio::task::spawn_blocking(move || {
+            let cwd = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/receive-sdk");
+            for (program, args) in [
+                ("go", &["run", "-mod=readonly", "."][..]),
+                ("node", &["publish.mjs"]),
+            ] {
+                let status = Command::new(program)
+                    .args(args)
+                    .current_dir(&cwd)
+                    .env("ANSER_SDK_TEST_ORIGIN", &origin)
+                    .env("ANSER_SDK_TEST_KEY", &key)
+                    .status()
+                    .expect("run SDK fixture");
+                assert!(status.success(), "{program} SDK fixture failed");
+            }
+        })
+        .await
+        .unwrap();
+        let mut bodies = Vec::new();
+        for _ in 0..4 {
+            let (topic, body) = tokio::time::timeout(Duration::from_secs(12), received.recv())
+                .await
+                .expect("SDK notification was not delivered")
+                .unwrap();
+            assert_eq!(topic, "wire-results");
+            bodies.push(body.as_str().unwrap().to_owned());
+        }
+        bodies.sort();
+        assert_eq!(
+            bodies,
+            ["Bark SDK", "Chanify SDK", "ServerChan SDK", "ntfy SDK"]
+        );
+    }
+
     #[tokio::test]
     async fn default_delivery_retries_temporary_errors_but_stops_on_permanent_errors() {
         let temp = tempfile::tempdir().unwrap();
@@ -1282,6 +1675,19 @@ mod durable_delivery {
         let description: Value = server.get(detail_path, Some(BOOTSTRAP_KEY)).await;
         assert_eq!(description["enabled"], true);
         assert_eq!(description["available"], true);
+        assert_eq!(description["ingress_enabled"], false);
+        assert_eq!(description["egress_enabled"], true);
+        let directions: Value = server
+            .json(
+                Method::PUT,
+                runtime_path,
+                Some(BOOTSTRAP_KEY),
+                json!({"ingress_enabled":true, "egress_enabled":false}),
+                StatusCode::OK,
+            )
+            .await;
+        assert_eq!(directions["ingress_enabled"], true);
+        assert_eq!(directions["egress_enabled"], false);
         assert_eq!(description["can_manage"], true);
         assert!(description["config_schema"].is_object());
         let regular_description: Value = server.get(detail_path, Some(&operator)).await;
@@ -1306,7 +1712,7 @@ mod durable_delivery {
             .await;
         assert_eq!(
             disabled,
-            json!({"id":"ntfy","enabled":false,"available":false})
+            json!({"id":"ntfy","enabled":false,"available":false,"ingress_enabled":true,"egress_enabled":false})
         );
 
         drop(server);
@@ -1314,6 +1720,8 @@ mod durable_delivery {
         let detail: Value = server.get(detail_path, Some(BOOTSTRAP_KEY)).await;
         assert_eq!(detail["enabled"], false);
         assert_eq!(detail["available"], false);
+        assert_eq!(detail["ingress_enabled"], true);
+        assert_eq!(detail["egress_enabled"], false);
         assert_eq!(detail["config_schema"], description["config_schema"]);
         let list: Value = server.get("/v1/channels", Some(&operator)).await;
         let ntfy = list["items"]
@@ -1331,8 +1739,9 @@ mod durable_delivery {
                 .channel_settings()
                 .await
                 .unwrap()
-                .get("fixture-uncompiled"),
-            Some(&false)
+                .get("fixture-uncompiled")
+                .map(|state| state.enabled),
+            Some(false)
         );
         drop(store);
 
@@ -1361,8 +1770,29 @@ mod durable_delivery {
             .await;
         assert_eq!(
             enabled,
-            json!({"id":"ntfy","enabled":true,"available":true})
+            json!({"id":"ntfy","enabled":true,"available":true,"ingress_enabled":true,"egress_enabled":false})
         );
+        let no_targets: Value = server
+            .json(
+                Method::POST,
+                "/v1/send",
+                Some(BOOTSTRAP_KEY),
+                payload.clone(),
+                StatusCode::UNPROCESSABLE_ENTITY,
+            )
+            .await;
+        assert_eq!(no_targets["code"], "no_available_targets");
+        let restored: Value = server
+            .json(
+                Method::PUT,
+                runtime_path,
+                Some(BOOTSTRAP_KEY),
+                json!({"egress_enabled":true}),
+                StatusCode::OK,
+            )
+            .await;
+        assert_eq!(restored["ingress_enabled"], true);
+        assert_eq!(restored["egress_enabled"], true);
         let receipt: Receipt = server
             .json(
                 Method::POST,

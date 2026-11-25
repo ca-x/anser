@@ -58,6 +58,29 @@ mod tests {
     use super::*;
 
     #[tokio::test]
+    async fn upgrade_keeps_channel_state_and_leaves_new_ingress_closed() {
+        use sqlx::{Connection, SqliteConnection};
+
+        let mut db = SqliteConnection::connect("sqlite::memory:").await.unwrap();
+        let migrations = sqlx::migrate!();
+        migrations.run_to(18, &mut db).await.unwrap();
+        sqlx::query(
+            "INSERT INTO channel_settings(channel,enabled) VALUES ('active',1),('paused',0)",
+        )
+        .execute(&mut db)
+        .await
+        .unwrap();
+        migrations.run(&mut db).await.unwrap();
+        let states: Vec<(bool, bool, bool)> = sqlx::query_as(
+            "SELECT enabled,ingress_enabled,egress_enabled FROM channel_settings ORDER BY channel",
+        )
+        .fetch_all(&mut db)
+        .await
+        .unwrap();
+        assert_eq!(states, [(true, false, true), (false, false, true)]);
+    }
+
+    #[tokio::test]
     async fn upgrade_preserves_legacy_schedules() {
         use anser_core::schedule::Rule;
         use sqlx::{Connection, SqliteConnection};

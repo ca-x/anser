@@ -404,7 +404,7 @@ export class AnserApi {
     );
   }
 
-  changeChannel(id: string, change: { enabled: boolean } | { reload: true }) {
+  changeChannel(id: string, change: { enabled: boolean } | { reload: true } | { ingress_enabled: boolean } | { egress_enabled: boolean }) {
     return this.request<ChannelRuntime>(
       `/channels/${segment(id)}/runtime`,
       "PUT",

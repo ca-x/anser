@@ -65,6 +65,7 @@ impl Pagination {
 
 pub fn router() -> Router<Arc<App>> {
     Router::new()
+        .nest("/v1/receive", crate::receive::router())
         .route("/healthz", get(health))
         .route("/v1/health", get(health))
         .route("/v1/info", get(info))
@@ -244,10 +245,11 @@ async fn channels(
         let description = app.host.describe(id).await.map_err(ApiError::channel)?;
         items.push(ChannelView {
             description,
-            runtime: RuntimeState {
-                enabled: settings.get(id).copied().unwrap_or(true),
-                available: app.host.available(id),
-            },
+            runtime: RuntimeState::current(
+                &app.host,
+                id,
+                settings.get(id).is_none_or(|state| state.enabled),
+            ),
             can_manage,
         });
     }
@@ -267,17 +269,17 @@ async fn channel(
     }
     Ok(Json(ChannelView {
         description: app.host.describe(&id).await.map_err(ApiError::channel)?,
-        runtime: RuntimeState {
-            enabled: app.store.channel_enabled(&id).await?,
-            available: app.host.available(&id),
-        },
+        runtime: RuntimeState::current(&app.host, &id, app.store.channel_enabled(&id).await?),
         can_manage: identity.admin_global().is_ok(),
     }))
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct ChannelChange {
     enabled: Option<bool>,
+    ingress_enabled: Option<bool>,
+    egress_enabled: Option<bool>,
     #[serde(default)]
     reload: bool,
 }
@@ -299,10 +301,22 @@ async fn change_channel(
     if !app.host.ids().contains(&id.as_str()) {
         return Err(DataError::Missing.into());
     }
-    let change = match (change.enabled, change.reload) {
-        (Some(enabled), false) => Change::SetEnabled(enabled),
-        (None, true) => Change::Reload,
-        _ => return Err(ApiError::bad("Supply enabled or reload=true")),
+    let change = match (
+        change.enabled,
+        change.reload,
+        change.ingress_enabled,
+        change.egress_enabled,
+    ) {
+        (Some(enabled), false, None, None) => Change::SetEnabled(enabled),
+        (None, true, None, None) => Change::Reload,
+        (None, false, ingress, egress) if ingress.is_some() || egress.is_some() => {
+            Change::SetDirections { ingress, egress }
+        }
+        _ => {
+            return Err(ApiError::bad(
+                "Supply enabled, reload=true, or direction switches",
+            ));
+        }
     };
     let runtime = app.channel_runtime.change(&id, change).await?;
     Ok(Json(ChannelRuntimeView { id, runtime }))
@@ -644,7 +658,7 @@ async fn validate_account_proxy(app: &App, channel: &str, proxy_id: Option<&str>
 }
 
 async fn seal_account(app: &App, account: &Account, config: &Value) -> ApiResult<Vec<u8>> {
-    if !config.is_object() || !app.host.ids().contains(&account.channel.as_str()) {
+    if !config.is_object() || !app.host.supports_egress(&account.channel) {
         return Err(ApiError::bad(
             "Account configuration requires an available channel and a JSON object",
         ));
@@ -1126,7 +1140,7 @@ pub(crate) async fn enqueue_prepared(
         .ids()
         .iter()
         .copied()
-        .filter(|id| app.host.available(id))
+        .filter(|id| app.host.egress_available(id))
         .collect();
     let receipt = app
         .enqueuer

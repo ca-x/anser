@@ -15,6 +15,8 @@ use serde_json::Value;
 mod actions;
 mod builtins;
 mod lifecycle;
+mod receive;
+pub use receive::ReceiveSession;
 
 use lifecycle::{Factory, Lifecycle, Transition};
 
@@ -49,6 +51,9 @@ pub struct ChannelHost {
 struct Channel {
     lifecycle: Arc<Lifecycle>,
     description: ChannelDescription,
+    directions: std::sync::atomic::AtomicU8,
+    headers: Vec<String>,
+    token_header: Option<String>,
 }
 
 impl ChannelHost {
@@ -156,6 +161,9 @@ impl ChannelHost {
         account: ChannelAccount,
         message: Message,
     ) -> Result<SendOutcome, HostError> {
+        if !self.egress_enabled(channel) {
+            return Err(HostError::Unavailable);
+        }
         let _admission = self.channel(channel)?.lifecycle.admit()?;
         call_service(
             &self.root,
@@ -242,7 +250,16 @@ impl Channel {
             .map_err(|_| HostError::Startup)?;
         let name = service_name(id);
         // Built-ins have immutable descriptors, including while suspended.
+        let protocol: anser_plugin_api::ReceiveProtocol =
+            call_service(root, &name, "receiveProtocol", ())
+                .await
+                .map_err(HostError::Call)?;
+        if !protocol.valid_headers() {
+            return Err(HostError::Startup);
+        }
         let description = ChannelDescription {
+            direction: protocol.direction,
+            ingress_routes: protocol.routes,
             id: id.into(),
             display_name: call_service(root, &name, "displayName", ())
                 .await
@@ -256,6 +273,9 @@ impl Channel {
         };
         Ok(Self {
             lifecycle: Arc::new(lifecycle),
+            directions: std::sync::atomic::AtomicU8::new(2),
+            headers: protocol.headers,
+            token_header: protocol.token_header,
             description,
         })
     }
@@ -265,36 +285,14 @@ fn service_name(channel: &str) -> String {
     format!("anser.channel.{channel}")
 }
 
-#[derive(serde::Serialize)]
+#[derive(Clone, serde::Serialize)]
 pub struct ChannelDescription {
+    pub direction: anser_plugin_api::ChannelDirection,
+    pub ingress_routes: Vec<anser_plugin_api::RouteInfo>,
     pub id: String,
     pub display_name: String,
     pub config_schema: Value,
     pub capabilities: Capabilities,
-}
-
-impl Clone for ChannelDescription {
-    fn clone(&self) -> Self {
-        let Capabilities {
-            formats,
-            max_title_chars,
-            max_body_chars,
-            attachments,
-            user_target,
-        } = &self.capabilities;
-        Self {
-            id: self.id.clone(),
-            display_name: self.display_name.clone(),
-            config_schema: self.config_schema.clone(),
-            capabilities: Capabilities {
-                formats: formats.clone(),
-                max_title_chars: *max_title_chars,
-                max_body_chars: *max_body_chars,
-                attachments: *attachments,
-                user_target: *user_target,
-            },
-        }
-    }
 }
 
 fn channel_error(error: BridgeError) -> HostError {

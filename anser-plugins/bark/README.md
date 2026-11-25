@@ -15,3 +15,7 @@
 批量推送按账号记录结果，部分设备成功、部分设备暂时失败时，重试可能再次触达已接收的设备。
 
 [接口资料](https://github.com/Finb/bark-server/blob/master/docs/API_V2.md) · [配置示例](example.json)
+
+### 接收 Bark 请求
+
+开启兼容入口后，向 `POST /v1/receive/bark/push` 发送 JSON，使用雁字 Bearer 密钥。支持 `title`、`body`、`url`、`group`、`level`，`device_key` 可省略或填 `default`。分组会转换为消息标签。接收消息走默认路由，也可用 `X-Anser-Topic` 指定主题。响应中的 `data.message_id` 可查询实际投递结果。

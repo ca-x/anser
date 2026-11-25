@@ -51,6 +51,32 @@ macro_rules! channel {
                     self.0.config_schema()
                 }
 
+                pub fn receive_protocol(&self) -> anser_plugin_api::ReceiveProtocol {
+                    anser_plugin_api::ReceiveProtocol::of(&self.0)
+                }
+                pub fn decode_ingress(
+                    &self,
+                    method: String,
+                    path: String,
+                    headers: std::collections::BTreeMap<String, String>,
+                    body: Vec<u8>,
+                ) -> Result<anser_plugin_api::IngressMessage, SendError> {
+                    self.0
+                        .decode_ingress(anser_plugin_api::IngressRequest {
+                            method: &method,
+                            path: &path,
+                            headers: &headers,
+                            body: &body,
+                        })
+                        .map_err(|error| SendError::new("invalid_receive_request", error, false))
+                }
+                pub fn ingress_response(
+                    &self,
+                    message: anser_plugin_api::IngressMessage,
+                    receipt: anser_core::api::Receipt,
+                ) -> Value {
+                    self.0.ingress_response(&message, &receipt)
+                }
                 pub fn capabilities(&self) -> Capabilities {
                     self.0.capabilities()
                 }

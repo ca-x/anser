@@ -389,6 +389,25 @@ impl Store {
         Ok(())
     }
 
+    /// Recover the payload acknowledged for a keyed receive request without
+    /// exposing a receipt from another key or destination on a key collision.
+    pub async fn received_body(
+        &self,
+        id: &str,
+        key_id: &str,
+        topic: Option<&str>,
+    ) -> Result<anser_core::Message> {
+        let body: String =
+            sqlx::query_scalar("SELECT body FROM messages WHERE id=? AND key_id=? AND topic IS ?")
+                .bind(id)
+                .bind(key_id)
+                .bind(topic)
+                .fetch_optional(&self.0)
+                .await?
+                .ok_or(DataError::Conflict)?;
+        Ok(serde_json::from_str(&body)?)
+    }
+
     pub async fn message_body(&self, id: &str) -> Result<anser_core::Message> {
         let body: String = sqlx::query_scalar("SELECT body FROM messages WHERE id=?")
             .bind(id)
@@ -701,7 +720,7 @@ pub(crate) async fn enqueue_one(tx: &mut SqliteConnection, input: Submission) ->
         )
     };
     let mut candidates: Vec<CandidateRow> = sqlx::query_as(
-            "SELECT id,channel,tags,weight,priority FROM accounts WHERE space_id='default' AND enabled=1 AND circuit_until<=? AND NOT EXISTS(SELECT 1 FROM channel_settings WHERE channel=accounts.channel AND enabled=0) ORDER BY created_at,id",
+            "SELECT id,channel,tags,weight,priority FROM accounts WHERE space_id='default' AND enabled=1 AND circuit_until<=? AND NOT EXISTS(SELECT 1 FROM channel_settings WHERE channel=accounts.channel AND (enabled=0 OR egress_enabled=0)) ORDER BY created_at,id",
         ).bind(now).fetch_all(&mut *tx).await?;
     candidates.retain(|row| input.available_channels.contains(&row.channel.as_str()));
     if let Some(strategy) = &request.strategy {

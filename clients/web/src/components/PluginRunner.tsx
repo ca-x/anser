@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import { EuiButton, EuiCallOut, EuiFieldText, EuiFormRow, EuiLink, EuiSelect, EuiTextArea } from "@elastic/eui";
 import { Api, segment, type InstalledPlugin, type JsonObject, type Message, type Receipt } from "../api";
 import { configDefaults, dynamicOptionInputs, serializeConfig } from "../form-values";
+import { PluginHelp } from "./PluginHelp";
 import { useT } from "../preferences";
 import { useMutation, useResource } from "../resources";
 import { ChannelFields, type DynamicChoices } from "./ChannelFields";
@@ -144,6 +145,7 @@ export function PluginRunner({ api, plugin, close }: { api: Api; plugin: Install
         setResult(await api.write<RunResult>(`${path}/run`, "POST", { ...invocation, ...input }, 65_000));
       });
     }}>
+      <PluginHelp plugin={plugin} />
       <Failure message={task.error} />
       {persistent && !ready && settings.loading && <Progress />}
       {persistent && <Failure message={settings.error || saving.error} retry={settings.error ? settings.reload : undefined} />}

@@ -142,7 +142,7 @@ pub async fn publish(
         .ids()
         .iter()
         .copied()
-        .filter(|id| app.host.available(id))
+        .filter(|id| app.host.egress_available(id))
         .collect();
     let receipt = app
         .enqueuer

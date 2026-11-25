@@ -8,7 +8,14 @@ export interface Page<T> {
   next_cursor?: string | null;
 }
 
-export interface Channel {
+export interface ChannelEndpoints {
+  ingress_enabled?: boolean;
+  egress_enabled?: boolean;
+  direction?: "ingress" | "egress" | "bidirectional";
+  ingress_routes?: { method: string; path: string; description: string; example?: string | null }[];
+}
+
+export interface Channel extends ChannelEndpoints {
   id: string;
   display_name: string;
   enabled?: boolean;
@@ -24,7 +31,7 @@ export interface Channel {
 
 export type PluginKind = "channel" | "task" | "content_transform";
 
-export interface InstalledPlugin {
+export interface InstalledPlugin extends ChannelEndpoints {
   id: string;
   kind: PluginKind;
   display_name: string;
@@ -34,7 +41,7 @@ export interface InstalledPlugin {
   available: boolean;
 }
 
-export type ChannelRuntime = Pick<Channel, "id" | "enabled" | "available">;
+export type ChannelRuntime = Pick<Channel, "id" | "enabled" | "available" | "ingress_enabled" | "egress_enabled">;
 
 export interface EditableAccountConfig {
   config: JsonObject;

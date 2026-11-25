@@ -4,8 +4,13 @@ use anser_channel_http::{
     NetworkPolicy, client_with_policy, config, link, network_error, plain_body, response,
     truncate_bytes, url,
 };
+mod ingress;
+
 use anser_core::{ChannelAccount, Message, MessageFormat};
-use anser_plugin_api::{Capabilities, ChannelService, SendError, SendFuture, SendOutcome};
+use anser_plugin_api::{
+    Capabilities, ChannelDirection, ChannelService, IngressMessage, IngressRequest, IngressRoute,
+    SendError, SendFuture, SendOutcome,
+};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -37,18 +42,21 @@ fn default_priority() -> u8 {
     3
 }
 
+fn valid_topic(topic: &str) -> bool {
+    !topic.is_empty()
+        && topic.len() <= 64
+        && topic
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_'))
+}
+
 impl Config {
     fn parse(value: &Value) -> Result<Self, SendError> {
         let config: Self = config(value)?;
         let server = url(&config.server_url)?;
         anser_channel_http::validate_proxy(config.proxy.as_deref())?;
         if server.query().is_some()
-            || config.topic.is_empty()
-            || config.topic.len() > 64
-            || !config
-                .topic
-                .bytes()
-                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+            || !valid_topic(&config.topic)
             || !(1..=5).contains(&config.priority)
             || config.token.as_ref().is_some_and(|token| {
                 token.is_empty() || !token.bytes().all(|byte| byte.is_ascii_graphic())
@@ -79,12 +87,36 @@ impl ChannelService for Ntfy {
         "ntfy"
     }
 
+    fn direction(&self) -> ChannelDirection {
+        ChannelDirection::Bidirectional
+    }
+
+    fn ingress_routes(&self) -> &'static [IngressRoute] {
+        ingress::ROUTES
+    }
+
+    fn ingress_headers(&self) -> &'static [&'static str] {
+        ingress::HEADERS
+    }
+
+    fn decode_ingress(&self, request: IngressRequest<'_>) -> Result<IngressMessage, &'static str> {
+        ingress::decode(request)
+    }
+
+    fn ingress_response(
+        &self,
+        message: &IngressMessage,
+        receipt: &anser_core::api::Receipt,
+    ) -> Value {
+        ingress::response(message, receipt)
+    }
+
     fn config_schema(&self) -> Value {
         json!({
             "$schema": "https://json-schema.org/draft/2020-12/schema",
             "x-anser-version": env!("CARGO_PKG_VERSION"),
             "type": "object",
-            "x-anser-ui": {"label":{"en":"ntfy","zh-CN":"ntfy"},"account_editor": {"fields":["server_url","topic","username","priority"],"credentials":{"token":["server_url","username"],"password":["server_url","username","token"]}}},
+            "x-anser-ui": {"help":{"en":"Publish JSON or send UTF-8 text to a Topic with an Anser send key. Set a title, tags, priority, Markdown, click URL or attachment URL. The Topic routes the message; configure an ntfy account to deliver to an external ntfy server.","zh-CN":"使用具有发送权限的雁字密钥，以 JSON 或 UTF-8 文本发布到主题。支持标题、标签、优先级、Markdown、点击链接和附件链接。收件人由主题路由决定；向外部 ntfy 服务投递时再配置渠道账号。"},"label":{"en":"ntfy","zh-CN":"ntfy"},"account_editor": {"fields":["server_url","topic","username","priority"],"credentials":{"token":["server_url","username"],"password":["server_url","username","token"]}}},
             "properties": {
                 "server_url": {"x-anser-ui":{"label":{"en":"Server URL","zh-CN":"服务器地址"}},"type": "string", "format": "uri", "default": default_server()},
                 "topic": {"x-anser-ui":{"label":{"en":"Topic","zh-CN":"主题"}},"type": "string", "pattern": "^[A-Za-z0-9_-]{1,64}$"},

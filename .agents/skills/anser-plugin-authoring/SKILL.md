@@ -19,6 +19,17 @@ Keep certificate checks and weather collection in a task. A task produces drafts
 
 Use a stable lowercase identifier and an independent `X.Y.Z` plugin version. Put the Rust crate in `anser-plugins/<id>` and add its feature and service registration in [anser-host](../../../crates/anser-host) and the [server features](../../../crates/anser-server/Cargo.toml). Review the OpenAI-compatible [TTS plugin](../../../anser-plugins/openai-tts/src/lib.rs) for an action returning a media artifact and [Gotify](../../../anser-plugins/gotify/src/lib.rs) for a channel.
 
+## Implement a channel receive protocol
+
+One provider plugin owns its outbound adapter, receive adapter, or both. Declare a stable `direction()`: `Egress` (the default), `Ingress`, or `Bidirectional`. Use separate modules for reading provider requests and for sending them. Receive-only plugins need no outbound accounts. Installation, the primary runtime switch, and the two direction switches are separate. New receive endpoints default off; existing outbound accounts stay usable after a server upgrade.
+
+1. Declare read-only `ingress_routes()` entries with a method, relative path, description and copyable shell example. Anser mounts them below `/v1/receive/<plugin-id>`. A single-segment placeholder may include a fixed prefix or suffix, e.g. `/{topic}.send`. Both URL spellings of the root reach the same handler. The host returns 404 for disabled endpoints.
+2. Implement `decode_ingress` for the published protocol subset. Return an `IngressMessage` containing a normalized message and optional destination Topic. Validate types, sizes and unsupported parameters. Supply normalized lowercase message-header names via `ingress_headers`. For SDKs with a native token header use `ingress_token_header`: the host consumes it as an Anser credential. Keep tokens out of URLs, plugin input, message metadata and errors.
+3. Delegate authentication, send scope, Topic restrictions and passwords, idempotency, routing, queueing and retries to Anser. A protocol label never selects its own outbound account. A Topic in the request must agree with `X-Anser-Topic`. With neither, use the default route. Outbound credentials belong only to the outbound account.
+4. Build the provider's native JSON acknowledgement in `ingress_response` using the persisted receipt. HTTP 200 acknowledges enqueue. Document the field containing the Anser message ID, and how to query delivery. Keep rendering deterministic where possible and free of I/O.
+5. Put setup instructions and protocol limitations in `config_schema["x-anser-ui"]["help"]`, as parallel plain-text strings keyed by `en` and `zh-CN`. Web and NSH render the selected translation. Use placeholders for origins and keys in examples. Explain which fields are supported and any transport override a provider SDK requires.
+6. Test parsing, invalid inputs, supported native credentials, responses and independent switches. Run a real provider SDK against an isolated Anser instance and verify the persisted notification or downstream delivery. Fix upstream versions for repeatability. Document any endpoint or auth-header adapter explicitly.
+
 ## Own the option definitions
 
 The plugin supplies a JSON Schema with fields, types, accepted values, defaults, and required fields. The web console and NSH render their own controls from it. Use `format: "password"` and `writeOnly: true` on credentials. Put input validation in the plugin so CLI, API, and both clients get the same rules.

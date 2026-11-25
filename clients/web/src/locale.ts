@@ -1,5 +1,13 @@
 // Simplified Chinese is the source catalog. Keep user-supplied data out of it.
 const english: Record<string, string> = {
+  "使用说明": "Usage",
+  "入口": "Inbound",
+  "出口": "Outbound",
+  "双向": "Inbound and outbound",
+  "允许接收请求": "Accept incoming requests",
+  "允许发送通知": "Send notifications",
+  "入口 API": "Inbound API",
+  "使用具有发送权限的雁字 API 密钥，通过 Authorization: Bearer 进行认证。": "Authenticate with Authorization: Bearer and an Anser API key with send permission.",
   "内置插件": "Built-in plugins",
   "全部插件": "All plugins",
   "定时推送": "Scheduled notifications",

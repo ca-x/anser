@@ -12,3 +12,19 @@ Anser 通过 `/v1/sender` 发送消息，并在 `token` 请求头中传递令牌
 | 其他 HTTP 或网络错误 | 参见共用网络分类 |
 
 账号可选择共享代理配置，也可在 `proxy` 中指定代理地址。[配置示例](example.json) · [Chanify 文档](https://github.com/chanify/chanify) · [共用网络分类](../http/README.md)
+
+## 以 Chanify 格式投递到雁字
+
+先在管理后台「插件管理」中启用该渠道的入口开关。`POST /v1/receive/chanify/v1/sender` 接受 UTF-8 纯文本、JSON 和 URL 编码表单。将具有 `send` 权限的雁字密钥放在 Chanify 的 `token` 请求头，或使用雁字 Bearer 认证，消息通过空间默认路由分发。Chanify 服务商令牌仅用于出口账号。
+
+```sh
+curl "$ANSER_URL/v1/receive/chanify/v1/sender" \
+  -H "token: $ANSER_KEY" -H "Content-Type: text/plain" \
+  --data-binary '备份完成'
+
+curl "$ANSER_URL/v1/receive/chanify/v1/sender" \
+  -H "Authorization: Bearer $ANSER_KEY" \
+  --json '{"title":"构建","text":"所有测试通过","priority":10,"sound":1}'
+```
+
+正文 `text` 必填，限 1500 字节。可选标题 `title` 限 240 字节。`sound`（0 或 1）和 `priority`（5 或 10）分别保存在 `extras.chanify_sound` 和 `extras.chanify_priority`。入队后返回 HTTP 200，`res` 为 0，`request-uid` 是雁字消息 ID。

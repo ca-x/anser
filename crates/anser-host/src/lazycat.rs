@@ -31,6 +31,9 @@ impl Service {
         self.0.config_schema()
     }
 
+    pub fn receive_protocol(&self) -> anser_plugin_api::ReceiveProtocol {
+        anser_plugin_api::ReceiveProtocol::of(&self.0)
+    }
     pub fn capabilities(&self) -> Capabilities {
         self.0.capabilities()
     }

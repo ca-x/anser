@@ -38,6 +38,9 @@ impl Fixture {
         json!({"type": "object"})
     }
 
+    pub fn receive_protocol(&self) -> anser_plugin_api::ReceiveProtocol {
+        anser_plugin_api::ReceiveProtocol::default()
+    }
     pub fn capabilities(&self) -> Capabilities {
         Capabilities {
             formats: vec![MessageFormat::Text],

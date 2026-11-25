@@ -8,6 +8,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 mod actions;
+mod ingress;
+pub use ingress::{
+    ChannelDirection, IngressMessage, IngressRequest, IngressRoute, ReceiveProtocol, RouteInfo,
+};
 
 pub use actions::{
     ConfigOption, ContentTransformService, MAX_TRANSFORM_ARTIFACT_BYTES, PluginDescriptor,
@@ -23,10 +27,40 @@ pub trait ChannelService: Send + Sync + 'static {
     fn config_schema(&self) -> Value;
     fn validate_config(&self, config: &Value) -> Result<(), SendError>;
     fn capabilities(&self) -> Capabilities;
-    fn send<'a>(&'a self, account: &'a ChannelAccount, message: &'a Message) -> SendFuture<'a>;
+    fn direction(&self) -> ChannelDirection {
+        ChannelDirection::Egress
+    }
+    fn ingress_routes(&self) -> &'static [IngressRoute] {
+        &[]
+    }
+    fn ingress_headers(&self) -> &'static [&'static str] {
+        &[]
+    }
+    fn ingress_token_header(&self) -> Option<&'static str> {
+        None
+    }
+    fn decode_ingress(&self, _request: IngressRequest<'_>) -> Result<IngressMessage, &'static str> {
+        Err("This plugin has no receive protocol")
+    }
+    fn ingress_response(
+        &self,
+        _message: &IngressMessage,
+        receipt: &anser_core::api::Receipt,
+    ) -> Value {
+        serde_json::json!(receipt)
+    }
+    fn send<'a>(&'a self, _account: &'a ChannelAccount, _message: &'a Message) -> SendFuture<'a> {
+        Box::pin(async {
+            Err(SendError::new(
+                "unsupported_direction",
+                "The plugin has no outbound channel",
+                false,
+            ))
+        })
+    }
 }
 
-#[derive(Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct Capabilities {
     pub formats: Vec<MessageFormat>,
     pub max_title_chars: Option<u32>,

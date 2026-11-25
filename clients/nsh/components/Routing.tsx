@@ -352,7 +352,7 @@ export function Targets(props: {
             value={channel()}
             items={[
               { value: "", title: t("routing.any_channel") },
-              ...props.channels.map((entry) => ({
+              ...props.channels.filter((entry) => entry.egress_enabled !== false).map((entry) => ({
                 value: entry.id,
                 title: channelName(entry.id, entry.display_name),
               })),

@@ -84,7 +84,7 @@ export function AccountList({ api, catalog, channel }: {
 }
 
 export function channelAvailable(channel?: Channel) {
-  return !!channel && channel.available !== false && channel.enabled !== false;
+  return !!channel && channel.egress_enabled !== false && channel.direction !== "ingress" && channel.available !== false && channel.enabled !== false;
 }
 
 export function AccountEditor({ api, account, channels, close, onDone }: {

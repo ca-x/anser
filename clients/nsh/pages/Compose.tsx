@@ -297,7 +297,7 @@ export function Compose(props: {
     const extra = loaded && loaded.requested === askedAccounts() ? loaded.items : [];
     return [...accounts.items(), ...extra].flatMap((account) => {
       const channel = props.channels.find((item) => item.id === account.channel);
-      if (!account.enabled || !channel || channel.available === false || channel.enabled === false) return [];
+      if (!account.enabled || !channel || channel.egress_enabled === false || channel.available === false || channel.enabled === false) return [];
       return [{ id: account.id, label: `${account.name} · ${channelName(channel.id, channel.display_name)}` }];
     });
   };

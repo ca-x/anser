@@ -55,7 +55,7 @@ dependencies = [
 
 [[package]]
 name = "anser-channel-http"
-version = "0.7.6"
+version = "0.8.0"
 dependencies = [
  "anser-core",
  "anser-plugin-api",
@@ -71,7 +71,7 @@ dependencies = [
 
 [[package]]
 name = "anser-core"
-version = "0.7.6"
+version = "0.8.0"
 dependencies = [
  "jiff",
  "serde",
@@ -81,7 +81,7 @@ dependencies = [
 
 [[package]]
 name = "anser-host"
-version = "0.7.6"
+version = "0.8.0"
 dependencies = [
  "anser-core",
  "anser-plugin-api",
@@ -124,7 +124,7 @@ dependencies = [
 
 [[package]]
 name = "anser-plugin-api"
-version = "0.7.6"
+version = "0.8.0"
 dependencies = [
  "anser-core",
  "serde",
@@ -134,7 +134,7 @@ dependencies = [
 
 [[package]]
 name = "anser-plugin-bark"
-version = "0.5.6"
+version = "0.6.0"
 dependencies = [
  "aes",
  "anser-channel-http",
@@ -169,13 +169,14 @@ dependencies = [
 
 [[package]]
 name = "anser-plugin-chanify"
-version = "0.5.6"
+version = "0.6.0"
 dependencies = [
  "anser-channel-http",
  "anser-core",
  "anser-plugin-api",
  "serde",
  "serde_json",
+ "serde_urlencoded",
  "tokio",
 ]
 
@@ -286,7 +287,7 @@ dependencies = [
 
 [[package]]
 name = "anser-plugin-ntfy"
-version = "0.5.6"
+version = "0.6.0"
 dependencies = [
  "anser-channel-http",
  "anser-core",
@@ -324,13 +325,14 @@ dependencies = [
 
 [[package]]
 name = "anser-plugin-serverchan"
-version = "0.5.6"
+version = "0.6.0"
 dependencies = [
  "anser-channel-http",
  "anser-core",
  "anser-plugin-api",
  "serde",
  "serde_json",
+ "serde_urlencoded",
  "tokio",
 ]
 
@@ -413,7 +415,7 @@ dependencies = [
 
 [[package]]
 name = "anser-queue"
-version = "0.7.6"
+version = "0.8.0"
 dependencies = [
  "anser-channel-http",
  "anser-core",
@@ -433,7 +435,7 @@ dependencies = [
 
 [[package]]
 name = "anser-sdk"
-version = "0.7.6"
+version = "0.8.0"
 dependencies = [
  "anser-channel-http",
  "anser-core",
@@ -448,7 +450,7 @@ dependencies = [
 
 [[package]]
 name = "anser-server"
-version = "0.7.6"
+version = "0.8.0"
 dependencies = [
  "anser-channel-http",
  "anser-core",
@@ -487,7 +489,7 @@ dependencies = [
 
 [[package]]
 name = "anser-store"
-version = "0.7.6"
+version = "0.8.0"
 dependencies = [
  "anser-core",
  "anser-mcd",

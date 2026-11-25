@@ -1,5 +1,7 @@
 //! Bark v2 single and batch push, with optional Bark-compatible encryption.
 
+mod ingress;
+
 use std::collections::HashSet;
 
 use aes::cipher::{BlockModeEncrypt, KeyIvInit, block_padding::Pkcs7};
@@ -119,7 +121,7 @@ impl ChannelService for Bark {
             "$schema":"https://json-schema.org/draft/2020-12/schema",
             "x-anser-version": env!("CARGO_PKG_VERSION"),
             "type":"object",
-            "x-anser-ui": {"label":{"en":"Bark","zh-CN":"Bark"},"account_editor": {"fields":["server_url","group","sound","level"],"credentials":{"device_key":["server_url","device_keys"],"device_keys":["server_url","device_key"],"encryption_key":["server_url","device_key","device_keys"]}}},
+            "x-anser-ui": {"help":{"zh-CN":"入口接收 Bark JSON 消息，可填写标题、正文、链接、分组和级别。使用雁字密钥认证，可省略设备密钥或填写 default。通过 X-Anser-Topic 指定主题，否则使用默认路由。成功回执表示已入队。出口账号使用真实 Bark 设备密钥。","en":"Receive Bark JSON with title, body, url, group and level. Authenticate with an Anser key. Omit device_key or use default. Set X-Anser-Topic to publish to a topic, or use the default route. Success means queued. Outbound accounts use real Bark device keys."},"label":{"en":"Bark","zh-CN":"Bark"},"account_editor": {"fields":["server_url","group","sound","level"],"credentials":{"device_key":["server_url","device_keys"],"device_keys":["server_url","device_key"],"encryption_key":["server_url","device_key","device_keys"]}}},
             "properties":{
                 "server_url":{"x-anser-ui":{"label":{"en":"Server URL","zh-CN":"服务器地址"}},"type":"string","format":"uri","default":default_server()},
                 "device_key":device_key,
@@ -139,6 +141,29 @@ impl ChannelService for Bark {
         Config::parse(config).map(|_| ())
     }
 
+    fn direction(&self) -> anser_plugin_api::ChannelDirection {
+        anser_plugin_api::ChannelDirection::Bidirectional
+    }
+    fn ingress_routes(&self) -> &'static [anser_plugin_api::IngressRoute] {
+        ingress::ROUTES
+    }
+    fn decode_ingress(
+        &self,
+        request: anser_plugin_api::IngressRequest<'_>,
+    ) -> Result<anser_plugin_api::IngressMessage, &'static str> {
+        ingress::decode(request)
+    }
+    fn ingress_response(
+        &self,
+        _message: &anser_plugin_api::IngressMessage,
+        receipt: &anser_core::api::Receipt,
+    ) -> Value {
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        json!({"code":200,"message":"success","timestamp":timestamp,"data":{"message_id":receipt.message_id}})
+    }
     fn capabilities(&self) -> Capabilities {
         Capabilities {
             formats: vec![MessageFormat::Text],

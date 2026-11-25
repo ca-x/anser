@@ -111,7 +111,7 @@ export function AccountList(props: {
           label={t("accounts.add_account")}
           kind="primary"
           onPress={props.onCreate}
-          disabled={props.channel?.available === false}
+          disabled={props.channel ? props.channel.available === false : !props.channels.some((channel) => channel.available !== false && channel.enabled !== false)}
         />
       </View>
       <ReadState

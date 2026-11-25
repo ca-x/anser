@@ -19,7 +19,7 @@ enum Resource {
     /// Inspect or manage channel plugins.
     Channels {
         channel: Option<String>,
-        /// Change the lifecycle of the selected plugin (requires an admin API key).
+        /// Manage plugin lifecycle or switch an individual direction (requires an admin API key).
         #[arg(long, requires = "channel")]
         action: Option<ChannelAction>,
     },
@@ -72,6 +72,10 @@ enum ChannelAction {
     Enable,
     Disable,
     Reload,
+    EnableIngress,
+    DisableIngress,
+    EnableEgress,
+    DisableEgress,
 }
 
 impl ChannelAction {
@@ -80,6 +84,10 @@ impl ChannelAction {
             Self::Enable => serde_json::json!({"enabled": true}),
             Self::Disable => serde_json::json!({"enabled": false}),
             Self::Reload => serde_json::json!({"reload": true}),
+            Self::EnableIngress => serde_json::json!({"ingress_enabled": true}),
+            Self::DisableIngress => serde_json::json!({"ingress_enabled": false}),
+            Self::EnableEgress => serde_json::json!({"egress_enabled": true}),
+            Self::DisableEgress => serde_json::json!({"egress_enabled": false}),
         }
     }
 }

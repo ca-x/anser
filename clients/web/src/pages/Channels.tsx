@@ -1,6 +1,7 @@
 import { useState, type MouseEvent } from "react";
-import { EuiBadge, EuiButton, EuiButtonEmpty, EuiLink, EuiTab, EuiTabs, EuiText } from "@elastic/eui";
+import { EuiBadge, EuiButton, EuiButtonEmpty, EuiCodeBlock, EuiIcon, EuiLink, EuiSwitch, EuiToolTip, EuiTab, EuiTabs, EuiText } from "@elastic/eui";
 import { Api, segment, type Channel, type ChannelRuntime, type InstalledPlugin, type Page } from "../api";
+import { PluginHelp } from "../components/PluginHelp";
 import { PluginRunner } from "../components/PluginRunner";
 import { RowAction, Confirm, Empty, Failure, PageTitle, Progress } from "../components/Common";
 import { pluginLabel } from "../form-values";
@@ -23,6 +24,16 @@ function PluginStatus({ channel }: { channel: Pick<Channel, "enabled" | "availab
   if (!runtimeEnabled(channel)) return <EuiBadge>{t("已停用")}</EuiBadge>;
   if (channel.available === false) return <EuiBadge color="warning">{t("暂不可用")}</EuiBadge>;
   return <EuiBadge color="success">{t("运行中")}</EuiBadge>;
+}
+
+const directionLabels = { ingress: "入口", egress: "出口", bidirectional: "双向" } as const;
+
+function DirectionIcon({ direction = "egress" }: Pick<Channel, "direction">) {
+  const label = useT()(directionLabels[direction]);
+  const icon = { ingress: "download", egress: "upload", bidirectional: "inputOutput" } as const;
+  return <EuiToolTip content={label}><span tabIndex={0} role="img" aria-label={label}>
+    <EuiIcon type={icon[direction]} color="subdued" aria-hidden="true" />
+  </span></EuiToolTip>;
 }
 
 const pluginGroups = [
@@ -77,7 +88,7 @@ export function Channels({ api, navigate }: { api: Api; navigate: Navigate }) {
         const path = `${listPath}/${segment(plugin.id)}`;
         const settings = (plugin.config_schema["x-anser-ui"] as { persistent_settings?: boolean } | undefined)?.persistent_settings === true;
         return <li key={`${plugin.kind}:${plugin.id}`} className="plugin-tile">
-          <div className="plugin-tile-meta"><EuiBadge>{t(typeLabel(plugin.kind))}</EuiBadge><PluginStatus channel={plugin} /></div>
+          <div className="plugin-tile-meta"><EuiBadge>{t(typeLabel(plugin.kind))}</EuiBadge>{plugin.kind === "channel" && <DirectionIcon direction={plugin.direction} />}<PluginStatus channel={plugin} /></div>
           <h2>{plugin.kind === "channel" ? <EuiLink href={path} onClick={(event) => follow(event, path, navigate)}>{name(plugin)}</EuiLink> : name(plugin)}</h2>
           <div className="plugin-tile-actions">
             {plugin.version && <span className="muted">{plugin.version}</span>}
@@ -114,14 +125,14 @@ export function ChannelSettings({ api, id, navigate }: { api: Api; id: string; n
   const enabled = channel && runtimeEnabled(channel);
   const ready = channel && (!legacy || !!result || !!fallback);
 
-  const update = (operation: "enable" | "disable" | "reload") => action.run(async () => {
+  const update = (operation: "enable" | "disable" | "reload" | { ingress_enabled: boolean } | { egress_enabled: boolean }) => action.run(async () => {
     setNotice(undefined);
-    const change = operation === "reload" ? { reload: true } : { enabled: operation === "enable" };
+    const change = typeof operation === "object" ? operation : operation === "reload" ? { reload: true } : { enabled: operation === "enable" };
     try {
       const response = await api.write<ChannelRuntime>(`${path}/runtime`, "PUT", change);
-      setResult({ ...response, enabled: response.enabled ?? change.enabled ?? enabled });
+      setResult({ ...response, enabled: response.enabled ?? (operation === "enable" || (operation !== "disable" && enabled)) });
       setConfirmation(undefined);
-      setNotice(operation === "reload" ? "插件已重载。" : operation === "enable" ? "插件已启用。" : "插件已停用。");
+      if (typeof operation === "string") setNotice(operation === "reload" ? "插件已重载。" : operation === "enable" ? "插件已启用。" : "插件已停用。");
     } catch (error) {
       // An interrupted request can still change the server's stored setting.
       setResult(undefined);
@@ -142,7 +153,15 @@ export function ChannelSettings({ api, id, navigate }: { api: Api; id: string; n
         <div className="channel-settings-header">
           <h2>{t("运行设置")}</h2><PluginStatus channel={channel} />
         </div>
-        {channel.available === false && <EuiText color="subdued" size="s"><p>{t("插件可用后，才能添加账号、替换凭据或测试发送。")}</p></EuiText>}
+        {channel.direction !== "ingress" && channel.available === false && <EuiText color="subdued" size="s"><p>{t("插件可用后，才能添加账号、替换凭据或测试发送。")}</p></EuiText>}
+        <div className="channel-settings-actions">
+          {channel.direction && channel.direction !== "egress" && channel.ingress_enabled !== undefined &&
+            <EuiSwitch label={t("允许接收请求")} checked={channel.ingress_enabled} disabled={!enabled || action.busy || channel.can_manage === false}
+              onChange={(event) => { void update({ ingress_enabled: event.target.checked }); }} />}
+          {channel.direction && channel.direction !== "ingress" && channel.egress_enabled !== undefined &&
+            <EuiSwitch label={t("允许发送通知")} checked={channel.egress_enabled} disabled={!enabled || action.busy || channel.can_manage === false}
+              onChange={(event) => { void update({ egress_enabled: event.target.checked }); }} />}
+        </div>
         {channel.can_manage !== false && <div className="channel-settings-actions">
           {enabled ? <>
             <EuiButton iconType="refresh" size="s" disabled={action.busy} onClick={() => { action.clear(); setConfirmation("reload"); }}>{t("重载插件")}</EuiButton>
@@ -152,7 +171,16 @@ export function ChannelSettings({ api, id, navigate }: { api: Api; id: string; n
         {!confirmation && <Failure message={action.error} />}
         <div role="status">{notice && <EuiText color="subdued" size="s"><p>{t(notice)}</p></EuiText>}</div>
       </section>
-      <AccountList api={api} catalog={[channel]} channel={channel} />
+      <PluginHelp plugin={channel} />
+      {!!channel.ingress_routes?.length && <section className="channel-settings" aria-label={t("入口 API")}>
+        <h2>{t("入口 API")}</h2>
+        <EuiText size="s"><p>{t("使用具有发送权限的雁字 API 密钥，通过 Authorization: Bearer 进行认证。")}</p></EuiText>
+        {channel.ingress_routes.map((route) => <div key={`${route.method} ${route.path}`}>
+          <EuiText size="s"><p className="plugin-result-text"><code>{route.method} {window.location.origin}/v1/receive/{segment(id)}{route.path}</code></p></EuiText>
+          {route.example && <EuiCodeBlock isCopyable paddingSize="s" whiteSpace="pre-wrap">{route.example}</EuiCodeBlock>}
+        </div>)}
+      </section>}
+      {channel.direction !== "ingress" && <AccountList api={api} catalog={[channel]} channel={channel} />}
     </>}
     {confirmation && <Confirm title={t(confirmation === "disable" ? "停用「{name}」？" : "重载「{name}」？", { name })}
       label={t(confirmation === "disable" ? "停用插件" : "重载插件")} busy={action.busy}

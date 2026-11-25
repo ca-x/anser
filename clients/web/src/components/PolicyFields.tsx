@@ -49,7 +49,7 @@ export function PolicyFields({ value, update, channels, accounts }: {
       <div className="form-grid">
         <EuiFormRow label={t("渠道")} fullWidth><EuiSelect fullWidth
           value={target.channel ?? ""}
-          options={options(target.channel, t("不限渠道"), channels.map(({ id, display_name }) => ({ value: id, text: channelName(id, display_name) })))}
+          options={options(target.channel, t("不限渠道"), channels.filter((channel) => channel.direction !== "ingress" && channel.egress_enabled !== false).map(({ id, display_name }) => ({ value: id, text: channelName(id, display_name) })))}
           onChange={(event) => updateTarget(index, { ...target, channel: event.target.value || undefined, account_id: undefined })} />
         </EuiFormRow>
         <EuiFormRow label={t("账号")} fullWidth><EuiSelect fullWidth value={target.account_id ?? ""}

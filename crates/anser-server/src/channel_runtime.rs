@@ -17,6 +17,10 @@ pub struct ChannelRuntime {
 pub enum Change {
     SetEnabled(bool),
     Reload,
+    SetDirections {
+        ingress: Option<bool>,
+        egress: Option<bool>,
+    },
 }
 
 struct Command {
@@ -29,14 +33,30 @@ struct Command {
 pub struct RuntimeState {
     pub enabled: bool,
     pub available: bool,
+    pub ingress_enabled: bool,
+    pub egress_enabled: bool,
+}
+
+impl RuntimeState {
+    pub fn current(host: &ChannelHost, id: &str, enabled: bool) -> Self {
+        Self {
+            enabled,
+            available: host.available(id),
+            ingress_enabled: host.ingress_enabled(id),
+            egress_enabled: host.egress_enabled(id),
+        }
+    }
 }
 
 impl ChannelRuntime {
     pub async fn restore(store: &Store, host: &ChannelHost) -> anyhow::Result<()> {
         let settings = store.channel_settings().await?;
         for &id in host.ids() {
-            if settings.get(id) == Some(&false) {
-                host.set_channel(id, false).await?;
+            if let Some(state) = settings.get(id) {
+                host.set_directions(id, state.ingress_enabled, state.egress_enabled)?;
+                if !state.enabled {
+                    host.set_channel(id, false).await?;
+                }
             }
         }
         Ok(())
@@ -87,6 +107,27 @@ async fn apply(
                 .map_err(ApiError::channel)?;
             enabled
         }
+        Change::SetDirections { ingress, egress } => {
+            let direction = host
+                .describe(id)
+                .await
+                .map_err(ApiError::channel)?
+                .direction;
+            if (ingress.is_some() && !direction.supports_ingress())
+                || (egress.is_some() && !direction.supports_egress())
+            {
+                return Err(ApiError::bad(
+                    "Plugin does not support the requested channel direction",
+                ));
+            }
+            // Merge inside the serialized controller so concurrent patches retain both intents.
+            let ingress = ingress.unwrap_or_else(|| host.ingress_enabled(id));
+            let egress = egress.unwrap_or_else(|| host.egress_enabled(id));
+            store.set_channel_directions(id, ingress, egress).await?;
+            host.set_directions(id, ingress, egress)
+                .map_err(ApiError::channel)?;
+            store.channel_enabled(id).await?
+        }
         Change::Reload => {
             if !store.channel_enabled(id).await? {
                 return Err(ApiError::channel(HostError::Unavailable));
@@ -100,8 +141,5 @@ async fn apply(
             true
         }
     };
-    Ok(RuntimeState {
-        enabled,
-        available: host.available(id),
-    })
+    Ok(RuntimeState::current(host, id, enabled))
 }

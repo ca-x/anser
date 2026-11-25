@@ -11,6 +11,9 @@ test("groups installed plugins by capability and renders website list options su
   const site = "https://anser.test";
   const dist = new URL("../dist/", import.meta.url);
   const installed = [
+    { id: "receive-only", kind: "channel", display_name: "Receive only", direction: "ingress", ingress_enabled: false, egress_enabled: false, available: true, enabled: true,
+      config_schema: { "x-anser-ui": { help: { en: "Send <text> from a script.", "zh-CN": "从脚本推送消息。" } } },
+      ingress_routes: [{ method: "POST", path: "/{topic}", description: "Send", example: "curl -d hello $ANSER_URL/v1/receive/receive-only/alerts" }] },
     { id: "ntfy", kind: "channel", display_name: "ntfy", available: true, enabled: true, config_schema: {} },
     {
       id: "certificate-expiration", kind: "task", display_name: "Not the localized name", available: true, enabled: true,
@@ -38,6 +41,12 @@ test("groups installed plugins by capability and renders website list options su
     const asset = "/assets/anser/";
     if (path.startsWith(asset)) return route.fulfill({ path: fileURLToPath(new URL(path.slice(asset.length), dist)) });
     if (path === "/v1/auth/me") return route.fulfill({ json: { id: "admin", username: "admin", admin: true, enabled: true } });
+    if (path === "/v1/channels/receive-only/runtime" && route.request().method() === "PUT") {
+      assert.deepEqual(route.request().postDataJSON(), { ingress_enabled: true });
+      installed[0].ingress_enabled = true;
+      return route.fulfill({ json: { id: "receive-only", enabled: true, available: true, ingress_enabled: true, egress_enabled: false } });
+    }
+    if (path === "/v1/channels/receive-only") return route.fulfill({ json: installed[0] });
     if (path === "/v1/plugins") return route.fulfill({ json: { items: installed } });
     if (path === "/v1/schedules") {
       if (route.request().method() === "POST") {
@@ -65,6 +74,20 @@ test("groups installed plugins by capability and renders website list options su
     return route.fulfill({ json: { items: [] } });
   });
   await page.addInitScript(() => sessionStorage.setItem("anser.auth.session", "test-session"));
+  await page.goto(site + "/admin/channels");
+  await page.getByRole("img", { name: "Inbound", exact: true }).waitFor();
+  await page.getByRole("link", { name: "Receive only", exact: true }).click();
+  const allow = page.getByRole("switch", { name: "Accept incoming requests" });
+  assert.equal(await allow.isChecked(), false);
+  await allow.click();
+  await page.waitForFunction(() => document.querySelector('[role="switch"][aria-checked="true"]') !== null);
+  assert.equal(await page.getByRole("switch", { name: "Send notifications" }).count(), 0);
+  await page.getByText("Send <text> from a script.", { exact: true }).waitFor();
+  assert.equal(await page.getByText("从脚本推送消息。", { exact: true }).count(), 0);
+  const ingress = page.getByRole("region", { name: "Inbound API" });
+  await ingress.getByText("POST " + site + "/v1/receive/receive-only/{topic}").waitFor();
+  await ingress.getByText("curl -d hello $ANSER_URL/v1/receive/receive-only/alerts").waitFor();
+  assert.equal(await page.getByRole("button", { name: "Add account" }).count(), 0);
   await page.goto(site + "/admin/channels");
   const filters = page.getByRole("group", { name: "Plugin type" });
   const tabs = await page.getByRole("tablist", { name: "Plugins" }).boundingBox();

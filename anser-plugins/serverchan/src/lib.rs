@@ -1,12 +1,17 @@
 //! Server酱 Turbo and Server酱³ notification delivery.
 
+mod ingress;
+
 use anser_channel_http::{
     NetworkPolicy, append_path, bounded_body, client_with_policy, config, decode, link,
     network_error, plain_body, provider_error, reqwest::Url, status_error, truncate, url,
     validate_proxy,
 };
 use anser_core::{ChannelAccount, Message, MessageFormat};
-use anser_plugin_api::{Capabilities, ChannelService, SendError, SendFuture, SendOutcome};
+use anser_plugin_api::{
+    Capabilities, ChannelDirection, ChannelService, IngressMessage, IngressRequest, IngressRoute,
+    SendError, SendFuture, SendOutcome,
+};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -112,12 +117,36 @@ impl ChannelService for Serverchan {
         "Server酱"
     }
 
+    fn direction(&self) -> ChannelDirection {
+        ChannelDirection::Bidirectional
+    }
+
+    fn ingress_routes(&self) -> &'static [IngressRoute] {
+        ingress::ROUTES
+    }
+
+    fn ingress_headers(&self) -> &'static [&'static str] {
+        &["content-type"]
+    }
+
+    fn decode_ingress(&self, request: IngressRequest<'_>) -> Result<IngressMessage, &'static str> {
+        ingress::decode(request)
+    }
+
+    fn ingress_response(
+        &self,
+        _message: &IngressMessage,
+        receipt: &anser_core::api::Receipt,
+    ) -> Value {
+        json!({"code": 0, "message": "success", "data": {"pushid": receipt.message_id}})
+    }
+
     fn config_schema(&self) -> Value {
         json!({
             "$schema": "https://json-schema.org/draft/2020-12/schema",
             "x-anser-version": env!("CARGO_PKG_VERSION"),
             "type": "object",
-            "x-anser-ui": {"label":{"en":"ServerChan","zh-CN":"Server酱"},
+            "x-anser-ui": {"help":{"en":"Post form or JSON fields title, desp, tags and short with an Anser send key. /send uses the default route; /{topic}.send publishes to an Anser Topic. Use provider SendKeys only in outbound accounts.","zh-CN":"使用具有发送权限的雁字密钥提交表单或 JSON，字段包括 title、desp、tags 和 short。/send 使用默认路由，/{topic}.send 使用指定主题。服务商的 SendKey 仅用于配置出口账号。"},"label":{"en":"ServerChan","zh-CN":"Server酱"},
                 "form_fields": ["sendkey"],
                 "account_editor": {
                     "fields": [],

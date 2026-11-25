@@ -1,11 +1,16 @@
 //! Text notifications through the hosted Chanify API or a self-hosted node.
 
+mod ingress;
+
 use anser_channel_http::{
     NetworkPolicy, append_path, client_with_policy, config, decode, link, network_error,
     plain_body, reqwest::header::HeaderValue, response, truncate_bytes, url, validate_proxy,
 };
 use anser_core::{ChannelAccount, Message, MessageFormat};
-use anser_plugin_api::{Capabilities, ChannelService, SendError, SendFuture, SendOutcome};
+use anser_plugin_api::{
+    Capabilities, ChannelDirection, ChannelService, IngressMessage, IngressRequest, IngressRoute,
+    SendError, SendFuture, SendOutcome,
+};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -78,12 +83,40 @@ impl ChannelService for Chanify {
         "Chanify"
     }
 
+    fn direction(&self) -> ChannelDirection {
+        ChannelDirection::Bidirectional
+    }
+
+    fn ingress_routes(&self) -> &'static [IngressRoute] {
+        ingress::ROUTES
+    }
+
+    fn ingress_token_header(&self) -> Option<&'static str> {
+        Some("token")
+    }
+
+    fn ingress_headers(&self) -> &'static [&'static str] {
+        &["content-type"]
+    }
+
+    fn decode_ingress(&self, request: IngressRequest<'_>) -> Result<IngressMessage, &'static str> {
+        ingress::decode(request)
+    }
+
+    fn ingress_response(
+        &self,
+        _message: &IngressMessage,
+        receipt: &anser_core::api::Receipt,
+    ) -> Value {
+        json!({"res": 0, "request-uid": receipt.message_id})
+    }
+
     fn config_schema(&self) -> Value {
         json!({
             "$schema":"https://json-schema.org/draft/2020-12/schema",
             "x-anser-version": env!("CARGO_PKG_VERSION"),
             "type":"object",
-            "x-anser-ui": {"label":{"en":"Chanify","zh-CN":"Chanify"},"account_editor": {"fields":["server_url","sound","priority"],"credentials":{"token":["server_url"]}}},
+            "x-anser-ui": {"help":{"en":"Send UTF-8 text, a form or JSON to /v1/sender with an Anser send key in the token or Bearer header. The default route delivers the message. JSON and forms accept text, title, sound and priority. Configure a Chanify account for outbound delivery.","zh-CN":"将具有发送权限的雁字密钥放在 token 或 Bearer 请求头，向 /v1/sender 提交 UTF-8 正文、表单或 JSON，通过默认路由投递。表单与 JSON 支持 text、title、sound、priority。向外部 Chanify 节点投递时再配置渠道账号。"},"label":{"en":"Chanify","zh-CN":"Chanify"},"account_editor": {"fields":["server_url","sound","priority"],"credentials":{"token":["server_url"]}}},
             "properties":{
                 "server_url":{"x-anser-ui":{"label":{"en":"Server URL","zh-CN":"服务器地址"}},"type":"string","format":"uri","default":DEFAULT_URL},
                 "token":{"x-anser-ui":{"label":{"en":"Access token","zh-CN":"访问令牌"}},"type":"string","minLength":1,"maxLength":4096,"format":"password","writeOnly":true},

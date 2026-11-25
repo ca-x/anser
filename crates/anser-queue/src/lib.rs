@@ -126,7 +126,7 @@ async fn run_route(context: Arc<Context>, lease: Arc<Lease>) -> anser_store::Res
     let deliveries = context.store.deliveries(lease.id).await?;
     let now = now_ms();
     let plan = decision(&policy, &deliveries, now, lease.deadline, |channel| {
-        context.host.available(channel)
+        context.host.egress_available(channel)
     });
     if plan.send.is_empty() {
         return settle(&context, &lease, &policy, &deliveries).await;
@@ -168,7 +168,7 @@ async fn settle(
 ) -> anser_store::Result<()> {
     let now = now_ms();
     let plan = decision(policy, deliveries, now, lease.deadline, |channel| {
-        context.host.available(channel)
+        context.host.egress_available(channel)
     });
     let next = if !plan.restart.is_empty() {
         let candidates: Vec<_> = plan
@@ -260,7 +260,7 @@ async fn send_one(
     message: Arc<Message>,
     delivery: PendingDelivery,
 ) -> anser_store::Result<()> {
-    if !context.host.available(&delivery.channel) {
+    if !context.host.egress_available(&delivery.channel) {
         return context.store.defer(&lease, &delivery, 500).await;
     }
     let channel = limiter(

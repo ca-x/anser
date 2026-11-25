@@ -47,7 +47,7 @@ function baseNetwork(): Exclude<
       );
       return { body: page([channel]) };
     },
-    [`${endpoints}/info`]: { body: { version: "0.7.6", features: { speech_publish: true } } },
+    [`${endpoints}/info`]: { body: { version: "0.8.0", features: { speech_publish: true } } },
     [`${endpoints}/accounts`]: { body: page() },
     [`${endpoints}/auth/profile`]: { body: { nickname: null, avatar: null } },
     [`${endpoints}/topics`]: { body: page([topic]) },
@@ -916,6 +916,43 @@ const serverChan = {
     required: ["sendkey"],
   },
 };
+
+test("shows localized plugin help and inbound calls without an outbound account editor", async () => {
+  const url = origin + "/v1/receive/receiver/{topic}";
+  const example = "curl -d hello $ANSER_URL/v1/receive/receiver/alerts";
+  const plugin = {
+    ...channel, id: "receiver", display_name: "脚本消息", direction: "ingress",
+    enabled: true, available: true, ingress_enabled: false, egress_enabled: false, kind: "channel",
+    ingress_routes: [{ method: "POST", path: "/{topic}", description: "Send", example }],
+    config_schema: { "x-anser-ui": { help: { "zh-CN": "把通知发送到指定主题。", en: "Send a notification to a Topic." } } },
+  };
+  const app = await open("./App.tsx", {
+    locale: "zh-CN", platform: "linux", width: 1120, height: 1000,
+    network: {
+      ...baseNetwork(),
+      [`${endpoints}/channels`]: { body: page([plugin]) },
+      [`${endpoints}/plugins`]: { body: page([plugin]) },
+      [`${endpoints}/channels/receiver`]: { body: plugin },
+      [`PUT ${endpoints}/channels/receiver/runtime`]: ({ body }) => {
+        expect(JSON.parse(body ?? "{}")).toEqual({ ingress_enabled: true });
+        return { body: { ...plugin, ingress_enabled: true } };
+      },
+    },
+  });
+  await login(app);
+  await app.press("role:button[渠道账号]");
+  await app.press("插件管理");
+  await app.waitFor("label:入口");
+  await app.press("label:配置脚本消息");
+  await app.waitFor("把通知发送到指定主题。");
+  await app.waitFor("POST " + url);
+  await app.waitFor(example);
+  await app.press("label:允许接收请求");
+  await app.waitUntil(() => app.requests().some((request) => request.method === "PUT" && request.url.endsWith("/receiver/runtime")));
+  expect(app.shows("label:允许发送通知")).toBe(false);
+  expect(app.shows("添加账号")).toBe(false);
+  expect(app.texts().includes("Send a notification to a Topic.")).toBe(false);
+});
 
 test("manages plugin runtime and configures an account for that plugin", async () => {
   let enabled = true;

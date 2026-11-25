@@ -7,7 +7,8 @@ use anser_core::Message;
 use anser_core::api::Page;
 use anser_host::HostError;
 use anser_plugin_api::{
-    MAX_TRANSFORM_ARTIFACT_BYTES, PluginDescriptor, PluginKind, TaskOutput, TransformOutput,
+    ChannelDirection, MAX_TRANSFORM_ARTIFACT_BYTES, PluginDescriptor, PluginKind, RouteInfo,
+    TaskOutput, TransformOutput,
 };
 use axum::Json;
 use axum::extract::State;
@@ -33,6 +34,14 @@ static ACTION_SLOTS: Semaphore = Semaphore::const_new(4);
 pub(crate) struct InstalledPlugin {
     #[serde(flatten)]
     descriptor: PluginDescriptor,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    direction: Option<ChannelDirection>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    ingress_enabled: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    egress_enabled: Option<bool>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    ingress_routes: Vec<RouteInfo>,
     enabled: bool,
     available: bool,
 }
@@ -55,7 +64,11 @@ pub(crate) async fn list(
                     .map(str::to_owned),
                 config_schema: channel.config_schema,
             },
-            enabled: settings.get(id).copied().unwrap_or(true),
+            direction: Some(channel.direction),
+            ingress_enabled: Some(app.host.ingress_enabled(id)),
+            egress_enabled: Some(app.host.egress_enabled(id)),
+            ingress_routes: channel.ingress_routes,
+            enabled: settings.get(id).is_none_or(|state| state.enabled),
             available: app.host.available(id),
         });
     }
@@ -64,6 +77,10 @@ pub(crate) async fn list(
             .actions()
             .map(|(descriptor, available)| InstalledPlugin {
                 descriptor: descriptor.clone(),
+                direction: None,
+                ingress_enabled: None,
+                egress_enabled: None,
+                ingress_routes: Vec::new(),
                 enabled: true,
                 available,
             }),

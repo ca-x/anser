@@ -407,6 +407,7 @@ function Workspace(props: {
   const serverName = () => props.servers.label(api.origin);
   const isConnected = (origin: string) => props.sessions.some((item) => item.api.origin === origin && !item.expired());
   const channels = props.session.channels;
+  const outboundChannels = () => channels().filter((channel) => channel.direction !== "ingress");
   const accountsRevision = signal(0);
   const proxyRevision = signal(0);
   const nav = createNavStack<Route>([{ name: "compose" }]);
@@ -649,7 +650,7 @@ function Workspace(props: {
                 return (
                   <Compose
                     api={api}
-                    channels={channels()}
+                    channels={outboundChannels()}
                     canManageTargets={globalAdmin()}
                     onManageChannels={() => wide() ? go("accounts") : open({ name: "accounts" })}
                     draft={draftFor(route.topic?.name)}
@@ -677,7 +678,7 @@ function Workspace(props: {
                 return (
                   <Accounts
                     api={api}
-                    channels={channels()}
+                    channels={outboundChannels()}
                     revision={accountsRevision()}
                     onPlugins={
                       globalAdmin()
@@ -699,7 +700,7 @@ function Workspace(props: {
                 return (
                   <AccountEditor
                     api={api}
-                    channels={channels()}
+                    channels={outboundChannels()}
                     account={route.account}
                     presetChannel={route.presetChannel}
                     canManageProxies={globalAdmin()}
@@ -806,7 +807,7 @@ function Workspace(props: {
                 return (
                   <TopicEditor
                     api={api}
-                    channels={channels()}
+                    channels={outboundChannels()}
                     topic={route.topic}
                     onBack={back}
                     onSaved={(topic) =>
@@ -882,7 +883,7 @@ function Workspace(props: {
                 return (
                   <DefaultRoute
                     api={api}
-                    channels={channels()}
+                    channels={outboundChannels()}
                     onBack={back}
                     onSaved={back}
                   />

@@ -121,6 +121,8 @@ pub(crate) mod channel_setting {
         #[sea_orm(primary_key, auto_increment = false)]
         pub channel: String,
         pub enabled: bool,
+        pub ingress_enabled: bool,
+        pub egress_enabled: bool,
     }
 
     #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

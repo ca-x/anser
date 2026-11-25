@@ -26,6 +26,7 @@ export const copy = {
     channels: ["ntfy", "Bark", "邮件", "懒猫通知", "微信公众号", "企业微信", "飞书", "Telegram", "Server酱", "QQ 机器人", "钉钉", "Gotify", "Slack", "Discord", "IFTTT", "Chanify"],
     usageTitle: "从管理台和收件箱开始",
     usageCards: [
+      ["兼容推送入口", "在插件设置中开启 ntfy、Bark、Server酱或 Chanify 的接收入口，用雁字密钥按原协议发送。可指定主题，由其策略选择实际投递渠道。", "接入示例", "README.md"],
       ["多服务器发送", "在客户端「服务器」页保存地址、备注和默认发送列表。直接发送时用标签选择目标，每台服务器分别登录。", "客户端用法", "clients/nsh/README.md"],
       ["定时任务", "在「通知 → 定时任务」创建计划，选择任务插件、目标和执行时间。行内「编辑」可改插件参数、路由或时间。", "定时任务文档", "docs/scheduled-notifications.md"],
       ["投递记录保留", "在「系统管理 → 系统设置」设置保留天数，或关闭自动清理。主题有专属保留规则时，按该主题的设置执行。"],
@@ -77,6 +78,7 @@ export const copy = {
     channels: ["ntfy", "Bark", "Email", "LazyCat", "WeChat Official Account", "WeCom", "Feishu", "Telegram", "ServerChan", "QQ Bot", "DingTalk", "Gotify", "Slack", "Discord", "IFTTT", "Chanify"],
     usageTitle: "Start in the console and inbox",
     usageCards: [
+      ["Provider-compatible publishing", "Enable reception in the ntfy, Bark, ServerChan or Chanify plugin and send with an Anser key. Use a topic to route one protocol’s messages to other channels.", "Connection examples", "README.en.md"],
       ["Send to multiple servers", "Save addresses, display names, and default destinations on the Servers page. Use the tags to select destinations when sending directly and sign in to each server.", "Client guide", "clients/nsh/README.md"],
       ["Scheduled tasks", "Open Notifications → Scheduled tasks and set a task plugin, destination, and timing. Use Edit on an existing row to update plugin options, routing, or timing.", "Schedule guide", "docs/scheduled-notifications.md"],
       ["Delivery history retention", "Under Administration → System settings, choose how long to keep delivery records or turn automatic cleanup off. A topic can set its own retention period."],

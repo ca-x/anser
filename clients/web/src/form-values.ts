@@ -18,6 +18,7 @@ interface ConfigPreset {
 }
 
 interface Presentation {
+  help?: LocalizedText;
   presets?: ConfigPreset[];
   account_editor?: { fields: string[]; credentials?: Record<string, string[]> };
   dynamic_options?: { fields: string[] };
@@ -94,6 +95,12 @@ export function presetValues(plugin: ConfigSchema, preset: ConfigPreset) {
 
 export function sensitiveField(name: string, field: ConfigProperty) {
   return field.writeOnly || field.format === "password" || /pass(?:word)?|token|secret|key|webhook/i.test(name);
+}
+
+export function pluginHelp(plugin: ConfigSchema, language: "zh-CN" | "en") {
+  const ui = plugin.config_schema["x-anser-ui"] as Presentation | undefined;
+  const help = ui?.help?.[language];
+  return typeof help === "string" ? help.trim() : "";
 }
 
 export function pluginLabel(plugin: ConfigSchema, language: "zh-CN" | "en") {

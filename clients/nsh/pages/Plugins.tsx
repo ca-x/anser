@@ -1,9 +1,10 @@
 import { cleanup, computed, effect, resource, signal, Text, View } from "nsh";
+import { Tooltip } from "nsh/base";
 import { t } from "nsh/i18n";
 import { ApiError, messageFor, type AnserApi } from "../api";
 import { channelName } from "../channelNames";
 import {
-  ChannelConfig, channelConfigDraft, dynamicOptionInputs, pluginLabel, supportsTransformSettings, transformDraft,
+  ChannelConfig, channelConfigDraft, dynamicOptionInputs, pluginHelp, pluginLabel, supportsTransformSettings, transformDraft,
 } from "../components/ChannelConfig";
 import {
   Action,
@@ -13,6 +14,7 @@ import {
   Problem,
   ReadState,
   Section,
+  Toggle,
 } from "../components/Controls";
 import { RecordRow, WorkspacePage } from "../components/Workspace";
 import type { Account, Channel, ChannelRuntime, InstalledPlugin, PluginChoice, SavedTransformConfig } from "../contracts";
@@ -38,6 +40,24 @@ function PluginStatus(props: { channel: ChannelRuntime }) {
       {t(`plugins.${status()}`)}
     </Text>
   );
+}
+
+function DirectionIcon(props: Pick<Channel, "direction">) {
+  const direction = () => props.direction ?? "egress";
+  const label = () => t(`plugins.direction_${direction()}`);
+  return <View accessibilityLabel={label()} tooltip={<Tooltip class="rounded-(--radius) bg-popover px-2 py-1">
+    <Text class="text-sm text-popover-foreground">{label()}</Text>
+  </Tooltip>}>
+    <Text class="text-base text-muted-foreground">{({ ingress: "↧", egress: "↥", bidirectional: "⇅" })[direction()]}</Text>
+  </View>;
+}
+
+function Help(props: { plugin: Channel | InstalledPlugin }) {
+  return <If when={pluginHelp(props.plugin)}>
+    {(help) => <Section title={t("plugins.help")}><Panel><View selectable>
+      <Text class="text-sm text-foreground">{help()}</Text>
+    </View></Panel></Section>}
+  </If>;
 }
 
 const pluginKinds = ["channel", "task", "content_transform"] as const;
@@ -103,7 +123,7 @@ export function Plugins(props: {
                 <RecordRow
                   title={name()}
                   subtitle={metadata()?.version}
-                  status={<PluginStatus channel={channel()} />}
+                  status={<View class="flex-row items-center gap-2"><DirectionIcon direction={channel().direction} /><PluginStatus channel={channel()} /></View>}
                   action={{
                     label: t("plugins.configure"),
                     accessibilityLabel: t("plugins.configure_plugin", { name: name() }),
@@ -127,8 +147,8 @@ export function Plugins(props: {
                   action={supportsTransformSettings(plugin()) ? {
                     label: t("plugins.configure"),
                     accessibilityLabel: t("plugins.configure_plugin", { name: label(plugin()) }),
-                  } : undefined}
-                  onPress={supportsTransformSettings(plugin()) ? () => editing.set(plugin()) : undefined}
+                  } : pluginHelp(plugin()) ? { label: t("plugins.help"), accessibilityLabel: t("plugins.help_for", { name: label(plugin()) }) } : undefined}
+                  onPress={supportsTransformSettings(plugin()) || pluginHelp(plugin()) ? () => editing.set(plugin()) : undefined}
                 />
               )}
             </Each>
@@ -137,7 +157,9 @@ export function Plugins(props: {
       </Each>
     </WorkspacePage>
   }>
-    {(plugin) => <TransformSettings api={props.api} plugin={plugin()} back={() => editing.set(undefined)} />}
+    {(plugin) => supportsTransformSettings(plugin())
+      ? <TransformSettings api={props.api} plugin={plugin()} back={() => editing.set(undefined)} />
+      : <WorkspacePage title={label(plugin())} back={() => editing.set(undefined)}><Help plugin={plugin()} /></WorkspacePage>}
   </If>;
 }
 
@@ -196,6 +218,7 @@ function TransformSettings(props: { api: AnserApi; plugin: InstalledPlugin; back
   return <WorkspacePage title={pluginLabel(plugin) ?? plugin.display_name} back={props.back}
     footer={<Action label={saving.busy() ? t("common.saving") : t("plugins.save_settings")}
       kind="primary" disabled={!saved() || saving.busy()} onPress={save} />}>
+    <Help plugin={plugin} />
     <Problem message={loading.problem() || saving.problem()} />
     <If when={loading.busy()}><Hint>{t("controls.loading")}</Hint></If>
     <If when={loading.problem()}><Action label={t("common.refresh")} onPress={load} /></If>
@@ -228,7 +251,7 @@ export function PluginSettings(props: {
     (channel().can_manage ?? props.admin) && channel().enabled != null;
   const formats = () => channel().capabilities.formats ?? [];
 
-  function change(request: { enabled: boolean } | { reload: true }) {
+  function change(request: Parameters<AnserApi["changeChannel"]>[1]) {
     void action.run(async () => {
       if (!canManage()) return;
       if (
@@ -299,7 +322,15 @@ export function PluginSettings(props: {
           <If when={reloaded()}>
             <Hint>{t("plugins.reloaded")}</Hint>
           </If>
-          <If when={formats().length > 0}>
+          <If when={channel().direction && channel().direction !== "egress" && channel().ingress_enabled !== undefined}>
+            <Toggle label={t("plugins.allow_ingress")} checked={!!channel().ingress_enabled}
+              disabled={!canManage() || !channel().enabled || action.busy()} onChange={(value) => change({ ingress_enabled: value })} />
+          </If>
+          <If when={channel().direction && channel().direction !== "ingress" && channel().egress_enabled !== undefined}>
+            <Toggle label={t("plugins.allow_egress")} checked={!!channel().egress_enabled}
+              disabled={!canManage() || !channel().enabled || action.busy()} onChange={(value) => change({ egress_enabled: value })} />
+          </If>
+          <If when={formats().length > 0 && channel().direction !== "ingress"}>
             <Hint>
               {t("plugins.formats", {
                 formats: formats()
@@ -316,16 +347,34 @@ export function PluginSettings(props: {
           </If>
         </Panel>
       </Section>
-      <Section title={t("plugins.accounts")}>
-        <AccountList
-          api={props.api}
-          channel={channel()}
-          channels={[]}
-          revision={props.revision}
-          onOpen={props.onOpenAccount}
-          onCreate={props.onCreateAccount}
-        />
-      </Section>
+      <Help plugin={channel()} />
+      <If when={!!channel().ingress_routes?.length}>
+        <Section title={t("plugins.ingress_api")}>
+          <Panel>
+            <Hint>{t("plugins.ingress_auth")}</Hint>
+            <View selectable>
+              <Each of={channel().ingress_routes ?? []} key={(route) => `${route.method} ${route.path}`}>
+                {(route) => <View class="gap-1">
+                  <Text class="text-sm text-foreground">{`${route().method} ${props.api.origin}/v1/receive/${encodeURIComponent(channel().id)}${route().path}`}</Text>
+                  <If when={route().example}>{(example) => <Text class="text-sm text-muted-foreground">{example()}</Text>}</If>
+                </View>}
+              </Each>
+            </View>
+          </Panel>
+        </Section>
+      </If>
+      <If when={channel().direction !== "ingress"}>
+        <Section title={t("plugins.accounts")}>
+          <AccountList
+            api={props.api}
+            channel={channel()}
+            channels={[]}
+            revision={props.revision}
+            onOpen={props.onOpenAccount}
+            onCreate={props.onCreateAccount}
+          />
+        </Section>
+      </If>
     </WorkspacePage>
   );
 }

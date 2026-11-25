@@ -161,6 +161,30 @@ ANSER_REQUIRE_WEB=1 cargo build --locked --release -p anser-server
 - 终端用户可通过 `anser api --help` 查看管理命令与示例。
 - 支持 ntfy、Server酱、Bark、SMTP 邮件、懒猫通知、微信公众号、企业微信应用、飞书、Telegram、Gotify、QQ 机器人、钉钉、Slack、Discord、IFTTT 和 Chanify。PushPlus 和 gorush 用作设计参考。[渠道配置](anser-plugins) · [懒猫通知配置](docs/lazycat.md)
 
+### 用渠道协议向雁字发布消息
+
+渠道插件在 `GET /v1/channels` 中声明方向。入口插件把上游请求转换为雁字消息，出口插件通过账号发送消息，双向插件同时支持这两种操作。查看插件的 `direction` 和 `ingress_routes` 可获知当前服务支持的方法与路径。每条入口路径都相对于 `/v1/receive/{插件 ID}`。
+
+管理员先在插件设置中开启「入口」，也可通过 `PUT /v1/channels/{id}/runtime` 提交 `{"ingress_enabled":true}`。入口默认关闭，出口独立配置。
+
+| 入口插件 | 方法和路径 | 请求正文 |
+| --- | --- | --- |
+| ntfy | `POST /v1/receive/ntfy`，或 `PUT`、`POST /v1/receive/ntfy/{topic}` | 前者使用含 `topic`、`message` 的 JSON，后者直接发送 UTF-8 正文 |
+| Chanify | `POST /v1/receive/chanify/v1/sender` | 含 `title`、`text` 的 JSON |
+| Bark | `POST /v1/receive/bark/push` | 含 `title`、`body` 的 JSON |
+| Server酱 | `POST /v1/receive/serverchan/send` 或 `POST /v1/receive/serverchan/{topic}.send` | 含 `title`、`desp` 的 JSON 或 URL 编码表单 |
+
+例如，将备份脚本接入已有的 `ops` 主题。在服务端配置该主题的订阅或投递目标，给脚本签发具有 `send` 权限的雁字 API 密钥，然后调用 ntfy 入口。接收方可使用该主题配置的任意出口渠道。
+
+```sh
+curl --fail-with-body -X PUT "$ANSER_URL/v1/receive/ntfy/ops" \
+  -H "Authorization: Bearer $ANSER_API_KEY" \
+  -H "Idempotency-Key: backup-$BACKUP_ID" \
+  -H 'Title: Backup' --data-binary 'Backup completed'
+```
+
+返回 HTTP 200 表示雁字已持久化消息。ntfy 返回的 `id` 可用于查询 `GET /v1/messages/{id}`。重试同一次备份使用相同的 `BACKUP_ID`。Chanify 的 `/v1/sender`、Bark 的 `/push` 和 Server酱的 `/send` 默认走空间默认路由，也可用 `X-Anser-Topic` 指定主题。若请求中已有主题，两处必须一致。受密码保护的主题在需要时通过 `X-Anser-Topic-Password` 传递密码。上游通过请求头提交雁字凭据，出口渠道凭据由雁字账号管理。Chanify SDK 可通过原生 `token` 请求头传递雁字密钥；Bark SDK 必须填设备标识时使用 `default`。Server酱官方 SDK 固定请求其公网地址，接入自托管服务需要适配传输层。[SDK 实测与调用示例](https://github.com/ca-x/anser/tree/main/tests/receive-sdk)
+
 ## 配置
 
 | 环境变量 | 默认或用途 |

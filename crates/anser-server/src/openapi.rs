@@ -1,7 +1,11 @@
-use axum::Json;
+use std::sync::Arc;
+
+use axum::{Json, extract::State};
 use serde_json::{Map, Value, json};
 
-pub async fn document() -> Json<Value> {
+pub async fn document(
+    State(app): State<Arc<crate::api::App>>,
+) -> crate::error::ApiResult<Json<Value>> {
     let mut paths = Map::new();
     for (path, operations) in [
         ("/v1/health", &["GET / Health check"][..]),
@@ -406,7 +410,48 @@ pub async fn document() -> Json<Value> {
         "/v1/topics/{name}/plugin-listings".into(),
         crate::plugin_market::openapi_path(),
     );
-    Json(json!({
+    for &id in app.host.ids() {
+        let channel = app
+            .host
+            .describe(id)
+            .await
+            .map_err(crate::error::ApiError::channel)?;
+        for route in &channel.ingress_routes {
+            let path = format!("/v1/receive/{id}{}", route.path.trim_end_matches('/'));
+            let mut parameters: Vec<_> = route
+                .path
+                .split('/')
+                .filter_map(|segment| {
+                    let (_, rest) = segment.split_once('{')?;
+                    let (name, _) = rest.split_once('}')?;
+                    Some(
+                        json!({"name":name,"in":"path","required":true,"schema":{"type":"string"}}),
+                    )
+                })
+                .collect();
+            parameters.extend([
+                json!({"name":"Idempotency-Key","in":"header","description":"Use the same key when retrying the same publication.","schema":{"type":"string","pattern":"^[!-~]{1,128}$"}}),
+                json!({"name":"X-Anser-Topic","in":"header","description":"Destination Topic when the native request does not select one. Must agree with a Topic in the request.","schema":{"type":"string"}}),
+                json!({"name":"X-Anser-Topic-Password","in":"header","description":"Password for a protected destination Topic, when required.","schema":{"type":"string","format":"password"}}),
+            ]);
+            let operation = json!({
+                "summary":route.description,
+                "x-anser-example":route.example,
+                "description":"Requires an enabled receive direction and send access. A successful provider-format response confirms persistence in Anser. Check delivery history for the final outcome.",
+                "security":[{"bearerAuth":[]}],
+                "parameters":parameters,
+                "requestBody":{"required":true,"content":{"*/*":{}}},
+                "responses":{
+                    "200":{"description":"Message persisted. The plugin formats the JSON receipt.","content":{"application/json":{"schema":{}}}},
+                    "409":{"description":"This idempotency key was already used for another destination Topic.","content":{"application/json":{"schema":reference("Error")}}},
+                    "default":{"$ref":"#/components/responses/Error"}
+                }
+            });
+            paths.entry(path).or_insert_with(|| json!({}))[route.method.to_ascii_lowercase()] =
+                operation;
+        }
+    }
+    Ok(Json(json!({
         "openapi":"3.0.3",
         "info":{"title":"Anser API","version":env!("CARGO_PKG_VERSION")},
         "paths":paths,
@@ -415,7 +460,7 @@ pub async fn document() -> Json<Value> {
             "responses":{"Error":{"description":"Anser request error","content":{"application/json":{"schema":{"$ref":"#/components/schemas/Error"}}}}},
             "schemas": schemas()
         }
-    }))
+    })))
 }
 
 fn reference(name: &str) -> Value {
@@ -559,6 +604,11 @@ fn success_schema(path: &str, method: &str) -> Option<(&'static str, Value)> {
 
 fn schemas() -> Value {
     let string = json!({"type":"string"});
+    let direction = json!({"type":"string","enum":["ingress","egress","bidirectional"]});
+    let ingress_routes = json!({"type":"array","items":{
+        "type":"object","required":["method","path","description"],
+        "properties":{"method":string,"path":{"type":"string","description":"Relative to /v1/receive/{plugin}."},"description":string,"example":string}
+    }});
     let integer = json!({"type":"integer"});
     let time = json!({"type":"integer","format":"int64","description":"UTC milliseconds since Unix epoch"});
     let boolean = json!({"type":"boolean"});
@@ -674,7 +724,7 @@ fn schemas() -> Value {
             "ProxyTestResult":{"type":"object","required":["status","latency_ms"],"properties":{"status":integer,"latency_ms":integer}},
             "LazycatDevices":{"type":"object","required":["user_id","devices"],"properties":{"user_id":{"type":"string","description":"UID verified by the LazyCat ingress."},"devices":{"type":"array","items":reference("LazycatDevice")},"max_selection":{"type":"integer"},"configured_device_ids":{"type":"array","items":{"type":"string"}}}},
             "LazycatDevice":{"type":"object","required":["device_id","name","online"],"properties":{"device_id":string,"name":string,"online":boolean}},
-            "InstalledPlugin":{"type":"object","required":["id","kind","display_name","config_schema","enabled","available"],"properties":{"id":string,"kind":{"type":"string","enum":["channel","task","content_transform"]},"display_name":string,"version":string,"config_schema":{"type":"object"},"enabled":boolean,"available":boolean}},
+            "InstalledPlugin":{"type":"object","required":["id","kind","display_name","config_schema","enabled","available"],"properties":{"id":string,"kind":{"type":"string","enum":["channel","task","content_transform"]},"display_name":string,"direction":direction,"ingress_routes":ingress_routes,"ingress_enabled":boolean,"egress_enabled":boolean,"version":string,"config_schema":{"type":"object"},"enabled":boolean,"available":boolean}},
             "GithubPlugin":{"type":"object","properties":{"full_name":string,"description":{"type":["string","null"]},"stargazers_count":integer}},
         }),
         json!({
@@ -730,9 +780,15 @@ fn schemas() -> Value {
             "PluginTaskOutput":{"type":"object","required":["notifications"],"properties":{"notifications":{"type":"array","items":reference("Message")},"details":{"description":"Optional diagnostics independent of notification drafts."}}},
             "PluginTransformOutput":{"type":"object","required":["message"],"properties":{"message":reference("Message"),"artifacts":{"type":"array","items":reference("PluginTransformArtifact"),"description":"Inline media results, with a total decoded size of at most 4 MiB."}}},
             "PluginTransformArtifact":{"type":"object","required":["name","content_type","content_base64"],"properties":{"name":string,"content_type":string,"content_base64":{"type":"string","format":"byte"}}},
-            "Channel":{"type":"object","required":["id","display_name","enabled","available","can_manage","config_schema","capabilities"],"properties":{"id":string,"display_name":string,"enabled":{"type":"boolean","description":"Persisted desired state"},"available":{"type":"boolean","description":"Current service availability"},"can_manage":{"type":"boolean","description":"Whether the requesting identity may manage global channel runtime"},"config_schema":{"type":"object"},"capabilities":{"type":"object"}}},
-            "ChannelRuntime":{"type":"object","required":["id","enabled","available"],"properties":{"id":string,"enabled":{"type":"boolean","description":"Persisted desired state"},"available":{"type":"boolean","description":"Current service availability"}}},
-            "ChannelChange":{"type":"object","properties":{"enabled":boolean,"reload":boolean},"oneOf":[{"required":["enabled"],"properties":{"reload":{"enum":[false]}}},{"required":["reload"],"properties":{"reload":{"enum":[true]}},"not":{"required":["enabled"]}}]},
+            "Channel":{"type":"object","required":["id","display_name","enabled","available","can_manage","config_schema","capabilities","direction","ingress_routes","ingress_enabled","egress_enabled"],"properties":{"id":string,"display_name":string,"direction":direction,"ingress_routes":ingress_routes,"ingress_enabled":boolean,"egress_enabled":boolean,"enabled":{"type":"boolean","description":"Persisted desired state"},"available":{"type":"boolean","description":"Current service availability"},"can_manage":{"type":"boolean","description":"Whether the requesting identity may manage global channel runtime"},"config_schema":{"type":"object"},"capabilities":{"type":"object"}}},
+            "ChannelRuntime":{"type":"object","required":["id","enabled","available","ingress_enabled","egress_enabled"],"properties":{"id":string,"ingress_enabled":boolean,"egress_enabled":boolean,"enabled":{"type":"boolean","description":"Persisted desired state"},"available":{"type":"boolean","description":"Current service availability"}}},
+            "ChannelChange":{"type":"object","additionalProperties":false,
+                "properties":{"enabled":boolean,"reload":boolean,"ingress_enabled":boolean,"egress_enabled":boolean},
+                "oneOf":[
+                    {"required":["enabled"],"properties":{"reload":{"enum":[false]}},"not":{"anyOf":[{"required":["ingress_enabled"]},{"required":["egress_enabled"]}]}},
+                    {"required":["reload"],"properties":{"reload":{"enum":[true]}},"not":{"anyOf":[{"required":["enabled"]},{"required":["ingress_enabled"]},{"required":["egress_enabled"]}]}},
+                    {"anyOf":[{"required":["ingress_enabled"]},{"required":["egress_enabled"]}],"not":{"required":["enabled"]},"properties":{"reload":{"enum":[false]}}}
+                ]},
             "MessageDetail":{"type":"object","properties":{"id":string,"topic":string,"status":delivery_status,"message":reference("Message"),"created_at":time,"inbox_deliveries":{"type":"integer","format":"int64","minimum":0,"description":"Native inbox entries committed at send time. Independent of device activity and read status."},"inbox_recipient":{"type":"string","description":"Destination username supplied by the sender of a direct native notification. Omitted for topic messages."},"audio_path":{"type":"string","description":"Relative path to the available speech recording, included in message detail only."},"deliveries":{"type":"array","items":reference("Delivery")}}},
             "Delivery":{"type":"object","properties":{"id":string,"channel":string,"account_id":string,"account_name":{"type":"string","description":"Current account display name when accessible to a global administrator."},"subscription_id":string,"status":delivery_status,"next_retry_at":time,"attempts":{"type":"array","items":reference("Attempt")}}},
             "Attempt":{"type":"object","properties":{"n":integer,"started_at":time,"finished_at":time,"error_code":string,"error_msg":string,"latency":integer}},

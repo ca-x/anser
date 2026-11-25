@@ -348,7 +348,7 @@ async fn execute(app: &App, run: &ScheduledRun) -> ApiResult<Vec<Submission>> {
         .ids()
         .iter()
         .copied()
-        .filter(|id| app.host.available(id))
+        .filter(|id| app.host.egress_available(id))
         .collect();
     Ok(output
         .notifications

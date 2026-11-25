@@ -1,6 +1,6 @@
 [package]
 name = "anser-plugin-serverchan"
-version = "0.5.6"
+version = "0.6.0"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -12,6 +12,7 @@ anser-core.workspace = true
 anser-plugin-api.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+serde_urlencoded = "=0.7.1"
 
 [dev-dependencies]
 anser-channel-http = { path = "../http", features = ["test-support"] }
