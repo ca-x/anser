@@ -40,6 +40,8 @@ ANSER_REQUIRE_WEB=1 cargo build --locked --release -p anser-server
 
 在客户端连接页输入服务端地址并登录。也可以在管理台的「配对客户端」生成两分钟内有效的一次性二维码，用手机系统相机扫描，在雁字确认服务器地址后登录。同一台设备上可复制配对链接，在客户端选择「导入连接链接」。
 
+生成配对码时可填写设备名称。全局管理员可在「配对客户端」查看每个已配对会话的所属用户、最近使用和到期时间，也可重命名或撤销单个会话。撤销后，该设备需重新登录，用户在其他设备上的会话仍可使用。旧版服务端没有记录会话的配对来源，升级前已配对的客户端需重新扫码一次，才会出现在此列表中。
+
 **发送第一条通知。** 在管理台「发送通知」选择「个人收件箱」，填写自己的用户名和一句正文，即可在客户端收件箱看到它。发给另一位用户时，对方可以从通知详情直接回复。发送者的投递记录显示通知存入了谁的收件箱。发布到主题时，详情显示实际收到通知的收件箱数量。阅读状态仅在收件人自己的收件箱中显示。
 
 登录期间，在客户端或管理台切换页面会保留发送草稿。刷新页面或退出登录会清除草稿。
@@ -184,6 +186,16 @@ curl --fail-with-body -X PUT "$ANSER_URL/v1/receive/ntfy/ops" \
 ```
 
 返回 HTTP 200 表示雁字已持久化消息。ntfy 返回的 `id` 可用于查询 `GET /v1/messages/{id}`。重试同一次备份使用相同的 `BACKUP_ID`。Chanify 的 `/v1/sender`、Bark 的 `/push` 和 Server酱的 `/send` 默认走空间默认路由，也可用 `X-Anser-Topic` 指定主题。若请求中已有主题，两处必须一致。受密码保护的主题在需要时通过 `X-Anser-Topic-Password` 传递密码。上游通过请求头提交雁字凭据，出口渠道凭据由雁字账号管理。Chanify SDK 可通过原生 `token` 请求头传递雁字密钥；Bark SDK 必须填设备标识时使用 `default`。Server酱官方 SDK 固定请求其公网地址，接入自托管服务需要适配传输层。[SDK 实测与调用示例](https://github.com/ca-x/anser/tree/main/tests/receive-sdk)
+
+### 管理投递记录
+
+在投递总览中打开重放确认框可查看原始目标。部分成功时默认选中失败项，勾选成功项会再次向其发送通知。全局管理员可删除已结束的投递记录，收件人的收件箱和幂等回执会保留。
+
+```sh
+anser api messages MESSAGE_ID
+anser api replay MESSAGE_ID --delivery-id DELIVERY_ID_1 --delivery-id DELIVERY_ID_2
+anser api delete-history MESSAGE_ID
+```
 
 ## 配置
 

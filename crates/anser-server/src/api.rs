@@ -86,6 +86,11 @@ pub fn router() -> Router<Arc<App>> {
         )
         .route("/v1/auth/logout", post(auth::logout))
         .route("/v1/auth/pair", post(auth::pair))
+        .route("/v1/auth/paired-clients", get(auth::paired_clients))
+        .route(
+            "/v1/auth/paired-clients/{id}",
+            axum::routing::patch(auth::rename_client).delete(auth::revoke_client),
+        )
         .route("/v1/auth/pair/exchange", post(auth::exchange))
         .route("/v1/users", get(auth::users).post(auth::add_user))
         .route("/v1/users/{id}", axum::routing::put(auth::update_user))
@@ -182,6 +187,7 @@ pub fn router() -> Router<Arc<App>> {
         .route("/v1/speech/audio/{file}", get(crate::speech::media))
         .route("/v1/messages", get(messages))
         .route("/v1/messages/{id}", get(message))
+        .route("/v1/messages/{id}/history", delete(delete_history))
         .route("/v1/messages/{id}/replay", post(replay))
         .route("/mcp", axum::routing::any(crate::mcp::handle))
         .route("/v1/settings/mcp", get(crate::mcp::settings))
@@ -1067,11 +1073,12 @@ pub(crate) async fn enqueue_prepared(
     topic: Option<&str>,
     wait: Wait,
     headers: &HeaderMap,
-    input: PublishRequest,
+    mut input: PublishRequest,
     mut speech: Option<anser_store::speech::SpeechWrite>,
 ) -> ApiResult<(StatusCode, Json<Receipt>)> {
     identity.require("send")?;
     identity.topic(topic)?;
+    let replay = input.replay.take();
     let synthesize = input.speech;
     let (mut input, mut template) = input.into_parts()?;
     if template.is_some() {
@@ -1145,6 +1152,7 @@ pub(crate) async fn enqueue_prepared(
     let receipt = app
         .enqueuer
         .enqueue(Submission {
+            replay,
             available_channels: channels,
             key_id: identity.key_id.clone(),
             topic: topic.map(ToOwned::to_owned),
@@ -1212,6 +1220,25 @@ async fn messages(
     ))
 }
 
+async fn delete_history(
+    State(app): State<Arc<App>>,
+    identity: Identity,
+    ApiPath(id): ApiPath<String>,
+) -> ApiResult<StatusCode> {
+    identity.admin_global()?;
+    match app.store.delete_history(&id).await {
+        Err(DataError::Conflict) => Err(ApiError::new(
+            StatusCode::CONFLICT,
+            "history_active",
+            "Delivery or callback work is still pending",
+        )),
+        result => {
+            result?;
+            Ok(StatusCode::NO_CONTENT)
+        }
+    }
+}
+
 async fn message(
     State(app): State<Arc<App>>,
     identity: Identity,
@@ -1234,11 +1261,43 @@ async fn replay(
     identity: Identity,
     ApiPath(id): ApiPath<String>,
     headers: HeaderMap,
+    body: axum::body::Bytes,
 ) -> ApiResult<(StatusCode, Json<Receipt>)> {
     identity.require("admin")?;
-    let (topic, mut input) = app.store.original(&id).await?;
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    #[serde(untagged)]
+    enum Selection {
+        Exact { delivery_ids: Vec<String> },
+        CurrentRoutes {},
+    }
+    let selected = if body.is_empty() {
+        None
+    } else {
+        let selection: Selection = serde_json::from_slice(&body)
+            .map_err(|_| ApiError::bad("Expected a delivery_ids array"))?;
+        match selection {
+            Selection::CurrentRoutes {} => None,
+            Selection::Exact { delivery_ids } if (1..=256).contains(&delivery_ids.len()) => {
+                Some(delivery_ids)
+            }
+            Selection::Exact { .. } => {
+                return Err(ApiError::bad("Select between 1 and 256 deliveries"));
+            }
+        }
+    };
+    let (topic, mut input) = if selected.is_some() {
+        app.store.replay_source(&id).await?
+    } else {
+        app.store.original(&id).await?
+    };
     identity.topic(topic.as_deref())?;
     input.expire_at = None;
+    let mut input: PublishRequest = input.into();
+    input.replay = Some(anser_store::queue::ReplaySelection {
+        message_id: id,
+        delivery_ids: selected,
+    });
     enqueue(
         &app,
         &identity,
@@ -1248,7 +1307,7 @@ async fn replay(
             timeout_ms: None,
         },
         &headers,
-        input.into(),
+        input,
     )
     .await
 }
@@ -1280,6 +1339,14 @@ async fn inbox(
         .try_acquire()
         .map_err(|_| ApiError::limited())?;
     let _ = tokio::time::timeout(Duration::from_secs(20), notify).await;
+    if identity.session
+        && !app
+            .store
+            .active_user_session(&identity.key_id, &user.id)
+            .await?
+    {
+        return Err(ApiError::auth());
+    }
     Ok(Json(app.store.inbox(&user.id, query.cursor, limit).await?))
 }
 

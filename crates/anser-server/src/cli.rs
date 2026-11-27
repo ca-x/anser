@@ -63,8 +63,15 @@ enum Resource {
     },
     /// Inspect a message or list recent ones.
     Messages { id: Option<String> },
-    /// Replay the message using current route and account settings.
-    Replay { id: String },
+    /// Replay selected original deliveries, or retry a failed message using its current route.
+    Replay {
+        id: String,
+        /// Original delivery ID. Repeat to replay more than one target.
+        #[arg(long = "delivery-id")]
+        delivery_ids: Vec<String>,
+    },
+    /// Delete terminal delivery history while retaining recipient inboxes and the receipt.
+    DeleteHistory { id: String },
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -197,7 +204,17 @@ pub async fn run(remote: Remote) -> anyhow::Result<()> {
         Resource::Messages { id } => {
             command(Method::GET, "messages", id.into_iter().collect::<Vec<_>>())
         }
-        Resource::Replay { id } => command(Method::POST, "messages", [id, "replay".into()]),
+        Resource::Replay { id, delivery_ids } => {
+            let request = command(Method::POST, "messages", [id, "replay".into()]);
+            if delivery_ids.is_empty() {
+                request
+            } else {
+                request.json(serde_json::json!({ "delivery_ids": delivery_ids }))
+            }
+        }
+        Resource::DeleteHistory { id } => {
+            command(Method::DELETE, "messages", [id, "history".into()])
+        }
     };
     let mut url = remote.server;
     {

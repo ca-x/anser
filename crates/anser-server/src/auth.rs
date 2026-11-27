@@ -328,6 +328,7 @@ pub async fn logout(State(app): State<Arc<App>>, identity: Identity) -> ApiResul
 
 #[derive(Deserialize)]
 pub struct PairOptions {
+    name: Option<String>,
     server: Option<String>,
 }
 
@@ -336,7 +337,7 @@ pub async fn pair(
     identity: Identity,
     ApiJson(options): ApiJson<PairOptions>,
 ) -> ApiResult<Json<Value>> {
-    let user = identity.user()?;
+    let user = identity.session_user()?;
     let server = app
         .public_url
         .as_deref()
@@ -356,16 +357,67 @@ pub async fn pair(
     }
     // Untrusted clients cannot generate credentials tied to a different origin
     // if the operator pins the public URL. Web and NSH also confirm the origin.
+    let name = options.name.as_deref().map(str::trim).unwrap_or_default();
+    if !name.is_empty() {
+        validate_client_name(name)?;
+    }
     let code = random_secret();
     let expires_at = now_ms() + PAIR_TTL;
     app.store
-        .make_pair(&user.id, &identity.key_id, &hash(&code), expires_at)
+        .make_pair(&user.id, &identity.key_id, &hash(&code), expires_at, name)
         .await?;
     let mut url = Url::parse("anser://connect").unwrap();
     url.query_pairs_mut()
         .append_pair("server", parsed.as_str())
         .append_pair("code", &code);
     Ok(Json(json!({"url": url.as_str(), "expires_at": expires_at})))
+}
+
+fn validate_client_name(name: &str) -> ApiResult<()> {
+    if name.is_empty() || name.chars().count() > 80 || name.chars().any(char::is_control) {
+        return Err(ApiError::bad("Invalid client name"));
+    }
+    Ok(())
+}
+
+pub async fn paired_clients(
+    State(app): State<Arc<App>>,
+    identity: Identity,
+    ApiQuery(page): ApiQuery<Pagination>,
+) -> ApiResult<impl axum::response::IntoResponse> {
+    identity.admin_global()?;
+    Ok(Json(
+        app.store.paired_clients(page.after(), page.limit()).await?,
+    ))
+}
+
+#[derive(Deserialize)]
+pub struct ClientName {
+    name: String,
+}
+
+pub async fn rename_client(
+    State(app): State<Arc<App>>,
+    identity: Identity,
+    ApiPath(id): ApiPath<String>,
+    ApiJson(input): ApiJson<ClientName>,
+) -> ApiResult<StatusCode> {
+    identity.admin_global()?;
+    let name = input.name.trim();
+    validate_client_name(name)?;
+    app.store.rename_paired_client(&id, name).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+pub async fn revoke_client(
+    State(app): State<Arc<App>>,
+    identity: Identity,
+    ApiPath(id): ApiPath<String>,
+) -> ApiResult<StatusCode> {
+    identity.admin_global()?;
+    app.store.revoke_paired_client(&id).await?;
+    app.inbox_wakeup.notify_waiters();
+    Ok(StatusCode::NO_CONTENT)
 }
 
 #[derive(Deserialize)]

@@ -147,6 +147,7 @@ pub async fn publish(
     let receipt = app
         .enqueuer
         .enqueue(Submission {
+            replay: None,
             available_channels,
             key_id: identity.key_id.clone(),
             topic: Some(topic),

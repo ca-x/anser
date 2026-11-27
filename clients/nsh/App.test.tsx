@@ -47,7 +47,7 @@ function baseNetwork(): Exclude<
       );
       return { body: page([channel]) };
     },
-    [`${endpoints}/info`]: { body: { version: "0.8.0", features: { speech_publish: true } } },
+    [`${endpoints}/info`]: { body: { version: "0.8.1", features: { speech_publish: true } } },
     [`${endpoints}/accounts`]: { body: page() },
     [`${endpoints}/auth/profile`]: { body: { nickname: null, avatar: null } },
     [`${endpoints}/topics`]: { body: page([topic]) },
@@ -1915,8 +1915,9 @@ test("tests a saved channel account and replays a dead letter from delivery hist
         return { body: { status: "success" } };
       },
       [`${endpoints}/messages`]: { body: page([dead]) },
-      [`${endpoints}/messages/old`]: { body: { ...dead, deliveries: [] } },
-      [`POST ${endpoints}/messages/old/replay`]: ({ headers }) => {
+      [`${endpoints}/messages/old`]: { body: { ...dead, deliveries: [{ id: "failed", channel: "ntfy", account_id: "desk", status: "dead" }] } },
+      [`POST ${endpoints}/messages/old/replay`]: ({ headers, body }) => {
+        expect(JSON.parse(body ?? "{}").delivery_ids).toEqual(["failed"]);
         expect(
           Boolean(headers["idempotency-key"] ?? headers["Idempotency-Key"]),
         ).toBe(true);
@@ -1947,10 +1948,56 @@ test("tests a saved channel account and replays a dead letter from delivery hist
   await app.waitFor("Desk alert");
   await app.press("查看");
   await app.waitFor("重放通知");
-  app.onDialog(() => "重放通知");
   await app.press("重放通知");
+  await app.waitFor("重放到ntfy？");
+  expect(replayed).toBe(false);
+  await app.press("确认重放");
   await app.waitFor("已送达 1 个收件箱");
   expect(tested).toBe(true);
+  expect(replayed).toBe(true);
+});
+
+test("separates mixed replay results and sends only the selected original targets", async () => {
+  const message = {
+    id: "mixed", status: "success", created_at: 1780000000000,
+    message: { title: "Mixed result", body: "Fixture", format: "text" },
+    deliveries: [
+      { id: "a", channel: "ntfy", account_id: "desk", status: "failed" },
+      { id: "b", channel: "bark", account_id: "phone", status: "success" },
+      { id: "c", channel: "bark", account_id: "backup", status: "skipped" },
+    ],
+  };
+  let replayed = false;
+  const app = await open("./App.tsx", {
+    platform: "linux", storage: chinesePreferences, width: 1120, height: 1080,
+    network: {
+      ...baseNetwork(),
+      [`${endpoints}/messages`]: { body: page([message]) },
+      [`${endpoints}/messages/mixed`]: { body: message },
+      [`POST ${endpoints}/messages/mixed/replay`]: ({ body }) => {
+        expect(JSON.parse(body ?? "{}").delivery_ids).toEqual(["a"]);
+        replayed = true;
+        return { status: 202, body: { message_id: "new", status: "pending" } };
+      },
+      [`${endpoints}/messages/new`]: { body: { ...message, id: "new", message: { title: "Replayed", body: "Fixture", format: "text" } } },
+    },
+  });
+  await login(app);
+  await app.press("role:button[投递]");
+  await app.waitFor("Mixed result");
+  await app.press("查看");
+  await app.press("重放通知");
+  await app.waitFor("失败的投递");
+  await app.waitFor("成功的投递");
+  expect(String(app.accessibility("role:switch[ntfy · desk]")?.checked)).toBe("true");
+  expect(String(app.accessibility("role:switch[Bark · phone]")?.checked)).toBe("false");
+  await app.press("role:switch[Bark · phone]");
+  expect(String(app.accessibility("role:switch[Bark · phone]")?.checked)).toBe("true");
+  await app.press("取消");
+  expect(replayed).toBe(false);
+  await app.press("重放通知");
+  await app.press("确认重放");
+  await app.waitFor("Replayed");
   expect(replayed).toBe(true);
 });
 

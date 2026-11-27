@@ -240,6 +240,8 @@ pub struct Delivery {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct MessageDetail {
+    #[serde(default)]
+    pub history_deleted: bool,
     pub id: String,
     pub topic: Option<String>,
     pub status: String,

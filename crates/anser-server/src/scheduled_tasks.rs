@@ -354,6 +354,7 @@ async fn execute(app: &App, run: &ScheduledRun) -> ApiResult<Vec<Submission>> {
         .notifications
         .into_iter()
         .map(|message| Submission {
+            replay: None,
             key_id: String::new(),
             available_channels: available_channels.clone(),
             topic: None,

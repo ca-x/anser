@@ -50,6 +50,18 @@ pub struct InboxReceipt {
     pub message_id: String,
 }
 
+#[derive(Serialize, sqlx::FromRow)]
+pub struct PairedClient {
+    pub id: String,
+    pub name: String,
+    pub username: String,
+    pub user_id: String,
+    pub created_at: i64,
+    pub last_used_at: Option<i64>,
+    pub expires_at: i64,
+    pub enabled: bool,
+}
+
 pub struct InboxSpeech<'a> {
     pub message: &'a Message,
     pub speech: Option<crate::speech::SpeechWrite>,
@@ -208,15 +220,52 @@ impl Store {
         affected(result.rows_affected())
     }
 
+    pub async fn active_user_session(&self, id: &str, user_id: &str) -> Result<bool> {
+        Ok(sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM api_keys k JOIN users u ON u.id=k.user_id WHERE k.id=? AND u.id=? AND k.enabled=1 AND u.enabled=1 AND k.session=1 AND k.expires_at>?)")
+            .bind(id).bind(user_id).bind(now_ms()).fetch_one(&self.0).await?)
+    }
+
+    pub async fn paired_clients(&self, after: &str, limit: u32) -> Result<Page<PairedClient>> {
+        let mut clients = sqlx::query_as::<_, PairedClient>(
+            "SELECT k.id,k.name,u.username,u.id AS user_id,k.created_at,k.last_used_at,k.expires_at,k.enabled
+             FROM api_keys k JOIN users u ON u.id=k.user_id
+             WHERE k.paired=1 AND k.session=1 AND (?='' OR (k.created_at,k.id)<(SELECT created_at,id FROM api_keys WHERE id=?))
+             ORDER BY k.created_at DESC,k.id DESC LIMIT ?"
+        ).bind(after).bind(after).bind(limit + 1).fetch_all(&self.0).await?;
+        Ok(super::manage::page(&mut clients, limit, |client| {
+            &client.id
+        }))
+    }
+
+    pub async fn rename_paired_client(&self, id: &str, name: &str) -> Result<()> {
+        let result =
+            sqlx::query("UPDATE api_keys SET name=? WHERE paired=1 AND session=1 AND id=?")
+                .bind(name)
+                .bind(id)
+                .execute(&self.0)
+                .await?;
+        affected(result.rows_affected())
+    }
+
+    pub async fn revoke_paired_client(&self, id: &str) -> Result<()> {
+        let result =
+            sqlx::query("UPDATE api_keys SET enabled=0 WHERE paired=1 AND session=1 AND id=?")
+                .bind(id)
+                .execute(&self.0)
+                .await?;
+        affected(result.rows_affected())
+    }
+
     pub async fn make_pair(
         &self,
         user_id: &str,
         key_id: &str,
         hash: &[u8],
         expiry: i64,
+        name: &str,
     ) -> Result<()> {
-        let result = sqlx::query("INSERT INTO pair_codes(user_id,code_hash,expires_at) SELECT u.id,?,? FROM users u JOIN api_keys k ON k.user_id=u.id WHERE u.id=? AND k.id=? AND u.enabled=1 AND k.enabled=1 AND k.session=1 AND k.expires_at>?")
-            .bind(hash).bind(expiry).bind(user_id).bind(key_id).bind(now_ms()).execute(&self.0).await?;
+        let result = sqlx::query("INSERT INTO pair_codes(user_id,code_hash,expires_at,client_name,issuer_id) SELECT u.id,?,?,?,k.id FROM users u JOIN api_keys k ON k.user_id=u.id WHERE u.id=? AND k.id=? AND u.enabled=1 AND k.enabled=1 AND k.session=1 AND k.expires_at>?")
+            .bind(hash).bind(expiry).bind(name).bind(user_id).bind(key_id).bind(now_ms()).execute(&self.0).await?;
         affected(result.rows_affected())
     }
 
@@ -228,15 +277,21 @@ impl Store {
         expiry: i64,
     ) -> Result<User> {
         let mut tx = self.0.begin_with("BEGIN IMMEDIATE").await?;
-        let user: String = sqlx::query_scalar(
-            "DELETE FROM pair_codes WHERE code_hash=? AND expires_at>? RETURNING user_id",
+        let (user, name): (String, String) = sqlx::query_as(
+            "DELETE FROM pair_codes WHERE code_hash=? AND expires_at>? AND (issuer_id IS NULL OR EXISTS(SELECT 1 FROM api_keys WHERE id=issuer_id AND enabled=1 AND expires_at>?)) RETURNING user_id,client_name",
         )
         .bind(code_hash)
+        .bind(now_ms())
         .bind(now_ms())
         .fetch_optional(&mut *tx)
         .await?
         .ok_or(DataError::Missing)?;
         let user = session(&mut tx, id, hash, &user, expiry, None).await?;
+        sqlx::query("UPDATE api_keys SET paired=1,name=? WHERE id=?")
+            .bind(name)
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
         tx.commit().await?;
         Ok(user)
     }

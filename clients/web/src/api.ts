@@ -9,6 +9,16 @@ export interface SignIn { token: string; user: User }
 export interface TotpStatus { enabled: boolean }
 export interface TotpSetup { secret: string; uri: string; expires_at: number }
 export interface TotpConfirmation { enabled: true; recovery_codes: string[] }
+export interface PairedClient {
+  id: string;
+  name: string;
+  username: string;
+  user_id: string;
+  created_at: number;
+  last_used_at: number | null;
+  expires_at: number;
+  enabled: boolean;
+}
 export interface PairCode { url: string; expires_at: number }
 export interface ApiKey {
   id: string;
@@ -169,7 +179,7 @@ export interface Delivery {
   next_retry_at?: number | null;
   attempts: Attempt[];
 }
-export interface MessageDetail { id: string; topic?: string | null; status: string; message: Message; created_at: number; inbox_deliveries?: number; inbox_recipient?: string | null; audio_path?: string; deliveries?: Delivery[] }
+export interface MessageDetail { history_deleted?: boolean; id: string; topic?: string | null; status: string; message: Message; created_at: number; inbox_deliveries?: number; inbox_recipient?: string | null; audio_path?: string; deliveries?: Delivery[] }
 
 export const segment = encodeURIComponent;
 

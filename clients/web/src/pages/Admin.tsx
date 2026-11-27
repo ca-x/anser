@@ -33,7 +33,7 @@ export function Dashboard({ api, navigate }: { api: Api; navigate: (path: string
     <section className="stack">
       <div className="section-header"><h2>{t("最近投递")}</h2><EuiButtonEmpty size="s" onClick={() => navigate("/admin/messages")}>{t("全部记录")}</EuiButtonEmpty></div>
       <Failure message={latest.error} retry={latest.reload} />
-      {latest.loading ? <Progress /> : latest.data?.items.length ? <div className="data-surface"><MessageTable items={latest.data.items} navigate={navigate} /></div>
+      {latest.loading ? <Progress /> : latest.data?.items.length ? <div className="data-surface"><MessageTable api={api} onDeleted={() => { latest.reload(); stats.reload(); }} items={latest.data.items} navigate={navigate} /></div>
         : !latest.error && <Empty title={t("还没有投递记录")} description={t("发送消息后，会在这里显示当前状态。")} />}
     </section>
   </>;

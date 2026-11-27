@@ -27,7 +27,7 @@ export function usePage<T>(api: Api, path: string | undefined) {
   const next = current ? current.next : result.data?.next_cursor;
   const items = [...(result.data?.items ?? []), ...(current?.items ?? [])];
   return {
-    items, next, loading: result.loading, busy,
+    items, next, loading: result.loading, fetching: result.fetching, busy,
     error: result.error ?? (extraError && extraError.base === result.data ? extraError.message : undefined),
     reload: result.reload,
     loadMore: async () => {

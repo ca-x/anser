@@ -40,6 +40,8 @@ Set `ANSER_BOOTSTRAP_USERNAME` and `ANSER_BOOTSTRAP_PASSWORD` before running the
 
 Enter your server address and sign in on the client’s connection screen. You can also generate a single-use code under **Pair a client** in the console. Scan it with your phone’s camera and confirm the server address in Anser within two minutes. On the same device, copy the pairing link and choose **Import connection link** in the client.
 
+Give the device a name when generating its pairing code. Under **Pair a client**, global administrators can see the user, last use and expiry for each paired session, rename it, or revoke access. Revoking a session requires that client to sign in again. Other sessions for the same user remain active. Earlier server versions did not record which sessions came from pairing. Scan a fresh pairing code once to add a previously paired client to this list.
+
 **Send your first notification.** Open **Send notification** in the console, choose **Personal inbox**, and enter your own username and a short message. Open your inbox in the client to see it. When you send to another user, they can reply from the notification. Your delivery history shows the destination username for direct sends and the number of inboxes reached for topic sends. Read status stays in the recipient’s inbox.
 
 While signed in, you can switch screens in the client or console and return to your draft. Reloading the app or signing out clears it.
@@ -184,6 +186,16 @@ curl --fail-with-body -X PUT "$ANSER_URL/v1/receive/ntfy/ops" \
 ```
 
 HTTP 200 confirms that Anser persisted the message. Use the ntfy response’s `id` to query `GET /v1/messages/{id}`. Reuse the same `BACKUP_ID` when retrying a backup. Chanify’s `/v1/sender`, Bark’s `/push` and ServerChan’s `/send` use the default route unless you set `X-Anser-Topic`. If the request already names a Topic, the header must match it. Use `X-Anser-Topic-Password` when the destination requires its password. Authenticate incoming requests with Anser credentials and store outbound provider credentials on their channel accounts. The Chanify SDK can pass the Anser key in its native `token` header. Bark clients that require a device key can use `default`. The official ServerChan SDK fixes its public origin and requires a transport adapter for self-hosting. [SDK interoperability tests and examples](https://github.com/ca-x/anser/tree/main/tests/receive-sdk)
+
+### Manage delivery history
+
+Open the replay dialog in delivery history to review the original targets. For mixed results, failed deliveries are selected by default. Selecting a successful delivery sends another notification to that target. Global administrators can delete completed delivery history while preserving recipient inboxes and idempotency receipts.
+
+```sh
+anser api messages MESSAGE_ID
+anser api replay MESSAGE_ID --delivery-id DELIVERY_ID_1 --delivery-id DELIVERY_ID_2
+anser api delete-history MESSAGE_ID
+```
 
 ## Configuration
 

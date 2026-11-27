@@ -570,11 +570,11 @@ export class AnserApi {
       signal,
     );
   }
-  replay(id: string, idempotencyKey: string) {
+  replay(id: string, idempotencyKey: string, deliveryIds: string[]) {
     return this.request<Acceptance>(
       `/messages/${segment(id)}/replay`,
       "POST",
-      {},
+      { delivery_ids: deliveryIds },
       undefined,
       idempotencyKey,
     );

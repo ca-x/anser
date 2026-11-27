@@ -5,7 +5,8 @@ import {
   EuiLink, EuiSelect, EuiSwitch, EuiText, EuiTextArea,
 } from "@elastic/eui";
 import { Api, ApiError, errorMessage, segment, type Account, type Attempt, type Channel, type Delivery as DeliveryRecord, type MessageDetail, type NotificationTemplate, type Page, type Publish, type Receipt, type Topic, type User } from "../api";
-import { RowAction, useDate, Empty, Failure, JsonInput, More, object, PageTitle, Progress, split, Status, Tags } from "../components/Common";
+import { Confirm, RowAction, useDate, Empty, Failure, JsonInput, More, object, PageTitle, Progress, split, Status, Tags } from "../components/Common";
+import { ReplayNotification } from "../components/ReplayNotification";
 import { Composer } from "../components/Composer";
 import { AccountEditor, channelAvailable } from "./Accounts";
 import type { SendSession } from "../send-draft";
@@ -14,10 +15,12 @@ import { useTemplateName } from "../template-name";
 
 type Navigate = (path: string) => void;
 
-export function MessageTable({ items, navigate }: { items: MessageDetail[]; navigate: Navigate }) {
+export function MessageTable({ items, navigate, api, onDeleted }: { items: MessageDetail[]; navigate: Navigate; api: Api; onDeleted: () => void }) {
   const t = useT();
   const date = useDate();
-  return <EuiBasicTable<MessageDetail> rowHeader="message.title" tableCaption={t("消息投递记录")} items={items} itemId="id" columns={[
+  const [removing, setRemoving] = useState<MessageDetail>();
+  const remove = useMutation();
+  return <><EuiBasicTable<MessageDetail> rowHeader="message.title" tableCaption={t("消息投递记录")} items={items} itemId="id" columns={[
     { field: "message.title", name: t("消息"), render: (_title: string, item: MessageDetail) => <EuiLink className="message-subject" href={`/admin/messages/${segment(item.id)}`} onClick={(event) => {
       if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
       event.preventDefault();
@@ -31,13 +34,28 @@ export function MessageTable({ items, navigate }: { items: MessageDetail[]; navi
     { field: "created_at", name: t("创建时间"), render: date },
     { name: t("操作"), render: (item: MessageDetail) => {
       const path = `/admin/messages/${segment(item.id)}`;
-      return <RowAction icon="inspect" href={path} onClick={(event) => {
+      return <div className="row-actions"><RowAction icon="inspect" href={path} onClick={(event) => {
         if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
         event.preventDefault();
         navigate(path);
-      }}>{t("查看")}</RowAction>;
+      }}>{t("查看")}</RowAction>
+        <ReplayNotification api={api} item={item} navigate={navigate} compact />
+        <RowAction icon="trash" danger disabled={!["success","failed","dead","cancelled"].includes(item.status)} onClick={() => { remove.clear(); setRemoving(item); }}>{t("删除")}</RowAction>
+      </div>;
     } },
-  ]} />;
+  ]} />
+    {removing && <Confirm title={t("删除「{name}」的投递记录？", { name: removing.message.title || removing.message.body.slice(0,80) || t("无标题通知") })} label={t("删除记录")} busy={remove.busy}
+      close={() => setRemoving(undefined)} confirm={() => void remove.run(async () => {
+        try { await api.write(`/messages/${segment(removing.id)}/history`, "DELETE"); }
+        catch (error) {
+          if (error instanceof ApiError && error.code === "history_active") throw new Error(t("仍有投递或回调正在处理，请稍后再试。"));
+          throw error;
+        }
+        setRemoving(undefined); onDeleted();
+      })}>
+      <p>{t("将永久删除渠道投递明细和尝试记录。收件箱中的通知和发送回执会保留。")}</p><Failure message={remove.error} />
+    </Confirm>}
+  </>;
 }
 
 export function Messages({ api, navigate }: { api: Api; navigate: Navigate }) {
@@ -47,7 +65,7 @@ export function Messages({ api, navigate }: { api: Api; navigate: Navigate }) {
     <PageTitle title={t("投递记录")} action={<EuiButton iconType="refresh" onClick={list.reload}>{t("刷新")}</EuiButton>} />
     <Failure message={list.error} retry={list.reload} />
     {list.loading ? <Progress /> : list.items.length ? <div className="data-surface">
-      <MessageTable items={list.items} navigate={navigate} /><More next={list.next} busy={list.busy} load={() => void list.loadMore()} />
+      <MessageTable api={api} onDeleted={list.reload} items={list.items} navigate={navigate} /><More next={list.next} busy={list.busy} load={() => void list.loadMore()} />
     </div> : !list.error && <Empty title={t("暂无投递记录")} description={t("发出的通知会在这里显示状态和发送尝试。")} action={<EuiButton onClick={() => navigate("/admin/send")}>{t("发送通知")}</EuiButton>} />}
   </>;
 }
@@ -71,7 +89,6 @@ export function MessageView({ api, id, navigate }: { api: Api; id: string; navig
   const t = useT();
   const date = useDate();
   const data = useResource<MessageDetail>(api, `/messages/${segment(id)}`);
-  const replay = useMutation();
   const pending = data.data && (!["success", "failed", "dead", "cancelled"].includes(data.data.status)
     || data.data.deliveries?.some((entry) => ["pending", "sending", "waiting"].includes(entry.status)));
   useEffect(() => {
@@ -91,13 +108,9 @@ export function MessageView({ api, id, navigate }: { api: Api; id: string; navig
     <EuiButtonEmpty iconType="chevronSingleLeft" flush="left" size="s" onClick={() => navigate("/admin/messages")}>{t("投递记录")}</EuiButtonEmpty>
     <PageTitle title={detail?.message?.title || t("投递详情")} action={<>
       <EuiButton onClick={data.reload} iconType="refresh">{t("刷新")}</EuiButton>
-      {detail && ["failed", "dead"].includes(detail.status) && <EuiButton fill iconType="play" isLoading={replay.busy}
-        onClick={() => void replay.run(async () => {
-          const result = await api.write<Receipt>(`/messages/${segment(detail.id)}/replay`, "POST");
-          navigate(`/admin/messages/${segment(result.message_id)}`);
-        })}>{t("重放通知")}</EuiButton>}
+      {detail && <ReplayNotification api={api} item={detail} navigate={navigate} />}
     </>} />
-    <Failure message={data.error ?? replay.error} retry={data.error ? data.reload : undefined} />
+    <Failure message={data.error} retry={data.error ? data.reload : undefined} />
     {data.loading && <Progress />}
     {detail && <>
       <section className="detail-intro">

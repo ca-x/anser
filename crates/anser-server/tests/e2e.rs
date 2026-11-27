@@ -1863,6 +1863,72 @@ mod durable_delivery {
     }
 
     #[tokio::test]
+    async fn replay_sends_selected_delivery_only_and_preserves_legacy_requests() {
+        let temp = tempfile::tempdir().unwrap();
+        let (address, _provider) = listen_mock(
+            Router::new()
+                .route(
+                    "/working",
+                    post(|| async { Json(json!({"id":"ok","event":"message"})) }),
+                )
+                .route("/broken", post(|| async { StatusCode::UNAUTHORIZED })),
+        )
+        .await;
+        let server = Server::start(&temp.path().join("replay.sqlite3"));
+        let ok = create_ntfy_account(&server, address, "working").await;
+        let failed = create_ntfy_account(&server, address, "broken").await;
+        let original: Receipt = server.json(Method::POST,"/v1/send",Some(BOOTSTRAP_KEY),
+            json!({"body":"Mixed delivery","channels":[ok,failed], "strategy":{"mode":"broadcast","success_criteria":"all"}}),
+            StatusCode::ACCEPTED).await;
+        let detail = wait_for(&server, &original.message_id, |m| m.status == "failed").await;
+        let success = detail
+            .deliveries
+            .iter()
+            .find(|d| d.status == "success")
+            .unwrap();
+        let replay_path = format!("/v1/messages/{}/replay", original.message_id);
+        for invalid in [
+            json!({"delivery_ids":[]}),
+            json!({"delivery_ids":null}),
+            json!({"unexpected":true}),
+        ] {
+            let _: Value = server
+                .json(
+                    Method::POST,
+                    &replay_path,
+                    Some(BOOTSTRAP_KEY),
+                    invalid,
+                    StatusCode::BAD_REQUEST,
+                )
+                .await;
+        }
+        let selected: Receipt = server
+            .json(
+                Method::POST,
+                &replay_path,
+                Some(BOOTSTRAP_KEY),
+                json!({"delivery_ids":[success.id]}),
+                StatusCode::ACCEPTED,
+            )
+            .await;
+        let result = wait_for(&server, &selected.message_id, |m| m.status == "success").await;
+        assert_eq!(result.deliveries.len(), 1);
+        assert_eq!(result.deliveries[0].account_id, ok);
+        for body in [None, Some(json!({}))] {
+            let request = server.request(Method::POST, &replay_path, Some(BOOTSTRAP_KEY));
+            let request = if let Some(body) = body {
+                request.json(&body)
+            } else {
+                request
+            };
+            let replay: Receipt =
+                checked_json(request.send().await.unwrap(), StatusCode::ACCEPTED).await;
+            let detail = wait_for(&server, &replay.message_id, |m| m.status == "failed").await;
+            assert_eq!(detail.deliveries.len(), 2);
+        }
+    }
+
+    #[tokio::test]
     async fn broadcast_any_keeps_attempts_independent_and_unsubscribe_cancels_retries() {
         let temp = tempfile::tempdir().unwrap();
         let mock = Arc::new(FanoutMock::default());
@@ -3787,4 +3853,243 @@ async fn speech_delivery_reuses_audio_for_inbox_and_topic_links() {
         .unwrap();
     assert_eq!(expired.status(), StatusCode::NOT_FOUND);
     task.abort();
+}
+
+#[tokio::test]
+async fn deleting_delivery_history_preserves_native_inbox_and_idempotent_receipt() {
+    let temp = tempfile::tempdir().unwrap();
+    let server = Server::start(&temp.path().join("anser.sqlite3"));
+    let admin = server.login(BOOTSTRAP_USER, BOOTSTRAP_PASSWORD).await;
+    server
+        .json::<Value>(
+            Method::POST,
+            "/v1/users",
+            Some(&admin),
+            json!({"username":"reader","password":ACCOUNT_PASSWORD}),
+            StatusCode::CREATED,
+        )
+        .await;
+    let member = server.login("reader", ACCOUNT_PASSWORD).await;
+    let restricted: Value = server
+        .json(
+            Method::POST,
+            "/v1/api-keys",
+            Some(&admin),
+            json!({"name":"restricted","scopes":["admin"],"topic_prefix":"alerts"}),
+            StatusCode::CREATED,
+        )
+        .await;
+    let send = || {
+        server
+            .request(Method::POST, "/v1/inbox/send", Some(&admin))
+            .header("Idempotency-Key", "history-test")
+            .json(&json!({"recipient":"reader","body":"Preserve this notification"}))
+            .send()
+    };
+    let receipt: Value = checked_json(send().await.unwrap(), StatusCode::CREATED).await;
+    let id = json_string(&receipt, "message_id");
+    let detail_path = format!("/v1/messages/{id}");
+    let history_path = format!("{detail_path}/history");
+    for token in [&member, json_string(&restricted, "token")] {
+        assert_eq!(
+            server
+                .request(Method::DELETE, &history_path, Some(token))
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::FORBIDDEN
+        );
+    }
+    let before: Value = server.get("/v1/messages", Some(&admin)).await;
+    assert!(
+        before["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["id"] == id)
+    );
+    assert_eq!(
+        server
+            .request(Method::DELETE, &history_path, Some(&admin))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::NO_CONTENT
+    );
+    let after: Value = server.get("/v1/messages", Some(&admin)).await;
+    assert!(
+        !after["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["id"] == id)
+    );
+    let detail: Value = server.get(&detail_path, Some(&admin)).await;
+    assert_eq!(detail["history_deleted"], true);
+    assert_eq!(detail["deliveries"], json!([]));
+    let retry: Value = checked_json(send().await.unwrap(), StatusCode::CREATED).await;
+    assert_eq!(receipt, retry);
+    let inbox: Value = server.get("/v1/inbox", Some(&member)).await;
+    assert_eq!(inbox["items"].as_array().unwrap().len(), 1);
+    assert_eq!(inbox["items"][0]["id"], receipt["id"]);
+}
+
+#[tokio::test]
+async fn administrators_manage_paired_clients_independently_of_password_sessions() {
+    const CLIENTS: &str = "/v1/auth/paired-clients";
+    let temp = tempfile::tempdir().unwrap();
+    let server = Server::start(&temp.path().join("anser.sqlite3"));
+    let user: Value = server
+        .json(
+            Method::POST,
+            "/v1/users",
+            Some(BOOTSTRAP_KEY),
+            json!({"username":"pilot","password":ACCOUNT_PASSWORD}),
+            StatusCode::CREATED,
+        )
+        .await;
+    let password_session = server.login("pilot", ACCOUNT_PASSWORD).await;
+    let issue = |token: &str, name: &str| {
+        server
+            .request(Method::POST, "/v1/auth/pair", Some(token))
+            .json(&json!({"server":server.url("/"), "name":name}))
+            .send()
+    };
+    let code = |link: &Value| {
+        reqwest::Url::parse(json_string(link, "url"))
+            .unwrap()
+            .query_pairs()
+            .find_map(|(k, v)| (k == "code").then_some(v.into_owned()))
+            .unwrap()
+    };
+    let exchange = |code: String| {
+        server
+            .request(Method::POST, "/v1/auth/pair/exchange", None)
+            .json(&json!({"code":code}))
+            .send()
+    };
+
+    let issued: Value = checked_json(
+        issue(&password_session, "Desk").await.unwrap(),
+        StatusCode::OK,
+    )
+    .await;
+    let before: Value = server.get(CLIENTS, Some(BOOTSTRAP_KEY)).await;
+    assert_eq!(before["items"], json!([]));
+    let session: Value = checked_json(exchange(code(&issued)).await.unwrap(), StatusCode::OK).await;
+    let paired = json_string(&session, "token");
+    let _: Value = server.get("/v1/auth/me", Some(paired)).await;
+    let outstanding: Value =
+        checked_json(issue(paired, "Phone").await.unwrap(), StatusCode::OK).await;
+    let listed: Value = server
+        .get(&format!("{CLIENTS}?limit=1"), Some(BOOTSTRAP_KEY))
+        .await;
+    let items = listed["items"].as_array().unwrap();
+    assert_eq!(items.len(), 1);
+    let client = &items[0];
+    assert_eq!(client["name"], "Desk");
+    assert_eq!(client["user_id"], user["id"]);
+    assert_eq!(client["username"], "pilot");
+    assert_eq!(client["enabled"], true);
+    assert!(client["last_used_at"].is_i64());
+    assert!(client["expires_at"].as_i64().unwrap() > client["created_at"].as_i64().unwrap());
+    assert!(client.get("token").is_none());
+    assert!(client.get("token_hash").is_none());
+    let client_path = format!("{CLIENTS}/{}", json_string(client, "id"));
+    let scoped: Value = server
+        .json(
+            Method::POST,
+            "/v1/api-keys",
+            Some(BOOTSTRAP_KEY),
+            json!({"name":"scoped","scopes":["admin"],"topic_prefix":"team"}),
+            StatusCode::CREATED,
+        )
+        .await;
+    for token in [password_session.as_str(), json_string(&scoped, "token")] {
+        for (method, path) in [
+            (Method::GET, CLIENTS),
+            (Method::PATCH, client_path.as_str()),
+            (Method::DELETE, client_path.as_str()),
+        ] {
+            let response = server
+                .request(method, path, Some(token))
+                .json(&json!({"name":"Changed"}))
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        }
+    }
+    for (name, status) in [
+        ("   ", StatusCode::BAD_REQUEST),
+        ("Desk\nphone", StatusCode::BAD_REQUEST),
+        ("  工作电脑  ", StatusCode::NO_CONTENT),
+    ] {
+        assert_eq!(
+            server
+                .request(Method::PATCH, &client_path, Some(BOOTSTRAP_KEY))
+                .json(&json!({"name":name}))
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            status
+        );
+    }
+    let renamed: Value = server.get(CLIENTS, Some(BOOTSTRAP_KEY)).await;
+    assert_eq!(renamed["items"][0]["name"], "工作电脑");
+    let ordinary_session_id = password_session.split_once('.').unwrap().0;
+    assert_eq!(
+        server
+            .request(
+                Method::DELETE,
+                &format!("{CLIENTS}/{ordinary_session_id}"),
+                Some(BOOTSTRAP_KEY)
+            )
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    let pending_poll = tokio::spawn(
+        server
+            .request(Method::GET, "/v1/inbox?wait=true&cursor=0", Some(paired))
+            .send(),
+    );
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    assert_eq!(
+        server
+            .request(Method::DELETE, &client_path, Some(BOOTSTRAP_KEY))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::NO_CONTENT
+    );
+    assert_eq!(
+        server
+            .request(Method::GET, "/v1/auth/me", Some(paired))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        exchange(code(&outstanding)).await.unwrap().status(),
+        StatusCode::UNAUTHORIZED
+    );
+    let me: Value = server.get("/v1/auth/me", Some(&password_session)).await;
+    assert_eq!(me["id"], user["id"]);
+    let poll_response = tokio::time::timeout(std::time::Duration::from_secs(3), pending_poll)
+        .await
+        .expect("revocation wakes the inbox poll")
+        .unwrap()
+        .unwrap();
+    assert_eq!(poll_response.status(), StatusCode::UNAUTHORIZED);
+    let revoked: Value = server.get(CLIENTS, Some(BOOTSTRAP_KEY)).await;
+    assert_eq!(revoked["items"][0]["enabled"], false);
 }

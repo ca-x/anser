@@ -37,6 +37,17 @@ pub async fn document(
             "/v1/auth/totp/disable",
             &["POST / Disable TOTP with the current password and a code"],
         ),
+        (
+            "/v1/auth/paired-clients",
+            &["GET / List paired clients and their associated users"],
+        ),
+        (
+            "/v1/auth/paired-clients/{id}",
+            &[
+                "PATCH / Rename paired client",
+                "DELETE / Revoke paired client session",
+            ],
+        ),
         ("/v1/auth/pair/exchange", &["POST / Exchange pairing code"]),
         ("/v1/users", &["GET / List users", "POST / Create user"]),
         ("/v1/users/{id}", &["PUT / Update user"]),
@@ -203,7 +214,11 @@ pub async fn document(
         ("/v1/messages/{id}", &["GET / Read deliveries and attempts"]),
         (
             "/v1/messages/{id}/replay",
-            &["POST / Replay a terminal failure"],
+            &["POST / Replay selected original channel deliveries or a failed message"],
+        ),
+        (
+            "/v1/messages/{id}/history",
+            &["DELETE / Delete completed delivery history"],
         ),
         (
             "/v1/inbox",
@@ -258,7 +273,10 @@ pub async fn document(
             let mut method_params: Vec<_> = path.split('/').filter_map(|segment| segment.strip_prefix('{')?.strip_suffix('}'))
                 .map(|name| json!({"name":name,"in":"path","required":true,"schema":{"type":"string"}})).collect();
             let publishes = path == "/v1/send" || path.ends_with("/publish");
-            if publishes || matches!(path, "/v1/inbox/send" | "/v1/speech/send") {
+            if publishes
+                || path.ends_with("/replay")
+                || matches!(path, "/v1/inbox/send" | "/v1/speech/send")
+            {
                 method_params.push(json!({"name":"Idempotency-Key","in":"header","description":"Repeat the same key with the same credential within 24 hours to retrieve the original receipt. Native sends use a separate key space.","schema":{"type":"string","pattern":"^[!-~]{1,128}$"}}));
             }
             if publishes {
@@ -276,6 +294,7 @@ pub async fn document(
                         | "/v1/templates"
                         | "/v1/users"
                         | "/v1/api-keys"
+                        | "/v1/auth/paired-clients"
                         | "/v1/proxies"
                         | "/v1/schedules"
                         | "/v1/inbox"
@@ -334,6 +353,45 @@ pub async fn document(
             }
             if let Some(body) = request_schema(path, method) {
                 operation["requestBody"] = json!({"required":true,"content":{"application/json":{"schema":reference(body)}}});
+            }
+            if path.ends_with("/replay") {
+                operation["requestBody"] = json!({"required":false,"description":"Pass original delivery IDs to send the stored message to those targets only. Omit the body or send an empty object to replay a failed message using its current route.","content":{"application/json":{"schema":{"type":"object","additionalProperties":false,"properties":{"delivery_ids":{"type":"array","minItems":1,"maxItems":256,"uniqueItems":true,"items":{"type":"string"}}}}}}});
+                operation["responses"]["409"] = json!({"description":"The original message or selected deliveries cannot be replayed in their current state."});
+            }
+            if path.starts_with("/v1/auth/paired-clients") {
+                operation["description"] = json!(
+                    "Requires a global administrator. Each entry identifies one paired session and its associated user. Revocation disables that session immediately."
+                );
+                operation["responses"]["403"] = json!({"description":"Global administrator access required","content":{"application/json":{"schema":reference("Error")}}});
+                if method != "GET" {
+                    operation["responses"]
+                        .as_object_mut()
+                        .unwrap()
+                        .remove("200");
+                    operation["responses"]["204"] = json!({"description":"Paired client updated"});
+                    operation["responses"]["404"] =
+                        json!({"description":"Paired client not found"});
+                }
+                if method == "PATCH" {
+                    operation["responses"]["400"] =
+                        json!({"description":"Invalid client display name"});
+                }
+            }
+            if path == "/v1/messages/{id}/history" {
+                operation["description"] = json!(
+                    "Requires global administrator access. Removes the message from delivery history and clears attempts. Recipient inboxes and the original idempotency receipt are retained."
+                );
+                operation["responses"]
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("200");
+                for (code, description) in [
+                    ("403", "Global administrator access required"),
+                    ("404", "Message not found"),
+                    ("409", "Delivery or callback is still active"),
+                ] {
+                    operation["responses"][code] = json!({"description":description,"content":{"application/json":{"schema":reference("Error")}}});
+                }
             }
             if let Some((code, schema)) = success_schema(path, method) {
                 operation["responses"][code] = json!({"description":"Success","content":{"application/json":{"schema":schema}}});
@@ -481,6 +539,7 @@ fn request_schema(path: &str, method: &str) -> Option<&'static str> {
         ("POST", "/v1/auth/totp/confirm") => Some("TotpConfirmInput"),
         ("POST", "/v1/auth/totp/disable") => Some("TotpDisableInput"),
         ("POST", "/v1/auth/pair") => Some("PairSettings"),
+        ("PATCH", "/v1/auth/paired-clients/{id}") => Some("PairedClientRename"),
         ("POST", "/v1/auth/pair/exchange") => Some("PairCode"),
         ("POST", "/v1/users") => Some("UserInput"),
         ("PUT", "/v1/users/{id}") => Some("UserUpdate"),
@@ -532,6 +591,7 @@ fn success_schema(path: &str, method: &str) -> Option<(&'static str, Value)> {
         ("POST", "/v1/auth/pair") => ("200", reference("PairResult")),
         ("POST", "/v1/users") => ("201", reference("User")),
         ("GET", "/v1/users") => ("200", page("User")),
+        ("GET", "/v1/auth/paired-clients") => ("200", page("PairedClient")),
         ("GET", "/v1/api-keys") => ("200", page("ApiKey")),
         ("POST", "/v1/api-keys") => ("201", reference("IssuedKey")),
         ("POST", "/v1/api-keys/{id}/rotate") => ("200", reference("IssuedKey")),
@@ -789,7 +849,7 @@ fn schemas() -> Value {
                     {"required":["reload"],"properties":{"reload":{"enum":[true]}},"not":{"anyOf":[{"required":["enabled"]},{"required":["ingress_enabled"]},{"required":["egress_enabled"]}]}},
                     {"anyOf":[{"required":["ingress_enabled"]},{"required":["egress_enabled"]}],"not":{"required":["enabled"]},"properties":{"reload":{"enum":[false]}}}
                 ]},
-            "MessageDetail":{"type":"object","properties":{"id":string,"topic":string,"status":delivery_status,"message":reference("Message"),"created_at":time,"inbox_deliveries":{"type":"integer","format":"int64","minimum":0,"description":"Native inbox entries committed at send time. Independent of device activity and read status."},"inbox_recipient":{"type":"string","description":"Destination username supplied by the sender of a direct native notification. Omitted for topic messages."},"audio_path":{"type":"string","description":"Relative path to the available speech recording, included in message detail only."},"deliveries":{"type":"array","items":reference("Delivery")}}},
+            "MessageDetail":{"type":"object","properties":{"id":string,"history_deleted":{"type":"boolean","default":false,"description":"Delivery history was deleted. The original receipt is retained."},"topic":string,"status":delivery_status,"message":reference("Message"),"created_at":time,"inbox_deliveries":{"type":"integer","format":"int64","minimum":0,"description":"Native inbox entries committed at send time. Independent of device activity and read status."},"inbox_recipient":{"type":"string","description":"Destination username supplied by the sender of a direct native notification. Omitted for topic messages."},"audio_path":{"type":"string","description":"Relative path to the available speech recording, included in message detail only."},"deliveries":{"type":"array","items":reference("Delivery")}}},
             "Delivery":{"type":"object","properties":{"id":string,"channel":string,"account_id":string,"account_name":{"type":"string","description":"Current account display name when accessible to a global administrator."},"subscription_id":string,"status":delivery_status,"next_retry_at":time,"attempts":{"type":"array","items":reference("Attempt")}}},
             "Attempt":{"type":"object","properties":{"n":integer,"started_at":time,"finished_at":time,"error_code":string,"error_msg":string,"latency":integer}},
         }),
@@ -809,7 +869,11 @@ fn schemas() -> Value {
             "TotpSetup":{"type":"object","required":["secret","uri","expires_at"],"properties":{"secret":{"type":"string","description":"Base32 seed returned only during setup"},"uri":{"type":"string","format":"uri","description":"Secret-bearing authenticator URI"},"expires_at":time}},
             "TotpConfirmation":{"type":"object","required":["enabled","recovery_codes"],"properties":{"enabled":{"type":"boolean"},"recovery_codes":{"type":"array","items":string,"description":"Single-use codes returned only at confirmation"}}},
             "Session":{"type":"object","required":["token","user"],"properties":{"token":string,"user":reference("User")}},
-            "PairSettings":{"type":"object","properties":{"server":{"type":"string","format":"uri"}}},
+            "PairSettings":{"type":"object","properties":{"server":{"type":"string","format":"uri","description":"Server origin. Required when the server has no configured public URL."},"name":{"type":"string","maxLength":80,"description":"Optional client display name."}}},
+            "PairedClientRename":{"type":"object","required":["name"],"properties":{"name":{"type":"string","minLength":1,"maxLength":80,"description":"Display name after trimming surrounding whitespace. Control characters are rejected."}}},
+            "PairedClient":{"type":"object","required":["id","name","username","user_id","created_at","last_used_at","expires_at","enabled"],"properties":{
+                "id":string,"name":string,"username":string,"user_id":string,"created_at":time,"last_used_at":{"type":"integer","format":"int64","nullable":true,"description":"UTC milliseconds since Unix epoch, or null when unused."},"expires_at":time,"enabled":boolean
+            }},
             "PairCode":{"type":"object","required":["code"],"properties":{"code":secret}},
             "PairResult":{"type":"object","properties":{"url":string,"expires_at":time}},
             "KeyInput":{"type":"object","required":["name","scopes"],"properties":key_fields},

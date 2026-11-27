@@ -16,6 +16,8 @@ use crate::error::{ApiError, ApiJson, ApiPath, ApiQuery, ApiResult};
 
 #[derive(Deserialize)]
 pub(crate) struct PublishRequest {
+    #[serde(skip)]
+    pub(crate) replay: Option<anser_store::queue::ReplaySelection>,
     #[serde(flatten)]
     publish: Publish,
     #[serde(default)]
@@ -29,6 +31,7 @@ impl From<Publish> for PublishRequest {
     fn from(publish: Publish) -> Self {
         Self {
             publish,
+            replay: None,
             speech: false,
             template_id: None,
             template_name: None,

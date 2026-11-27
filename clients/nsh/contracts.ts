@@ -184,6 +184,8 @@ export interface Attempt {
 
 export interface Delivery {
   id: string;
+  account_name?: string | null;
+  subscription_id?: string | null;
   account_id: string;
   channel: string;
   status: string;
@@ -198,6 +200,7 @@ export interface HistoryEntry {
   topic?: string | null;
   created_at: number;
   deliveries?: Delivery[];
+  history_deleted?: boolean;
   inbox_deliveries?: number;
   inbox_recipient?: string | null;
   audio_path?: string;

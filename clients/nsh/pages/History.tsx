@@ -1,12 +1,12 @@
 import { speechBody, type SpeechPlayback } from "../components/Speech";
 import { t } from "nsh/i18n";
-import { cleanup, effect, resource, signal, Text, View } from "nsh";
+import { cleanup, effect, reduceMotion, resource, Scroll, signal, Text, View, windowSize } from "nsh";
+import { Dialog } from "nsh/base";
 import { channelName } from "../channelNames";
 import { messageFor, type AnserApi } from "../api";
 import type { Channel, Delivery, HistoryEntry } from "../contracts";
 import {
   Action,
-  confirm,
   Hint,
   Panel,
   Problem,
@@ -105,7 +105,7 @@ function DeliveryRecord(props: { delivery: Delivery; channels: Channel[] }) {
           }
         />
       </View>
-      <Hint>{t("history.account_value", { account: data().account_id })}</Hint>
+      <Hint>{t("history.account_value", { account: data().account_name ?? data().account_id })}</Hint>
       <If when={data().next_retry_at != null}>
         <Hint>
           {t("history.next_retry_time", {
@@ -178,7 +178,25 @@ export function MessageDetail(props: {
   );
   const auto = signal(true);
   const replay = operation();
-  let replayKey: string | undefined;
+  const choosing = signal(false);
+  const selected = signal<string[]>([]);
+  let lastRequest: { selection: string; key: string } | undefined;
+  const targets = () => (current()?.deliveries ?? []).filter((d) =>
+    ["success", "failed", "dead"].includes(d.status),
+  );
+  const failures = () => targets().filter((d) => d.status !== "success");
+  const successes = () => targets().filter((d) => d.status === "success");
+  const mixed = () => failures().length > 0 && successes().length > 0;
+  const name = (d: Delivery) => channelName(d.channel, props.channels.find((c) => c.id === d.channel)?.display_name);
+  function targetLabel(d: Delivery) {
+    const account = d.account_name ?? d.account_id;
+    return [name(d), account, d.subscription_id].filter(Boolean).join(" · ");
+  }
+  function openReplay() {
+    selected.set((failures().length ? failures() : successes()).map((d) => d.id));
+    replay.problem.set("");
+    choosing.set(true);
+  }
   const active = () => {
     const message = current();
     return (
@@ -197,18 +215,14 @@ export function MessageDetail(props: {
   });
   function retry() {
     void replay.run(async () => {
-      if (
-        !(await confirm(
-          t("history.replay_notification"),
-          t("history.the_server_will_create_a_new"),
-          t("history.replay_notification_2"),
-          false,
-        ))
-      )
-        return;
-      replayKey ??= crypto.randomUUID();
-      const result = await props.api.replay(props.id, replayKey);
-      replayKey = undefined;
+      const ids = [...selected()].sort();
+      const selection = JSON.stringify([props.id, ids]);
+      if (lastRequest?.selection !== selection) {
+        lastRequest = { selection, key: crypto.randomUUID() };
+      }
+      const result = await props.api.replay(props.id, lastRequest.key, ids);
+      lastRequest = undefined;
+      choosing.set(false);
       if (replay.live()) props.onReplay?.(result.message_id);
     });
   }
@@ -227,7 +241,7 @@ export function MessageDetail(props: {
         />
       }
     >
-      <Problem message={replay.problem()} />
+
       <ReadState
         loading={!current() && current.state() === "pending"}
         problem={current.error() ? messageFor(current.error()) : ""}
@@ -311,7 +325,7 @@ export function MessageDetail(props: {
             </If>
             <If
               when={
-                props.onReplay && ["failed", "dead"].includes(message().status)
+                props.onReplay && !message().history_deleted && !active() && targets().length > 0
               }
             >
               <Action
@@ -320,10 +334,57 @@ export function MessageDetail(props: {
                     ? t("history.replaying")
                     : t("history.replay_notification_2")
                 }
-                onPress={retry}
+                onPress={openReplay}
                 disabled={replay.busy()}
                 class="self-start"
               />
+            </If>
+            <If when={choosing()}>
+              <Dialog
+                accessibilityLabel={t("history.replay_notification")}
+                animation={reduceMotion() ? "none" : "fade"}
+                presentation="formSheet"
+                backdropClass="bg-foreground/30"
+                class="m-auto w-11/12 max-w-md rounded-(--radius) border border-border bg-popover"
+                closeOnSwipe={!replay.busy()}
+                closeOnEscape={!replay.busy()}
+                closeOnBackdropPress={!replay.busy()}
+                onOpenChange={({ open }) => { if (!open) choosing.set(false); }}
+              >
+                <Scroll style={{ maxHeight: Math.floor(windowSize().height * 0.8) }}>
+                  <View class="gap-4 p-5">
+                    <Text role="header" class="text-xl font-semibold text-foreground">
+                      {mixed() ? t("history.replay_notification") : t("history.replay_targets", { targets: [...new Set(targets().map(name))].join(" / ") })}
+                    </Text>
+                    <If when={mixed()}>
+                      <Each of={[
+                        { title: t("history.replay_failed_group"), items: failures() },
+                        { title: t("history.replay_success_group"), items: successes() },
+                      ]} key={(group) => group.title}>
+                        {(group) => (
+                          <Section title={group().title}>
+                            <Each of={group().items} key={(item) => item.id}>
+                              {(item) => (
+                                <Toggle
+                                  label={targetLabel(item())}
+                                  checked={selected().includes(item().id)}
+                                  disabled={replay.busy()}
+                                  onChange={(enabled) => selected.update((ids) => enabled ? [...ids, item().id] : ids.filter((id) => id !== item().id))}
+                                />
+                              )}
+                            </Each>
+                          </Section>
+                        )}
+                      </Each>
+                    </If>
+                    <Problem message={replay.problem()} />
+                    <View class="flex-row flex-wrap gap-2">
+                      <Action label={t("common.cancel")} kind="quiet" disabled={replay.busy()} onPress={() => choosing.set(false)} />
+                      <Action label={t("history.replay_confirm")} onPress={retry} disabled={!selected().length || replay.busy()} />
+                    </View>
+                  </View>
+                </Scroll>
+              </Dialog>
             </If>
           </View>
         )}

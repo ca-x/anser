@@ -419,3 +419,4 @@ code { overflow-wrap: anywhere; }
   .row-action-mobile { display: inline-flex; }
   .row-action-mobile .euiButtonEmpty { min-height: 44px; }
 }
+.paired-clients { margin-top: 32px; }

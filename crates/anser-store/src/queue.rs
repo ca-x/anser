@@ -16,7 +16,13 @@ use crate::{DataError, Result, Store, new_id, now_ms};
 const MAX_TARGETS: usize = 256;
 const LEASE_MS: i64 = 90_000;
 
+pub struct ReplaySelection {
+    pub message_id: String,
+    pub delivery_ids: Option<Vec<String>>,
+}
+
 pub struct Submission {
+    pub replay: Option<ReplaySelection>,
     pub key_id: String,
     pub available_channels: Vec<&'static str>,
     pub topic: Option<String>,
@@ -44,6 +50,7 @@ struct CandidateRow {
 }
 
 struct Planned<'a> {
+    replay_target: Option<Vec<u8>>,
     account: &'a CandidateRow,
     weight: u32,
     priority: i32,
@@ -98,6 +105,7 @@ pub struct Outcome<'a> {
 
 #[derive(sqlx::FromRow)]
 struct StoredMessage {
+    history_deleted: bool,
     inbox_recipient: Option<String>,
     inbox_deliveries: i64,
     id: String,
@@ -110,6 +118,7 @@ struct StoredMessage {
 impl StoredMessage {
     fn detail(self) -> Result<MessageDetail> {
         Ok(MessageDetail {
+            history_deleted: self.history_deleted,
             id: self.id,
             topic: self.topic,
             status: self.status,
@@ -435,7 +444,7 @@ impl Store {
         prefix: Option<&str>,
     ) -> Result<MessageDetail> {
         let mut tx = self.0.begin().await?;
-        let row: StoredMessage = sqlx::query_as("SELECT id,topic,status,body,created_at,inbox_deliveries,inbox_recipient FROM messages WHERE id=? AND (? IS NULL OR key_id=? OR (SELECT user_id FROM api_keys WHERE id=messages.key_id)=(SELECT user_id FROM api_keys WHERE id=?)) AND (? IS NULL OR substr(topic,1,length(?))=?)")
+        let row: StoredMessage = sqlx::query_as("SELECT id,topic,status,body,created_at,inbox_deliveries,inbox_recipient,history_deleted FROM messages WHERE id=? AND (? IS NULL OR key_id=? OR (SELECT user_id FROM api_keys WHERE id=messages.key_id)=(SELECT user_id FROM api_keys WHERE id=?)) AND (? IS NULL OR substr(topic,1,length(?))=?)")
             .bind(id).bind(key_id).bind(key_id).bind(key_id).bind(prefix).bind(prefix).bind(prefix)
             .fetch_optional(&mut *tx).await?.ok_or(DataError::Missing)?;
         let mut message = row.detail()?;
@@ -494,6 +503,45 @@ impl Store {
         Ok(message)
     }
 
+    /// Remove delivery history atomically while preserving receipts used by other resources.
+    pub async fn delete_history(&self, id: &str) -> Result<()> {
+        let mut tx = self.0.begin().await?;
+        // Acquire the write lock before testing route/callback state. A broadcast
+        // can already report success while another destination is still retrying.
+        let changed = sqlx::query(
+            "UPDATE messages SET history_deleted=1 WHERE id=?
+             AND status IN ('success','failed','dead','cancelled')
+             AND NOT EXISTS (SELECT 1 FROM routes WHERE message_id=messages.id AND finished=0)
+             AND NOT EXISTS (SELECT 1 FROM callbacks WHERE message_id=messages.id AND finished=0)",
+        )
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
+        if changed.rows_affected() == 0 {
+            let exists: bool =
+                sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM messages WHERE id=?)")
+                    .bind(id)
+                    .fetch_one(&mut *tx)
+                    .await?;
+            return Err(if exists {
+                DataError::Conflict
+            } else {
+                DataError::Missing
+            });
+        }
+        // deliveries and attempts reference their parent with ON DELETE CASCADE.
+        sqlx::query("DELETE FROM routes WHERE message_id=?")
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("DELETE FROM callbacks WHERE message_id=?")
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
     pub async fn messages(
         &self,
         after: Option<&str>,
@@ -502,7 +550,7 @@ impl Store {
         prefix: Option<&str>,
     ) -> Result<Page<MessageDetail>> {
         let mut query = QueryBuilder::<Sqlite>::new(
-            "SELECT id,topic,status,body,created_at,inbox_deliveries,inbox_recipient FROM messages WHERE 1=1",
+            "SELECT id,topic,status,body,created_at,inbox_deliveries,inbox_recipient,history_deleted FROM messages WHERE history_deleted=0",
         );
         if let Some(cursor) = after {
             // Resolve the opaque cursor in the same snapshot as the page query.
@@ -540,9 +588,19 @@ impl Store {
         Ok(manage::page(&mut values, limit, |value| &value.id))
     }
 
+    pub async fn replay_source(&self, id: &str) -> Result<(Option<String>, Publish)> {
+        let (topic, body): (Option<String>, String) =
+            sqlx::query_as("SELECT topic,request FROM messages WHERE id=? AND history_deleted=0")
+                .bind(id)
+                .fetch_optional(&self.0)
+                .await?
+                .ok_or(DataError::Missing)?;
+        Ok((topic, serde_json::from_str(&body)?))
+    }
+
     pub async fn original(&self, id: &str) -> Result<(Option<String>, Publish)> {
         let (topic, body): (Option<String>, String) = sqlx::query_as(
-            "SELECT topic,request FROM messages WHERE id=? AND status IN('failed','dead')",
+            "SELECT topic,request FROM messages WHERE id=? AND history_deleted=0 AND status IN('failed','dead')",
         )
         .bind(id)
         .fetch_optional(&self.0)
@@ -668,6 +726,23 @@ pub(crate) async fn enqueue_one(tx: &mut SqliteConnection, input: Submission) ->
         }
     }
 
+    if let Some(ReplaySelection {
+        message_id,
+        delivery_ids: None,
+    }) = &input.replay
+    {
+        let current: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM messages m WHERE id=? AND history_deleted=0
+             AND status IN ('failed','dead')
+             AND NOT EXISTS(SELECT 1 FROM routes r WHERE r.message_id=m.id AND r.finished=0))",
+        )
+        .bind(message_id)
+        .fetch_one(&mut *tx)
+        .await?;
+        if !current {
+            return Err(DataError::Conflict);
+        }
+    }
     let depth: i64 = sqlx::query_scalar("SELECT (SELECT count(*) FROM routes WHERE finished=0)+(SELECT count(*) FROM callbacks WHERE finished=0)")
             .fetch_one(&mut *tx)
             .await?;
@@ -752,7 +827,51 @@ pub(crate) async fn enqueue_one(tx: &mut SqliteConnection, input: Submission) ->
     });
     let mut groups = Vec::new();
     let mut native = HashSet::new();
-    if subscriptions.is_empty() {
+    let exact_replay = input.replay.as_ref().and_then(|selection| {
+        selection
+            .delivery_ids
+            .as_deref()
+            .map(|ids| (selection.message_id.as_str(), ids))
+    });
+    if let Some((message_id, ids)) = exact_replay {
+        policy.mode = Mode::Broadcast;
+        let rows = replay_targets(tx, message_id, ids).await?;
+        for row in rows {
+            let account = candidates
+                .iter()
+                .find(|candidate| {
+                    candidate.id == row.account_id && candidate.channel == row.channel
+                })
+                .ok_or(DataError::NoTargets)?;
+            let sub = row
+                .subscription_id
+                .as_ref()
+                .map(|id| {
+                    subscriptions
+                        .iter()
+                        .find(|sub| &sub.id == id)
+                        .ok_or(DataError::NoTargets)
+                })
+                .transpose()?;
+            if row.encrypted_target.is_some()
+                && !sub.is_some_and(|sub| {
+                    sub.account_id.as_ref() == Some(&account.id)
+                        && sub.encrypted_target == row.encrypted_target
+                })
+            {
+                return Err(DataError::NoTargets);
+            }
+            groups.push((
+                sub,
+                vec![Planned {
+                    account,
+                    weight: account.weight,
+                    priority: account.priority,
+                    replay_target: row.encrypted_target,
+                }],
+            ));
+        }
+    } else if subscriptions.is_empty() {
         groups.push((
             None,
             expand(
@@ -893,9 +1012,15 @@ pub(crate) async fn enqueue_one(tx: &mut SqliteConnection, input: Submission) ->
             .collect();
         for (position, account_id) in order.into_iter().enumerate() {
             let target = by_id[account_id];
-            let overrides = subscription
-                .filter(|sub| sub.account_id.as_deref() == Some(account_id) && explicit.is_none())
-                .and_then(|sub| sub.encrypted_target.as_deref());
+            let overrides = if exact_replay.is_some() {
+                target.replay_target.as_deref()
+            } else {
+                subscription
+                    .filter(|sub| {
+                        sub.account_id.as_deref() == Some(account_id) && explicit.is_none()
+                    })
+                    .and_then(|sub| sub.encrypted_target.as_deref())
+            };
             sqlx::query("INSERT INTO deliveries(id,route_id,account_id,channel,position,weight,priority,encrypted_target) VALUES(?,?,?,?,?,?,?,?)")
                     .bind(new_id()).bind(route_id).bind(account_id).bind(&target.account.channel)
                     .bind(position as i64).bind(target.weight).bind(target.priority).bind(overrides)
@@ -906,6 +1031,41 @@ pub(crate) async fn enqueue_one(tx: &mut SqliteConnection, input: Submission) ->
         message_id: id,
         status: status.into(),
     })
+}
+
+#[derive(sqlx::FromRow)]
+struct ReplayTarget {
+    subscription_id: Option<String>,
+    account_id: String,
+    channel: String,
+    encrypted_target: Option<Vec<u8>>,
+}
+
+async fn replay_targets(
+    tx: &mut SqliteConnection,
+    message_id: &str,
+    delivery_ids: &[String],
+) -> Result<Vec<ReplayTarget>> {
+    if delivery_ids.is_empty() || delivery_ids.len() > MAX_TARGETS {
+        return Err(DataError::Conflict);
+    }
+    // Read under the enqueue transaction so unsubscribe, cleanup and worker
+    // retries cannot change the recipient set between validation and enqueue.
+    let rows = sqlx::query_as(
+        "SELECT r.subscription_id,d.account_id,d.channel,d.encrypted_target
+         FROM deliveries d JOIN routes r ON r.id=d.route_id JOIN messages m ON m.id=r.message_id
+         WHERE m.id=? AND m.history_deleted=0 AND d.id IN (SELECT value FROM json_each(?))
+         AND d.state IN ('success','exhausted','permanent','dead')
+         AND NOT EXISTS(SELECT 1 FROM routes active WHERE active.message_id=m.id AND active.finished=0)
+         ORDER BY r.id,d.position",
+    )
+    .bind(message_id)
+    .bind(serde_json::to_string(delivery_ids)?)
+    .fetch_all(tx).await?;
+    if rows.len() != delivery_ids.len() {
+        return Err(DataError::Conflict);
+    }
+    Ok(rows)
 }
 
 fn expand<'a>(
@@ -942,6 +1102,7 @@ fn expand<'a>(
             if target.tag_selector.iter().all(|tag| tags.contains(tag)) {
                 selected.insert(candidate.id.as_str());
                 output.push(Planned {
+                    replay_target: None,
                     account: candidate,
                     priority: target.priority.unwrap_or(candidate.priority),
                     weight: target.weight.unwrap_or(candidate.weight),
@@ -1034,6 +1195,7 @@ mod tests {
 
     fn submission(key: Option<&str>) -> Submission {
         Submission {
+            replay: None,
             key_id: "sender".into(),
             available_channels: vec!["ntfy"],
             topic: None,
@@ -1056,6 +1218,244 @@ mod tests {
             listing: None,
             speech: None,
         }
+    }
+
+    #[tokio::test]
+    async fn selected_replay_keeps_each_original_recipient_and_rejects_stale_targets_atomically() {
+        let (_temp, store) = fixture().await;
+        let topic = serde_json::from_value(serde_json::json!({"name":"news"})).unwrap();
+        store.create_topic(&topic, None).await.unwrap();
+        sqlx::query("INSERT INTO users(id,username,password_hash,admin,created_at) VALUES ('alice','alice','hash',0,1)")
+            .execute(&store.0).await.unwrap();
+        for (name, account, target, owner) in [
+            ("reader1", Some("account"), Some(vec![1_u8]), None),
+            ("reader2", Some("account"), Some(vec![2_u8]), None),
+            ("inbox", None, None, Some("alice")),
+        ] {
+            store
+                .subscribe(
+                    "news",
+                    manage::SubscriptionWrite {
+                        id: name.into(),
+                        input: serde_json::from_value(
+                            serde_json::json!({"subscriber_ref":name, "account_id":account}),
+                        )
+                        .unwrap(),
+                        target,
+                        user_id: owner,
+                        key_id: "sender",
+                        expected_password: None,
+                        admin: true,
+                    },
+                )
+                .await
+                .unwrap();
+        }
+        let mut input = submission(None);
+        input.topic = Some("news".into());
+        let original = store.enqueue(input).await.unwrap();
+        let detail = store
+            .message(&original.message_id, None, None)
+            .await
+            .unwrap();
+        assert_eq!(detail.deliveries.len(), 2);
+        let delivery = |sub: &str| {
+            detail
+                .deliveries
+                .iter()
+                .find(|d| d.subscription_id.as_deref() == Some(sub))
+                .unwrap()
+                .id
+                .clone()
+        };
+        let ok = delivery("reader1");
+        let failed = delivery("reader2");
+        let replay = |ids: Vec<String>, key: Option<&str>| {
+            let mut input = submission(key);
+            input.topic = Some("news".into());
+            input.replay = Some(ReplaySelection {
+                message_id: original.message_id.clone(),
+                delivery_ids: Some(ids),
+            });
+            input
+        };
+        sqlx::query(
+            "UPDATE deliveries SET state=CASE WHEN id=? THEN 'success' ELSE 'permanent' END",
+        )
+        .bind(&ok)
+        .execute(&store.0)
+        .await
+        .unwrap();
+        assert!(matches!(
+            store.enqueue(replay(vec![ok.clone()], None)).await,
+            Err(DataError::Conflict)
+        ));
+        sqlx::query("UPDATE routes SET finished=1 WHERE message_id=?")
+            .bind(&original.message_id)
+            .execute(&store.0)
+            .await
+            .unwrap();
+        for ids in [
+            vec![],
+            vec![ok.clone(), ok.clone()],
+            vec![ok.clone(), "unknown".into()],
+        ] {
+            assert!(matches!(
+                store.enqueue(replay(ids, None)).await,
+                Err(DataError::Conflict)
+            ));
+        }
+        let receipt = store
+            .enqueue(replay(vec![failed.clone()], Some("same-replay")))
+            .await
+            .unwrap();
+        assert_eq!(
+            store
+                .enqueue(replay(vec![failed.clone()], Some("same-replay")))
+                .await
+                .unwrap()
+                .message_id,
+            receipt.message_id
+        );
+        let snapshot: Vec<(String, Vec<u8>)> = sqlx::query_as(
+            "SELECT r.subscription_id,d.encrypted_target FROM routes r JOIN deliveries d ON d.route_id=r.id WHERE r.message_id=?"
+        ).bind(&receipt.message_id).fetch_all(&store.0).await.unwrap();
+        assert_eq!(snapshot, [("reader2".to_string(), vec![2])]);
+        let inbox: i64 = sqlx::query_scalar("SELECT count(*) FROM inbox WHERE message_id=?")
+            .bind(&receipt.message_id)
+            .fetch_one(&store.0)
+            .await
+            .unwrap();
+        assert_eq!(inbox, 0);
+        let both = store
+            .enqueue(replay(vec![ok.clone(), failed.clone()], None))
+            .await
+            .unwrap();
+        let detail = store.message(&both.message_id, None, None).await.unwrap();
+        assert_eq!(detail.deliveries.len(), 2);
+        assert!(matches!(
+            store
+                .enqueue(replay(vec![detail.deliveries[0].id.clone()], None))
+                .await,
+            Err(DataError::Conflict)
+        ));
+        store.unsubscribe("news", "reader2", None).await.unwrap();
+        assert!(matches!(
+            store.enqueue(replay(vec![ok, failed], None)).await,
+            Err(DataError::NoTargets)
+        ));
+        let total: i64 = sqlx::query_scalar("SELECT count(*) FROM messages")
+            .fetch_one(&store.0)
+            .await
+            .unwrap();
+        assert_eq!(total, 3);
+    }
+
+    #[tokio::test]
+    async fn deleting_history_waits_for_broadcast_completion_and_callback_acknowledgement() {
+        let (_temp, store) = fixture().await;
+        sqlx::query("INSERT INTO accounts(id,space_id,channel,name,encrypted_config) VALUES ('second','default','ntfy','second',X'01')")
+            .execute(&store.0).await.unwrap();
+        for callback_enabled in [false, true] {
+            let mut input = submission(None);
+            input.request.strategy = Some(
+                serde_json::from_value(serde_json::json!({
+                    "mode":"broadcast","success_criteria":"any"
+                }))
+                .unwrap(),
+            );
+            input.request.callback_url =
+                callback_enabled.then(|| "https://example.org/receipt".to_string());
+            let id = store.enqueue(input).await.unwrap().message_id;
+            let lease = store.claim(now_ms()).await.unwrap().unwrap();
+            let deliveries = store.deliveries(lease.id).await.unwrap();
+            assert_eq!(deliveries.len(), 2);
+            for (index, delivery) in deliveries.iter().enumerate() {
+                let Slot::Started { n, .. } = store.reserve(&lease, delivery).await.unwrap() else {
+                    panic!("delivery must be writable")
+                };
+                store
+                    .record(
+                        &lease,
+                        delivery,
+                        n,
+                        now_ms(),
+                        Outcome {
+                            state: "success",
+                            due_at: None,
+                            error: None,
+                            retryable: false,
+                        },
+                    )
+                    .await
+                    .unwrap();
+                if index == 0 {
+                    assert_eq!(
+                        store.message_status(&id, None, None).await.unwrap(),
+                        "success"
+                    );
+                    assert!(matches!(
+                        store.delete_history(&id).await,
+                        Err(DataError::Conflict)
+                    ));
+                }
+            }
+            store.release(&lease, None, "success").await.unwrap();
+            if callback_enabled {
+                assert!(matches!(
+                    store.delete_history(&id).await,
+                    Err(DataError::Conflict)
+                ));
+                let callback = store.claim_callback(now_ms()).await.unwrap().unwrap();
+                assert!(matches!(
+                    store.delete_history(&id).await,
+                    Err(DataError::Conflict)
+                ));
+                store
+                    .finish_callback(&callback, Some(now_ms()))
+                    .await
+                    .unwrap();
+                assert!(matches!(
+                    store.delete_history(&id).await,
+                    Err(DataError::Conflict)
+                ));
+                let callback = store.claim_callback(now_ms()).await.unwrap().unwrap();
+                store.finish_callback(&callback, None).await.unwrap();
+            }
+            let detail = store.message(&id, None, None).await.unwrap();
+            assert!(!detail.history_deleted);
+            assert!(detail.deliveries.iter().all(|d| d.attempts.len() == 1));
+            store.delete_history(&id).await.unwrap();
+            assert!(
+                store
+                    .message(&id, None, None)
+                    .await
+                    .unwrap()
+                    .deliveries
+                    .is_empty()
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn legacy_replay_rechecks_source_at_queue_commit() {
+        let (_temp, store) = fixture().await;
+        let receipt = store.enqueue(submission(None)).await.unwrap();
+        let lease = store.claim(now_ms()).await.unwrap().unwrap();
+        store.release(&lease, None, "failed").await.unwrap();
+        let (topic, request) = store.original(&receipt.message_id).await.unwrap();
+        store.delete_history(&receipt.message_id).await.unwrap();
+        let mut input = submission(None);
+        input.request = request;
+        input.topic = topic;
+        input.replay = Some(ReplaySelection {
+            message_id: receipt.message_id,
+            delivery_ids: None,
+        });
+        assert!(matches!(
+            store.enqueue(input).await,
+            Err(DataError::Conflict)
+        ));
     }
 
     #[tokio::test]
