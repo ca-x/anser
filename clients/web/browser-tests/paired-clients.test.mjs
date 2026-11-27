@@ -52,6 +52,13 @@ test("name a pairing code and manage the paired session from desktop and mobile"
   });
   await page.goto(origin + "/admin/pair");
   await page.getByText("No paired clients yet").waitFor();
+  for (const width of [375, 1280]) {
+    await page.setViewportSize({ width, height: 800 });
+    const left = async (selector) => (await page.locator(selector).boundingBox()).x;
+    assert.ok(Math.abs(await left(".paired-clients .data-empty") - await left(".pair-layout form")) < 1);
+    assert.ok(Math.abs(await left(".euiEmptyPrompt__icon") - await left(".euiEmptyPrompt__content")) < 1);
+    assert.ok(Math.abs(await left(".pair-layout button[type=submit]") - await left(".pair-layout input[type=url]")) < 1);
+  }
   await page.getByLabel("Device name (optional)").fill("Tablet");
   await page.getByRole("button", { name: "Generate pairing code" }).click();
   await page.locator("canvas").waitFor();

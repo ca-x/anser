@@ -263,7 +263,8 @@ code { overflow-wrap: anywhere; }
 .delivery-label { display: inline-flex; gap: 10px; align-items: center; flex-wrap: wrap; text-align: start; }
 .delivery-label > span, .delivery-label code { color: var(--muted); font-size: 12px; }
 .pair-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, .85fr); gap: 18px; align-items: start; }
-.pair-code { padding: clamp(18px, 2.2vw, 26px); align-items: center; text-align: center; }
+.pair-layout .form-actions { justify-content: flex-start; }
+.pair-code { padding: clamp(18px, 2.2vw, 26px); align-items: flex-start; text-align: start; }
 .pair-code h2 { font-family: var(--display-family); font-size: 22px; line-height: 1.25; }
 .pair-origin { overflow-wrap: anywhere; }
 .pair-import { width: 100%; padding-top: 12px; border-top: 1px solid var(--rule); }
@@ -420,3 +421,12 @@ code { overflow-wrap: anywhere; }
   .row-action-mobile .euiButtonEmpty { min-height: 44px; }
 }
 .paired-clients { margin-top: 32px; }
+
+.paired-clients .data-empty {
+  margin: 0;
+  align-self: flex-start;
+  max-inline-size: 100%;
+  text-align: start;
+}
+.paired-clients .euiEmptyPrompt__main { padding: 0; }
+.paired-clients :is(.euiEmptyPrompt__icon, .euiEmptyPrompt__content) { margin-inline: 0 auto; }

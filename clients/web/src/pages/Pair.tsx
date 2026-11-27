@@ -75,7 +75,7 @@ export default function Pair({ api, username }: { api: Api; username: string }) 
         <h2 role="status">{t("用系统相机扫码")}</h2>
         <QRCodeCanvas value={pair.link} size={228} marginSize={4} title={t("雁字客户端配对二维码")} />
         <strong className="pair-origin" dir="ltr">{pair.origin}</strong>
-        <EuiText textAlign="center" size="s" color="subdued"><p>{t("有效期至 {time}，配对码仅可使用一次。", { time: time.format(pair.expires) })}</p></EuiText>
+        <EuiText size="s" color="subdued"><p>{t("有效期至 {time}，配对码仅可使用一次。", { time: time.format(pair.expires) })}</p></EuiText>
         <div className="pair-import">
           <EuiCopy textToCopy={pair.link} afterMessage={t("已复制")}>
             {(copy: () => void) => <EuiButtonEmpty iconType="copy" onClick={() => {
@@ -83,7 +83,7 @@ export default function Pair({ api, username }: { api: Api; username: string }) 
               else { setPair({ status: "expired" }); generateButton.current?.focus(); }
             }}>{t("复制配对链接")}</EuiButtonEmpty>}
           </EuiCopy>
-          <EuiText textAlign="center" size="xs" color="subdued"><p>{t("也可在客户端连接页选择「导入连接链接」。")}</p></EuiText>
+          <EuiText size="xs" color="subdued"><p>{t("也可在客户端连接页选择「导入连接链接」。")}</p></EuiText>
         </div>
       </section>}
     </div>

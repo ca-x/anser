@@ -47,7 +47,7 @@ function baseNetwork(): Exclude<
       );
       return { body: page([channel]) };
     },
-    [`${endpoints}/info`]: { body: { version: "0.8.1", features: { speech_publish: true } } },
+    [`${endpoints}/info`]: { body: { version: "0.8.2", features: { speech_publish: true } } },
     [`${endpoints}/accounts`]: { body: page() },
     [`${endpoints}/auth/profile`]: { body: { nickname: null, avatar: null } },
     [`${endpoints}/topics`]: { body: page([topic]) },

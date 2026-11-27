@@ -55,7 +55,7 @@ dependencies = [
 
 [[package]]
 name = "anser-channel-http"
-version = "0.8.1"
+version = "0.8.2"
 dependencies = [
  "anser-core",
  "anser-plugin-api",
@@ -71,7 +71,7 @@ dependencies = [
 
 [[package]]
 name = "anser-core"
-version = "0.8.1"
+version = "0.8.2"
 dependencies = [
  "jiff",
  "serde",
@@ -81,7 +81,7 @@ dependencies = [
 
 [[package]]
 name = "anser-host"
-version = "0.8.1"
+version = "0.8.2"
 dependencies = [
  "anser-core",
  "anser-plugin-api",
@@ -124,7 +124,7 @@ dependencies = [
 
 [[package]]
 name = "anser-plugin-api"
-version = "0.8.1"
+version = "0.8.2"
 dependencies = [
  "anser-core",
  "serde",
@@ -415,7 +415,7 @@ dependencies = [
 
 [[package]]
 name = "anser-queue"
-version = "0.8.1"
+version = "0.8.2"
 dependencies = [
  "anser-channel-http",
  "anser-core",
@@ -435,7 +435,7 @@ dependencies = [
 
 [[package]]
 name = "anser-sdk"
-version = "0.8.1"
+version = "0.8.2"
 dependencies = [
  "anser-channel-http",
  "anser-core",
@@ -450,7 +450,7 @@ dependencies = [
 
 [[package]]
 name = "anser-server"
-version = "0.8.1"
+version = "0.8.2"
 dependencies = [
  "anser-channel-http",
  "anser-core",
@@ -489,7 +489,7 @@ dependencies = [
 
 [[package]]
 name = "anser-store"
-version = "0.8.1"
+version = "0.8.2"
 dependencies = [
  "anser-core",
  "anser-mcd",
